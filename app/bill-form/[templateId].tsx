@@ -1,0 +1,1761 @@
+// @ts-nocheck
+import React, { useState, useEffect } from 'react';
+import {
+  View, Text, StyleSheet, ScrollView, SafeAreaView,
+  TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
+  TextInput, Modal,
+} from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
+import { Card, Button, Input, DateTimePickerInput } from '../../src/components';
+import { 
+  getDatabase, getTemplateById, getCompanyProfile, saveBill, 
+  updateBillPdfUri, getNextBillNumber, getMaterials, getCustomers, saveCustomer
+} from '../../src/database/db';
+import { getKeyboardTypeForField } from '../../src/services/templateParser';
+import { generatePDF, sharePDF, savePDFPermanently } from '../../src/services/pdfGenerator';
+
+const normalizeKey = (key: string) => key ? key.toLowerCase().replace(/[\s_-]/g, '') : '';
+
+const getRowValue = (row: any, targetNames: string[]) => {
+  const normalizedTargets = targetNames.map(t => normalizeKey(t));
+  const matchedKey = Object.keys(row).find(k => normalizedTargets.includes(normalizeKey(k)));
+  return matchedKey ? row[matchedKey] : undefined;
+};
+
+export default function BillFormScreen() {
+  const router = useRouter();
+  const { templateId } = useLocalSearchParams();
+  const [template, setTemplate] = useState(null);
+  const [headerFields, setHeaderFields] = useState([]);
+  const [tableFields, setTableFields] = useState([]);
+  const [headerData, setHeaderData] = useState({});
+  const [rowData, setRowData] = useState([{}]);
+  const [companyProfile, setCompanyProfile] = useState({});
+  const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Material selection modal states
+  const [materialModalVisible, setMaterialModalVisible] = useState(false);
+  const [activeRowIdx, setActiveRowIdx] = useState(null);
+  const [activeFieldKey, setActiveFieldKey] = useState('');
+  const [customMaterialInput, setCustomMaterialInput] = useState('');
+  const [showCustomMaterialForm, setShowCustomMaterialForm] = useState(false);
+
+  // Customer directory selection modal states
+  const [customers, setCustomers] = useState([]);
+  const [customerModalVisible, setCustomerModalVisible] = useState(false);
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+  const [activeCustomerField, setActiveCustomerField] = useState('');
+
+  useEffect(() => {
+    loadTemplate();
+    loadBillNumber();
+    loadMaterials();
+    loadCustomers();
+  }, [templateId]);
+
+  const loadCustomers = async () => {
+    try {
+      const db = await getDatabase();
+      const list = await getCustomers(db);
+      setCustomers(list);
+    } catch (error) {
+      console.error('Error loading customers:', error);
+    }
+  };
+
+  const loadBillNumber = async () => {
+    try {
+      const db = await getDatabase();
+      const nextBn = await getNextBillNumber(db);
+      setHeaderData(prev => {
+        const updated = { ...prev };
+        const bnField = headerFields.find(f => {
+          const norm = normalizeKey(f.name);
+          return norm === 'bn' || norm === 'billnumber' || norm === 'billno';
+        });
+        if (bnField) {
+          updated[bnField.name] = nextBn;
+        } else {
+          updated['BN'] = nextBn;
+        }
+        return updated;
+      });
+    } catch (error) {
+      console.error('Error loading bill number:', error);
+    }
+  };
+
+  const [materials, setMaterials] = useState([]);
+  const loadMaterials = async () => {
+    try {
+      const db = await getDatabase();
+      const list = await getMaterials(db);
+      setMaterials(list);
+    } catch (error) {
+      console.error('Error loading materials:', error);
+    }
+  };
+
+  const loadTemplate = async () => {
+    try {
+      const db = await getDatabase();
+      const t = await getTemplateById(db, parseInt(templateId));
+      if (t) {
+        setTemplate(t);
+        const hFields = JSON.parse(t.header_fields_json || '[]');
+        let tFields = JSON.parse(t.table_fields_json || '[]');
+        
+        // Dynamic virtual field injection for MaterialTypeCost if missing
+        const hasCostField = tFields.some(f => {
+          const norm = normalizeKey(f.name);
+          return norm.includes('cost') || norm.includes('rate') || norm.includes('price') || norm.includes('value');
+        });
+        if (!hasCostField) {
+          const matIdx = tFields.findIndex(f => ['materialtype', 'materialstype', 'material', 'materials'].includes(normalizeKey(f.name)));
+          const virtualCostField = {
+            name: 'MaterialTypeCost',
+            label: 'Price per Unit (₹)',
+            type: 'numeric',
+            isVirtual: true
+          };
+          if (matIdx !== -1) {
+            tFields.splice(matIdx + 1, 0, virtualCostField);
+          } else {
+            tFields.push(virtualCostField);
+          }
+        }
+
+        setHeaderFields(hFields);
+        setTableFields(tFields);
+               // Load company profile and sequential bill number
+        const profile = await getCompanyProfile(db);
+        if (profile) {
+          setCompanyProfile(profile);
+        }
+        const nextBn = await getNextBillNumber(db);
+
+        // Initialize header data with current date for date/datetime fields and prefilled values
+        const hData = {};
+        hFields.forEach(f => { 
+          const norm = normalizeKey(f.name);
+          if (f.type === 'date' || f.type === 'datetime') {
+            hData[f.name] = new Date().toISOString();
+          } else if (norm === 'bn' || norm === 'billnumber' || norm === 'billno') {
+            hData[f.name] = nextBn;
+          } else if (profile && (norm === 'shopname' || norm === 'companyname')) {
+            hData[f.name] = profile.name || '';
+          } else if (profile && (norm === 'shoplocation' || norm === 'shopaddress' || norm === 'address')) {
+            hData[f.name] = profile.location || profile.address || '';
+          } else if (profile && (norm === 'shopnumber' || norm === 'shopphone' || norm === 'phone')) {
+            hData[f.name] = profile.phone || '';
+          } else {
+            hData[f.name] = ''; 
+          }
+        });
+        
+        // Initialize one empty row with current date/time preset
+        const rowInit = {};
+        tFields.forEach(f => { 
+          if (f.type === 'date' || f.type === 'datetime' || f.type === 'time') {
+            rowInit[f.name] = new Date().toISOString();
+          } else {
+            rowInit[f.name] = ''; 
+          }
+        });
+        
+        // Auto-fill Sno for the first row
+        const snoField = tFields.find(f => {
+          const norm = normalizeKey(f.name);
+          return norm === 'sno' || norm === 'slno';
+        });
+        if (snoField) {
+          rowInit[snoField.name] = '1';
+        }
+        
+        setRowData([{ ...rowInit }]);
+        setHeaderData(hData);
+      }
+    } catch (error) {
+      console.error('Error loading template:', error);
+    }
+  };
+
+  // Auto-sync serial numbers when rows change
+  useEffect(() => {
+    const snoField = tableFields.find(f => {
+      const norm = normalizeKey(f.name);
+      return norm === 'sno' || norm === 'slno';
+    });
+    if (snoField) {
+      setRowData(prev => {
+        let changed = false;
+        const updated = prev.map((row, idx) => {
+          const expectedSno = String(idx + 1);
+          if (row[snoField.name] !== expectedSno) {
+            changed = true;
+            return { ...row, [snoField.name]: expectedSno };
+          }
+          return row;
+        });
+        return changed ? updated : prev;
+      });
+    }
+    
+    // Also trigger total calculation
+    calculateTotal();
+  }, [rowData.length]);
+
+  const updateHeaderField = (fieldName, value) => {
+    setHeaderData(prev => ({ ...prev, [fieldName]: value }));
+  };
+
+  const updateRowField = (rowIndex, fieldName, value) => {
+    setRowData(prev => {
+      const updated = [...prev];
+      const row = { ...updated[rowIndex], [fieldName]: value };
+      
+      const normalizedFieldName = normalizeKey(fieldName);
+
+      // Material auto-fill logic (matches materialtype, materialstype, material, materials)
+      const isMaterialField = ['materialtype', 'materialstype', 'material', 'materials'].includes(normalizedFieldName);
+      
+      // Find cost/price/rate field
+      const costFieldName = Object.keys(row).find(k => {
+        const norm = normalizeKey(k);
+        return norm.includes('cost') || norm.includes('value') || norm.includes('price') || norm.includes('rate');
+      }) || 'MaterialTypeCost';
+
+      if (isMaterialField) {
+        const material = materials.find(m => normalizeKey(m.name) === normalizeKey(value));
+        if (material) {
+          row[costFieldName] = String(material.price_per_unit);
+        }
+      }
+
+      // Calculate unit value adaptively based on Trip and Units/Qty
+      let unitVal = 0;
+      const tripVal = parseFloat(getRowValue(row, ['trip', 'trips']) || '0');
+      const qtyVal = parseFloat(getRowValue(row, ['unit', 'units', 'qty', 'quantity']) || '0');
+      
+      if (!isNaN(tripVal) && tripVal > 0 && !isNaN(qtyVal) && qtyVal > 0) {
+        // If both Trip and Units are present and non-zero, total quantity is Trip * Units
+        unitVal = tripVal * qtyVal;
+      } else if (!isNaN(qtyVal) && qtyVal > 0) {
+        unitVal = qtyVal;
+      } else if (!isNaN(tripVal) && tripVal > 0) {
+        unitVal = tripVal;
+      }
+
+      let costVal = parseFloat(row[costFieldName] || '0');
+      
+      // Fallback lookup: If costVal is 0 or empty, look up the selected material's preset price
+      if (!costVal || costVal === 0) {
+        const matType = getRowValue(row, ['materialtype', 'materialstype', 'material', 'materials']) || '';
+        const matchedMaterial = materials.find(m => normalizeKey(m.name) === normalizeKey(matType));
+        if (matchedMaterial) {
+          costVal = matchedMaterial.price_per_unit;
+          row[costFieldName] = String(costVal);
+        }
+      }
+      
+      // Find calculation / total field in the row case-insensitively
+      const calFieldName = Object.keys(row).find(k => {
+        const norm = normalizeKey(k);
+        return norm.startsWith('cal') || norm.includes('total') || norm.includes('amount');
+      });
+      
+      if (calFieldName) {
+        if (!isNaN(unitVal) && !isNaN(costVal)) {
+          row[calFieldName] = String(unitVal * costVal);
+        }
+      }
+
+      updated[rowIndex] = row;
+      return updated;
+    });
+  };
+
+  const addRow = () => {
+    const newRow = {};
+    tableFields.forEach(f => { 
+      if (f.type === 'date' || f.type === 'datetime' || f.type === 'time') {
+        newRow[f.name] = new Date().toISOString();
+      } else {
+        newRow[f.name] = ''; 
+      }
+    });
+    
+    // Auto-increment Sno
+    const snoField = tableFields.find(f => {
+      const norm = normalizeKey(f.name);
+      return norm === 'sno' || norm === 'slno';
+    });
+    if (snoField) {
+      newRow[snoField.name] = String(rowData.length + 1);
+    }
+    
+    setRowData(prev => [...prev, newRow]);
+  };
+
+  const removeRow = (index) => {
+    if (rowData.length <= 1) {
+      Alert.alert('Cannot Remove', 'At least one row is required.');
+      return;
+    }
+    setRowData(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const calculateTotal = () => {
+    let total = 0;
+    
+    // Check if we have Cal fields first (most accurate for this user)
+    const calFieldName = tableFields.find(f => {
+      const norm = normalizeKey(f.name);
+      return norm.startsWith('cal') || norm.includes('total') || norm.includes('amount');
+    })?.name;
+    
+    if (calFieldName) {
+      rowData.forEach(row => {
+        const val = parseFloat(row[calFieldName]);
+        if (!isNaN(val)) total += val;
+      });
+    } else {
+      // Fallback to last numeric field
+      const numericFields = tableFields.filter(f => f.type === 'numeric');
+      const valueField = numericFields.length > 0 ? numericFields[numericFields.length - 1] : null;
+      
+      if (valueField) {
+        rowData.forEach(row => {
+          const val = parseFloat(row[valueField.name]);
+          if (!isNaN(val)) total += val;
+        });
+      }
+    }
+
+    // Add balance amount
+    const balance = parseFloat(getRowValue(headerData, ['balance', 'balanceamount', 'unclearedbalance']) || '0');
+    if (!isNaN(balance)) {
+      total += balance;
+    }
+    
+    return total;
+  };
+
+  // Sync the grand total to the <Total> header field safely without render side-effects
+  const balanceVal = getRowValue(headerData, ['balance', 'balanceamount', 'unclearedbalance']);
+  useEffect(() => {
+    const total = calculateTotal();
+    const totalHeaderField = headerFields.find(f => normalizeKey(f.name) === 'total')?.name;
+    if (totalHeaderField && headerData[totalHeaderField] !== String(total)) {
+      setHeaderData(prev => ({ ...prev, [totalHeaderField]: String(total) }));
+    }
+  }, [rowData, balanceVal, headerFields]);
+
+  const renderLivePreview = () => {
+    const companyName = getRowValue(headerData, ['shopname', 'companyname']) || companyProfile.name || template.name;
+    
+    let companyAddress = getRowValue(headerData, ['shoplocation', 'shopaddress', 'address']);
+    if (!companyAddress && companyProfile) {
+      companyAddress = [companyProfile.address, companyProfile.location].filter(p => p && p.trim() !== '').join(', ');
+    }
+    if (!companyAddress) companyAddress = '';
+
+    const companyPhone = getRowValue(headerData, ['shopnumber', 'shopphone', 'phone']) || companyProfile.phone || '';
+    const billNumber = getRowValue(headerData, ['bn', 'billnumber']) || '';
+    const partyName = getRowValue(headerData, ['partyname', 'customername', 'clientname']) || '';
+    
+    // Format display date
+    let displayDate = '';
+    const rawBillDate = getRowValue(headerData, ['billdate', 'date']);
+    if (rawBillDate) {
+      try {
+        const dObj = new Date(rawBillDate);
+        if (!isNaN(dObj.getTime())) {
+          displayDate = dObj.toLocaleDateString('en-IN', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+          });
+        } else {
+          displayDate = String(rawBillDate);
+        }
+      } catch (e) {
+        displayDate = String(rawBillDate);
+      }
+    }
+    
+    const deliveryLoc = getRowValue(headerData, ['deliveryloc', 'place', 'location']) || '';
+    const balanceAmount = parseFloat(getRowValue(headerData, ['balance', 'balanceamount', 'unclearedbalance']) || '0') || 0;
+    const subTotal = calculateTotal() - balanceAmount;
+    const grandTotal = subTotal + balanceAmount;
+
+    // Filter out standard fields to get custom header fields
+    const normalizedStandardFields = ['bn', 'shopname', 'shoplocation', 'shopnumber', 'partyname', 'billdate', 'deliveryloc', 'total', 'balance', 'balanceamount', 'unclearedbalance'];
+    const customHeaderFields = headerFields.filter(f => !normalizedStandardFields.includes(normalizeKey(f.name)));
+
+    // Filter out price/rate field from the table columns in the preview
+    const activeTableFields = tableFields.filter(f => {
+      const norm = normalizeKey(f.name);
+      return !(
+        norm === 'materialtypecost' || 
+        norm.includes('priceperunit') || 
+        norm.includes('priceper') || 
+        norm.includes('rate') || 
+        norm.includes('cost') || 
+        norm.includes('perunit') || 
+        norm.includes('unitprice') || 
+        norm.includes('unitrate') || 
+        norm.includes('unitcost') || 
+        norm.includes('priceunit') || 
+        norm.includes('rateunit') || 
+        norm.includes('costunit') || 
+        (norm.includes('price') && !norm.includes('total') && !norm.includes('subtotal') && !norm.includes('grand'))
+      );
+    });
+
+    // Pad rowData to at least 4 rows for a formal bill look
+    const displayRows = [...rowData];
+    while (displayRows.length < 4) {
+      displayRows.push({});
+    }
+
+    return (
+      <Card style={styles.previewContainer}>
+        {/* Title Badge */}
+        <View style={styles.previewBadgeHeader}>
+          <Ionicons name="eye-outline" size={16} color={Colors.accent} />
+          <Text style={styles.previewBadgeText}>Live Bill Preview (A4 Mockup)</Text>
+        </View>
+
+        {/* Paper Sheet */}
+        <View style={styles.paperSheet}>
+          {/* Bill Header */}
+          <View style={styles.paperHeader}>
+            <View style={styles.paperHeaderTop}>
+              <Text style={styles.paperBN}>{billNumber}</Text>
+              <Text style={styles.paperShopName} numberOfLines={1}>{companyName}</Text>
+              <Text style={styles.paperPhone}>Phone: {companyPhone}</Text>
+            </View>
+            <Text style={styles.paperShopLoc}>{companyAddress}</Text>
+          </View>
+
+          {/* Customer / Party Section */}
+          <View style={styles.paperCustomerRow}>
+            <View style={styles.paperMsCol}>
+              <Text style={styles.paperCustomerLabel}>M/s: </Text>
+              <View style={styles.paperDottedLine}>
+                <Text style={styles.paperCustomerVal}>{partyName}</Text>
+              </View>
+            </View>
+            <View style={styles.paperDatePlaceCol}>
+              <View style={styles.paperDatePlaceRow}>
+                <Text style={styles.paperCustomerLabel}>Date: </Text>
+                <View style={[styles.paperDottedLine, { minWidth: 100 }]}>
+                  <Text style={styles.paperCustomerVal}>{displayDate}</Text>
+                </View>
+              </View>
+              <View style={[styles.paperDatePlaceRow, { marginTop: 6 }]}>
+                <Text style={styles.paperCustomerLabel}>Place: </Text>
+                <View style={[styles.paperDottedLine, { minWidth: 100 }]}>
+                  <Text style={styles.paperCustomerVal}>{deliveryLoc}</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* Custom Header Fields Grid */}
+          {customHeaderFields.length > 0 && (
+            <View style={styles.paperCustomFieldsGrid}>
+              {customHeaderFields.map(f => {
+                let val = headerData[f.name] || '';
+                if (f.type === 'date' || f.type === 'datetime') {
+                  try {
+                    const d = new Date(val);
+                    if (!isNaN(d.getTime())) {
+                      val = d.toLocaleDateString('en-IN');
+                    }
+                  } catch (e) {}
+                }
+                return (
+                  <View key={f.name} style={styles.paperCustomFieldItem}>
+                    <Text style={styles.paperCustomFieldLabel}>{f.label}:</Text>
+                    <Text style={styles.paperCustomFieldValue}>{val}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Data Table */}
+          <View style={styles.paperTable}>
+            {/* Table Header */}
+            <View style={styles.paperTableHeader}>
+              {activeTableFields.map(f => {
+                let label = f.label;
+                const norm = normalizeKey(f.name);
+                if (norm.startsWith('cal') || norm.includes('total') || norm.includes('amount')) label = 'Each Value ₹';
+                if (['materialtype', 'materialstype', 'material', 'materials'].includes(norm)) label = 'Materials Type';
+                if (norm === 'sno' || norm === 'slno') label = 'S/No';
+                if (norm.includes('date')) label = 'DATE';
+                
+                const isNumeric = f.type === 'numeric' || norm.startsWith('cal') || norm.includes('total') || norm.includes('amount') || f.isVirtual;
+                return (
+                  <View key={f.name} style={[styles.paperTableHeaderCell, isNumeric && { alignItems: 'flex-end', justifyContent: 'center' }]}>
+                    <Text style={styles.paperTableHeaderText}>{label}</Text>
+                  </View>
+                );
+              })}
+            </View>
+
+            {/* Table Rows */}
+            {displayRows.map((row, idx) => (
+              <View key={idx} style={styles.paperTableRow}>
+                {activeTableFields.map(field => {
+                  const val = row[field.name] || '';
+                  const norm = normalizeKey(field.name);
+                  const isNumeric = field.type === 'numeric' || norm.startsWith('cal') || norm.includes('total') || norm.includes('amount') || field.isVirtual;
+                  
+                  let displayVal = val;
+                  if ((field.type === 'date' || field.type === 'time' || field.type === 'datetime') && val) {
+                    try {
+                      const dObj = new Date(val);
+                      if (!isNaN(dObj.getTime())) {
+                        if (field.type === 'date') displayVal = dObj.toLocaleDateString('en-IN');
+                        else if (field.type === 'time') displayVal = dObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+                        else displayVal = dObj.toLocaleDateString('en-IN') + ' ' + dObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+                      }
+                    } catch (e) {}
+                  } else if (isNumeric && val) {
+                    const num = parseFloat(val);
+                    if (!isNaN(num)) {
+                      displayVal = formatIndianNumber(num);
+                    }
+                  }
+
+                  return (
+                    <View key={field.name} style={[styles.paperTableCell, isNumeric && { alignItems: 'flex-end' }]}>
+                      <Text style={styles.paperTableCellText}>{displayVal}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+
+          {/* Footer Totals */}
+          <View style={styles.paperTotalsContainer}>
+            {balanceAmount > 0 && (
+              <>
+                <View style={styles.paperTotalRow}>
+                  <Text style={styles.paperTotalLabel}>Subtotal:</Text>
+                  <Text style={styles.paperTotalValue}>₹ {formatIndianNumber(subTotal)}</Text>
+                </View>
+                <View style={styles.paperTotalRow}>
+                  <Text style={styles.paperTotalLabel}>Uncleared Balance:</Text>
+                  <Text style={styles.paperTotalValue}>₹ {formatIndianNumber(balanceAmount)}</Text>
+                </View>
+              </>
+            )}
+            <View style={[styles.paperTotalRow, { borderTopWidth: balanceAmount > 0 ? 1 : 0, borderTopColor: '#000', paddingTop: 4 }]}>
+              <Text style={[styles.paperTotalLabel, { fontSize: 15, fontWeight: '900' }]}>Total:</Text>
+              <Text style={[styles.paperTotalValue, { fontSize: 16, fontWeight: '900' }]}>₹ {formatIndianNumber(grandTotal)}</Text>
+            </View>
+          </View>
+
+          {/* Signature Block */}
+          <View style={styles.paperSignatureRow}>
+            <Text style={styles.paperSignatureText}>Receiver's Signature:</Text>
+            <View style={styles.paperSignatureLine} />
+          </View>
+        </View>
+      </Card>
+    );
+  };
+
+  const openMaterialPicker = (rowIndex, fieldName) => {
+    setActiveRowIdx(rowIndex);
+    setActiveFieldKey(fieldName);
+    setShowCustomMaterialForm(false);
+    setCustomMaterialInput('');
+    setMaterialModalVisible(true);
+  };
+
+  const selectMaterial = (materialName) => {
+    updateRowField(activeRowIdx, activeFieldKey, materialName);
+    setMaterialModalVisible(false);
+  };
+
+  const openCustomerPicker = (fieldName) => {
+    setActiveCustomerField(fieldName);
+    setCustomerSearchQuery('');
+    setCustomerModalVisible(true);
+  };
+
+  const selectCustomer = (c) => {
+    if (activeCustomerField) {
+      updateHeaderField(activeCustomerField, c.name);
+    }
+    setCustomerPhone(c.phone || '');
+    setCustomerAddress(c.address || '');
+    setCustomerModalVisible(false);
+  };
+
+  const handleGeneratePDF = async () => {
+    // Open print window synchronously on web to bypass Chrome popup blocker
+    let printWindow = null;
+    if (Platform.OS === 'web') {
+      printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.open();
+        printWindow.document.write('<html><head><title>Generating PDF...</title><style>body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #666; }</style></head><body><div><h2>Generating formal A4 invoice PDF...</h2><p>Please wait a moment.</p></div></body></html>');
+        printWindow.document.close();
+      }
+    }
+
+    setGenerating(true);
+    try {
+      const totalAmount = calculateTotal();
+      
+      const result = await generatePDF({
+        companyProfile,
+        headerData,
+        rowData,
+        headerFields,
+        tableFields,
+        templateName: template.name,
+        totalAmount,
+        printWindow,
+      });
+
+      if (result.success) {
+        if (Platform.OS === 'web') return; // Print handled directly in popup on Web
+        
+        // Save PDF permanently
+        const billNumber = headerData.BN || `BF-${Date.now().toString(36).toUpperCase()}`;
+        const permanentUri = await savePDFPermanently(result.uri, billNumber);
+        
+        // Share the PDF
+        await sharePDF(permanentUri);
+      } else {
+        if (printWindow) printWindow.close();
+        Alert.alert('Error', 'Failed to generate PDF: ' + (result.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      if (printWindow) printWindow.close();
+      Alert.alert('Error', 'Failed to generate PDF.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleSaveBill = async () => {
+    // Open print window synchronously on web to bypass Chrome popup blocker
+    let printWindow = null;
+    if (Platform.OS === 'web') {
+      printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.open();
+        printWindow.document.write('<html><head><title>Saving & Generating PDF...</title><style>body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #666; }</style></head><body><div><h2>Saving bill and generating PDF...</h2><p>Please wait a moment.</p></div></body></html>');
+        printWindow.document.close();
+      }
+    }
+
+    setSaving(true);
+    try {
+      const db = await getDatabase();
+      const totalAmount = calculateTotal();
+      const billNumber = headerData.BN || `BF-${Date.now().toString(36).toUpperCase()}`;
+      
+      // Find customer name from common field names case-insensitively
+      const customerName = getRowValue(headerData, ['partyname', 'customername', 'clientname', 'name']) || '';
+
+      // Auto-save/update customer in the Customer Directory
+      if (customerName && customerName.trim() !== '') {
+        const existing = customers.find(c => normalizeKey(c.name) === normalizeKey(customerName));
+        const customerData = {
+          name: customerName,
+          phone: customerPhone || '',
+          address: customerAddress || ''
+        };
+        if (existing) {
+          if (existing.phone !== customerPhone || existing.address !== customerAddress) {
+            await saveCustomer(db, { ...existing, ...customerData });
+          }
+        } else {
+          await saveCustomer(db, customerData);
+        }
+        await loadCustomers();
+      }
+
+      // Prepare header data with customer phone/address to store in the DB record
+      const headerDataToSave = {
+        ...headerData,
+        customer_phone: customerPhone,
+        customer_address: customerAddress
+      };
+
+      // Generate PDF (uses original headerData to ensure customer phone/address NEVER print on PDF)
+      const pdfResult = await generatePDF({
+        companyProfile,
+        headerData,
+        rowData,
+        headerFields,
+        tableFields,
+        templateName: template.name,
+        totalAmount,
+        printWindow,
+      });
+
+      let pdfUri = '';
+      if (pdfResult.success && Platform.OS !== 'web') {
+        pdfUri = await savePDFPermanently(pdfResult.uri, billNumber);
+      }
+
+      const billId = await saveBill(db, {
+        template_id: parseInt(templateId),
+        company_id: 1,
+        bill_number: billNumber,
+        customer_name: customerName,
+        headerData: headerDataToSave,
+        rowData,
+        total_amount: totalAmount,
+        pdf_uri: pdfUri,
+      });
+
+      Alert.alert(
+        'Bill Saved',
+        `Bill "${billNumber}" saved successfully.`,
+        [
+          {
+            text: 'View Bill',
+            onPress: () => router.replace(`/bill-preview/${billId}`),
+          },
+          {
+            text: 'Create Another',
+            onPress: async () => {
+              try {
+                // Reset form
+                setCustomerPhone('');
+                setCustomerAddress('');
+                const db = await getDatabase();
+                const nextBn = await getNextBillNumber(db);
+                const hData = {};
+                headerFields.forEach(f => { 
+                  const norm = normalizeKey(f.name);
+                  if (f.type === 'date' || f.type === 'datetime') {
+                    hData[f.name] = new Date().toISOString();
+                  } else if (norm === 'bn' || norm === 'billnumber' || norm === 'billno') {
+                    hData[f.name] = nextBn;
+                  } else if (companyProfile && (norm === 'shopname' || norm === 'companyname')) {
+                    hData[f.name] = companyProfile.name || '';
+                  } else if (companyProfile && (norm === 'shoplocation' || norm === 'shopaddress' || norm === 'address')) {
+                    hData[f.name] = companyProfile.location || companyProfile.address || '';
+                  } else if (companyProfile && (norm === 'shopnumber' || norm === 'shopphone' || norm === 'phone')) {
+                    hData[f.name] = companyProfile.phone || '';
+                  } else {
+                    hData[f.name] = ''; 
+                  }
+                });
+                setHeaderData(hData);
+                const rowInit = {};
+                tableFields.forEach(f => { 
+                  if (f.type === 'date' || f.type === 'datetime' || f.type === 'time') {
+                    rowInit[f.name] = new Date().toISOString();
+                  } else {
+                    rowInit[f.name] = ''; 
+                  }
+                });
+                setRowData([{ ...rowInit }]);
+              } catch (err) {
+                console.error('Error resetting form:', err);
+              }
+            },
+          },
+        ],
+      );
+    } catch (error) {
+      console.error('Save bill error:', error);
+      if (printWindow) printWindow.close();
+      Alert.alert('Error', 'Failed to save bill.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const renderField = (field, value, onChange) => {
+    const isPartyName = ['partyname', 'customername', 'clientname', 'name'].includes(normalizeKey(field.name));
+
+    if (isPartyName) {
+      return (
+        <View key={field.name} style={styles.partyNameContainer}>
+          <View style={styles.partyNameHeaderRow}>
+            <Text style={styles.dropdownLabel}>{field.label}</Text>
+            <TouchableOpacity
+              style={styles.partyNameSelectButton}
+              onPress={() => openCustomerPicker(field.name)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="people-outline" size={15} color={Colors.primary} style={{ marginRight: 4 }} />
+              <Text style={styles.partyNameSelectButtonText}>Select Existing</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <Input
+            value={value || ''}
+            onChangeText={(val) => {
+              onChange(val);
+              const existing = customers.find(c => normalizeKey(c.name) === normalizeKey(val));
+              if (existing) {
+                setCustomerPhone(existing.phone || '');
+                setCustomerAddress(existing.address || '');
+              }
+            }}
+            placeholder={`Enter ${field.label.toLowerCase()} manually or select`}
+            icon="person-outline"
+          />
+
+          <View style={styles.customerFieldsGroup}>
+            <View style={styles.customerHalfField}>
+              <Input
+                label="Customer Phone (Optional)"
+                value={customerPhone}
+                onChangeText={setCustomerPhone}
+                placeholder="Internal only (won't appear in PDF)"
+                keyboardType="phone-pad"
+                icon="call-outline"
+              />
+            </View>
+            <View style={styles.customerHalfField}>
+              <Input
+                label="Resident Address (Optional)"
+                value={customerAddress}
+                onChangeText={setCustomerAddress}
+                placeholder="Internal only (won't appear in PDF)"
+                icon="home-outline"
+              />
+            </View>
+          </View>
+        </View>
+      );
+    }
+
+    if (field.type === 'date') {
+      return (
+        <DateTimePickerInput
+          key={field.name}
+          label={field.label}
+          value={value ? new Date(value) : null}
+          onChange={(date) => onChange(date.toISOString())}
+          mode="date"
+        />
+      );
+    }
+    if (field.type === 'time') {
+      return (
+        <DateTimePickerInput
+          key={field.name}
+          label={field.label}
+          value={value ? new Date(value) : null}
+          onChange={(date) => onChange(date.toISOString())}
+          mode="time"
+        />
+      );
+    }
+    if (field.type === 'datetime') {
+      return (
+        <DateTimePickerInput
+          key={field.name}
+          label={field.label}
+          value={value ? new Date(value) : null}
+          onChange={(date) => onChange(date.toISOString())}
+          mode="datetime"
+        />
+      );
+    }
+
+    return (
+      <Input
+        key={field.name}
+        label={field.label}
+        value={value || ''}
+        onChangeText={onChange}
+        placeholder={`Enter ${field.label.toLowerCase()}`}
+        keyboardType={getKeyboardTypeForField(field.type)}
+      />
+    );
+  };
+
+  if (!template) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.centered}>
+          <Text style={styles.loadingText}>Loading template...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="arrow-back" size={22} color={Colors.text} />
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle} numberOfLines={1}>New Bill</Text>
+          <Text style={styles.headerSub}>{template.name}</Text>
+        </View>
+      </View>
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Header Fields Section */}
+          {headerFields.length > 0 && (
+            <Card style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <View style={[styles.sectionIconCircle, { backgroundColor: '#EBF5FB' }]}>
+                  <Ionicons name="document-text-outline" size={18} color={Colors.primary} />
+                </View>
+                <Text style={styles.sectionTitle}>Bill Details</Text>
+              </View>
+
+              {headerFields.map(field =>
+                renderField(
+                  field,
+                  headerData[field.name],
+                  (val) => updateHeaderField(field.name, val)
+                )
+              )}
+            </Card>
+          )}
+
+          {/* Table Fields Section */}
+          {tableFields.length > 0 && (
+            <Card style={styles.sectionCard}>
+              <View style={styles.sectionHeader}>
+                <View style={[styles.sectionIconCircle, { backgroundColor: '#FFF3CD' }]}>
+                  <Ionicons name="grid-outline" size={18} color={Colors.warning} />
+                </View>
+                <Text style={styles.sectionTitle}>Line Items</Text>
+                <Text style={styles.rowCount}>{rowData.length} row(s)</Text>
+              </View>
+
+              {rowData.map((row, rowIndex) => (
+                <View key={rowIndex} style={styles.rowCard}>
+                  <View style={styles.rowHeader}>
+                    <Text style={styles.rowLabel}>Row {rowIndex + 1}</Text>
+                    {rowData.length > 1 && (
+                      <TouchableOpacity
+                        onPress={() => removeRow(rowIndex)}
+                        style={styles.removeRowBtn}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons name="close-circle" size={20} color={Colors.danger} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* Compact row fields */}
+                  <View style={styles.rowFields}>
+                    {tableFields.map(field => {
+                      const isMaterialTypeField = ['materialtype', 'materialstype', 'material', 'materials'].includes(normalizeKey(field.name));
+                      
+                      return (
+                        <View
+                          key={field.name}
+                          style={[
+                            styles.rowFieldWrap,
+                            tableFields.length <= 3 && styles.rowFieldHalf,
+                            tableFields.length > 3 && styles.rowFieldThird,
+                          ]}
+                        >
+                          {isMaterialTypeField ? (
+                            <View style={styles.dropdownWrap}>
+                              <Text style={styles.dropdownLabel}>{field.label}</Text>
+                              <TouchableOpacity
+                                style={styles.dropdownButton}
+                                onPress={() => openMaterialPicker(rowIndex, field.name)}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={[styles.dropdownText, !row[field.name] && styles.placeholder]}>
+                                  {row[field.name] || 'Select Material'}
+                                </Text>
+                                <Ionicons name="chevron-down" size={16} color={Colors.textTertiary} />
+                              </TouchableOpacity>
+                            </View>
+                          ) : (field.type === 'date' || field.type === 'time' || field.type === 'datetime') ? (
+                            <DateTimePickerInput
+                              label={field.label}
+                              value={row[field.name] ? new Date(row[field.name]) : null}
+                              onChange={(date) => updateRowField(rowIndex, field.name, date.toISOString())}
+                              mode={field.type}
+                            />
+                          ) : (
+                            <Input
+                              label={field.label}
+                              value={row[field.name] || ''}
+                              onChangeText={(val) => updateRowField(rowIndex, field.name, val)}
+                              placeholder={field.label}
+                              keyboardType={getKeyboardTypeForField(field.type)}
+                            />
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+
+              <TouchableOpacity onPress={addRow} style={styles.addRowBtn}>
+                <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
+                <Text style={styles.addRowText}>Add Row</Text>
+              </TouchableOpacity>
+            </Card>
+          )}
+
+          {/* Balance Amount Section */}
+          <Card style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <View style={[styles.sectionIconCircle, { backgroundColor: '#E8F5E9' }]}>
+                <Ionicons name="cash-outline" size={18} color={Colors.success} />
+              </View>
+              <Text style={styles.sectionTitle}>Additional Settings</Text>
+            </View>
+
+            <Input
+              label="Balance Amount (Rs.)"
+              value={headerData.Balance || ''}
+              onChangeText={(val) => updateHeaderField('Balance', val)}
+              placeholder="Enter balance amount if any"
+              keyboardType="numeric"
+            />
+          </Card>
+
+          {/* Total */}
+          {tableFields.some(f => f.type === 'numeric') && (
+            <Card style={styles.totalCard}>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Estimated Total</Text>
+                <Text style={styles.totalValue}>Rs. {formatIndianNumber(calculateTotal())}</Text>
+              </View>
+            </Card>
+          )}
+
+          {/* Live Bill Preview Mockup */}
+          {renderLivePreview()}
+
+          {/* Action Buttons */}
+          <View style={styles.actionsContainer}>
+            <Button
+              title="Save Bill"
+              onPress={handleSaveBill}
+              loading={saving}
+              variant="primary"
+              fullWidth
+              size="lg"
+              icon="save-outline"
+              style={styles.actionBtn}
+            />
+            <Button
+              title="Generate PDF"
+              onPress={handleGeneratePDF}
+              loading={generating}
+              variant="accent"
+              fullWidth
+              size="lg"
+              icon="document-outline"
+              style={styles.actionBtn}
+            />
+          </View>
+
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* Materials Selector Dropdown Modal */}
+      <Modal
+        visible={materialModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setMaterialModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Material</Text>
+              <TouchableOpacity onPress={() => setMaterialModalVisible(false)} style={styles.closeBtn}>
+                <Ionicons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
+              {materials.map((m) => (
+                <TouchableOpacity
+                  key={m.id}
+                  style={styles.modalItem}
+                  onPress={() => selectMaterial(m.name)}
+                >
+                  <View style={styles.modalItemIconCircle}>
+                    <Ionicons name="cube-outline" size={18} color={Colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modalItemText}>{m.name}</Text>
+                    <Text style={styles.modalItemSub}>Rs. {m.price_per_unit} / {m.unit_type || 'unit'}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+                </TouchableOpacity>
+              ))}
+              
+              {/* Custom Material Option */}
+              {!showCustomMaterialForm ? (
+                <TouchableOpacity
+                  style={[styles.modalItem, { borderBottomWidth: 0, marginTop: 10 }]}
+                  onPress={() => setShowCustomMaterialForm(true)}
+                >
+                  <View style={[styles.modalItemIconCircle, { backgroundColor: '#E8F5E9' }]}>
+                    <Ionicons name="create" size={18} color={Colors.success} />
+                  </View>
+                  <Text style={[styles.modalItemText, { color: Colors.success, fontWeight: '600' }]}>
+                    Enter Custom Material...
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.customForm}>
+                  <Input
+                    label="Custom Material Name"
+                    value={customMaterialInput}
+                    onChangeText={setCustomMaterialInput}
+                    placeholder="Type material name"
+                  />
+                  <Button
+                    title="Add & Select"
+                    onPress={() => {
+                      if (customMaterialInput.trim()) {
+                        selectMaterial(customMaterialInput.trim());
+                      } else {
+                        Alert.alert('Required', 'Please enter a name');
+                      }
+                    }}
+                    variant="success"
+                    fullWidth
+                  />
+                </View>
+              )}
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Customer Directory Selector Modal */}
+      <Modal
+        visible={customerModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setCustomerModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="people-outline" size={20} color={Colors.primary} />
+                <Text style={styles.modalTitle}>Select Customer</Text>
+              </View>
+              <TouchableOpacity onPress={() => setCustomerModalVisible(false)} style={styles.closeBtn}>
+                <Ionicons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ paddingHorizontal: 20, paddingBottom: 10 }}>
+              <Input
+                value={customerSearchQuery}
+                onChangeText={setCustomerSearchQuery}
+                placeholder="Search customers by name..."
+                icon="search-outline"
+              />
+            </View>
+            
+            <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
+              {customers.filter(c => 
+                c.name.toLowerCase().includes(customerSearchQuery.toLowerCase())
+              ).map((c) => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={styles.modalItem}
+                  onPress={() => selectCustomer(c)}
+                >
+                  <View style={[styles.modalItemIconCircle, { backgroundColor: '#EBF5FB' }]}>
+                    <Ionicons name="person-outline" size={18} color={Colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modalItemText}>{c.name}</Text>
+                    {c.phone ? (
+                      <Text style={styles.modalItemSub}>📞 {c.phone}</Text>
+                    ) : null}
+                    {c.address ? (
+                      <Text style={styles.modalItemSub} numberOfLines={1}>📍 {c.address}</Text>
+                    ) : null}
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+                </TouchableOpacity>
+              ))}
+
+              {customers.filter(c => 
+                c.name.toLowerCase().includes(customerSearchQuery.toLowerCase())
+              ).length === 0 && (
+                <View style={{ padding: 30, alignItems: 'center' }}>
+                  <Ionicons name="people-outline" size={48} color={Colors.textTertiary} style={{ marginBottom: 10 }} />
+                  <Text style={{ ...Typography.bodyMedium, color: Colors.textSecondary, textAlign: 'center' }}>
+                    No customers found. Type a name in the form manually to automatically save them!
+                  </Text>
+                </View>
+              )}
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+function formatIndianNumber(num) {
+  if (isNaN(num)) return '0';
+  const str = Math.round(num).toString();
+  let result = '';
+  let count = 0;
+  for (let i = str.length - 1; i >= 0; i--) {
+    if (count === 3 || (count > 3 && (count - 3) % 2 === 0)) result = ',' + result;
+    result = str[i] + result;
+    count++;
+  }
+  return result;
+}
+
+const styles = StyleSheet.create({
+  partyNameContainer: {
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    backgroundColor: '#F8FAFC',
+  },
+  partyNameHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
+  },
+  partyNameSelectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EBF5FB',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 0.5,
+    borderColor: 'rgba(52, 152, 219, 0.3)',
+  },
+  partyNameSelectButtonText: {
+    ...Typography.captionMedium,
+    color: Colors.primary,
+  },
+  customerFieldsGroup: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  customerHalfField: {
+    flex: 1,
+  },
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    ...Typography.body,
+    color: Colors.textTertiary,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerCenter: {
+    flex: 1,
+    marginLeft: Spacing.md,
+  },
+  headerTitle: {
+    ...Typography.h3,
+    color: Colors.text,
+  },
+  headerSub: {
+    ...Typography.small,
+    color: Colors.textTertiary,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: Spacing.lg,
+  },
+  sectionCard: {
+    marginBottom: Spacing.lg,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.xl,
+  },
+  sectionIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.md,
+  },
+  sectionTitle: {
+    ...Typography.h3,
+    color: Colors.text,
+    flex: 1,
+  },
+  rowCount: {
+    ...Typography.caption,
+    color: Colors.textTertiary,
+  },
+  rowCard: {
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  rowHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  rowLabel: {
+    ...Typography.captionMedium,
+    color: Colors.textSecondary,
+  },
+  removeRowBtn: {
+    padding: 2,
+  },
+  rowFields: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  rowFieldWrap: {
+    flex: 1,
+  },
+  rowFieldHalf: {
+    minWidth: '45%',
+  },
+  rowFieldThird: {
+    minWidth: '30%',
+  },
+  addRowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.md,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    borderStyle: 'dashed',
+    gap: Spacing.sm,
+  },
+  addRowText: {
+    ...Typography.buttonSmall,
+    color: Colors.primary,
+  },
+  totalCard: {
+    marginBottom: Spacing.lg,
+    backgroundColor: Colors.primary,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  totalLabel: {
+    ...Typography.bodySemibold,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  totalValue: {
+    ...Typography.h2,
+    color: '#fff',
+  },
+  actionsContainer: {
+    gap: Spacing.md,
+  },
+  actionBtn: {
+    // empty
+  },
+  dropdownWrap: {
+    marginBottom: Spacing.lg,
+  },
+  dropdownLabel: {
+    ...Typography.captionMedium,
+    color: Colors.text,
+    marginBottom: Spacing.xs + 2,
+  },
+  dropdownButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    minHeight: 46,
+  },
+  dropdownText: {
+    ...Typography.body,
+    color: Colors.text,
+    flex: 1,
+    paddingVertical: Spacing.sm + 2,
+  },
+  placeholder: {
+    color: Colors.textTertiary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    paddingBottom: 34,
+    maxHeight: '75%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  modalTitle: {
+    ...Typography.bodySemibold,
+    color: Colors.text,
+    fontSize: 18,
+  },
+  closeBtn: {
+    padding: Spacing.xs,
+  },
+  modalList: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+  },
+  modalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.divider,
+  },
+  modalItemIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#EBF5FB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.md,
+  },
+  modalItemText: {
+    ...Typography.bodySemibold,
+    color: Colors.text,
+  },
+  modalItemSub: {
+    ...Typography.small,
+    color: Colors.textTertiary,
+    marginTop: 2,
+  },
+  customForm: {
+    paddingVertical: Spacing.md,
+    gap: Spacing.md,
+  },
+  previewContainer: {
+    padding: 0,
+    backgroundColor: '#F5F5F5',
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.lg,
+    overflow: 'hidden',
+    marginBottom: Spacing.xl,
+  },
+  previewBadgeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EAECEE',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    gap: Spacing.sm,
+  },
+  previewBadgeText: {
+    ...Typography.bodySemibold,
+    color: Colors.textSecondary,
+    fontSize: 13,
+  },
+  paperSheet: {
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+    margin: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: '#D0D3D4',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  paperHeader: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+    paddingBottom: 10,
+    marginBottom: 15,
+  },
+  paperHeaderTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  paperBN: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#000',
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+    width: 60,
+  },
+  paperShopName: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#000',
+    textAlign: 'center',
+    flex: 1,
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  paperPhone: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#000',
+    textAlign: 'right',
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+    width: 140,
+  },
+  paperShopLoc: {
+    fontSize: 12,
+    color: '#000',
+    textAlign: 'center',
+    marginTop: 4,
+    fontWeight: 'bold',
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+  },
+  paperCustomerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 15,
+  },
+  paperMsCol: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginRight: 10,
+  },
+  paperCustomerLabel: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#000',
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+  },
+  paperDottedLine: {
+    flex: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+    borderStyle: 'dotted',
+    paddingBottom: 2,
+    minHeight: 18,
+  },
+  paperCustomerVal: {
+    fontSize: 13,
+    color: '#000',
+    fontWeight: 'bold',
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+  },
+  paperDatePlaceCol: {
+    width: 180,
+  },
+  paperDatePlaceRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+  },
+  paperCustomFieldsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    borderWidth: 1,
+    borderColor: '#000',
+    borderRadius: 4,
+    padding: 8,
+    marginBottom: 15,
+    gap: 8,
+  },
+  paperCustomFieldItem: {
+    width: '48%',
+    flexDirection: 'row',
+    gap: 4,
+  },
+  paperCustomFieldLabel: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#333',
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+  },
+  paperCustomFieldValue: {
+    fontSize: 12,
+    color: '#000',
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+    flex: 1,
+  },
+  paperTable: {
+    borderWidth: 1,
+    borderColor: '#000',
+    marginBottom: 10,
+  },
+  paperTableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#F2F3F4',
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+  },
+  paperTableHeaderCell: {
+    flex: 1,
+    padding: 6,
+    borderRightWidth: 1,
+    borderRightColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paperTableHeaderText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#000',
+    textAlign: 'center',
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+  },
+  paperTableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+    minHeight: 28,
+  },
+  paperTableCell: {
+    flex: 1,
+    padding: 6,
+    borderRightWidth: 1,
+    borderRightColor: '#000',
+    justifyContent: 'center',
+  },
+  paperTableCellText: {
+    fontSize: 11,
+    color: '#000',
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+  },
+  paperTotalsContainer: {
+    alignSelf: 'flex-end',
+    width: 220,
+    borderWidth: 1,
+    borderColor: '#000',
+    borderTopWidth: 0,
+    padding: 8,
+    gap: 4,
+    marginBottom: 20,
+  },
+  paperTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  paperTotalLabel: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#000',
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+  },
+  paperTotalValue: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#000',
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+    textAlign: 'right',
+  },
+  paperSignatureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginTop: 40,
+    marginBottom: 10,
+  },
+  paperSignatureText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#000',
+    fontFamily: Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif',
+  },
+  paperSignatureLine: {
+    flex: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+    marginLeft: 8,
+    marginBottom: 2,
+  },
+});
