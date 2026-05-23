@@ -10,6 +10,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card, Button } from '../../src/components';
 import { getDatabase, getTemplateById, deleteTemplate } from '../../src/database/db';
+import * as FileSystem from 'expo-file-system';
+import { cacheDirectory, EncodingType } from 'expo-file-system';
+import { shareAsync } from 'expo-sharing';
 
 export default function TemplateDetailScreen() {
   const router = useRouter();
@@ -34,6 +37,50 @@ export default function TemplateDetailScreen() {
       }
     } catch (error) {
       console.error('Error loading template:', error);
+    }
+  };
+
+  const handleExportTemplate = async () => {
+    if (!template || !template.file_base64) {
+      Alert.alert('Error', 'This template does not have a Word document file associated with it.');
+      return;
+    }
+    
+    try {
+      const fileName = `${template.name.replace(/[^A-Za-z0-9]/g, '_')}.docx`;
+      
+      if (Platform.OS === 'web') {
+        const byteCharacters = atob(template.file_base64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+        
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else {
+        const fileUri = `${cacheDirectory}${fileName}`;
+        await FileSystem.writeAsStringAsync(fileUri, template.file_base64, {
+          encoding: EncodingType.Base64,
+        });
+        
+        await shareAsync(fileUri, {
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          dialogTitle: `Export ${template.name}`,
+          UTI: 'org.openxmlformats.wordprocessingml.document',
+        });
+      }
+    } catch (error) {
+      console.error('Error exporting template:', error);
+      Alert.alert('Export Error', 'Failed to export/share the template file.');
     }
   };
 
@@ -188,6 +235,18 @@ export default function TemplateDetailScreen() {
           size="lg"
           icon="add-circle-outline"
           style={styles.createBtn}
+        />
+
+        <View style={{ height: 12 }} />
+
+        <Button
+          title="Download Word Template File"
+          onPress={handleExportTemplate}
+          fullWidth
+          size="lg"
+          icon="download-outline"
+          variant="outline"
+          style={styles.downloadBtn}
         />
 
         <View style={{ height: 30 }} />

@@ -597,7 +597,7 @@ export default function BillFormScreen() {
 
           {/* Signature Block */}
           <View style={styles.paperSignatureRow}>
-            <Text style={styles.paperSignatureText}>Receiver's Signature:</Text>
+            <Text style={styles.paperSignatureText}>{"Receiver's Signature:"}</Text>
             <View style={styles.paperSignatureLine} />
           </View>
         </View>

@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { Platform } from 'react-native';
+import { generateDefaultTemplateDocxBase64 } from '../services/templateParser';
 
 const DB_NAME = 'billforge.db';
 const IS_WEB = Platform.OS === 'web';
@@ -59,8 +60,54 @@ function webInitializeSchema() {
 
   // 3. Templates
   let templates = webGetItems('billforge_templates');
-  if (!templates) {
-    webSetItems('billforge_templates', []);
+  if (!templates || templates.length === 0) {
+    const defaultTemplate = {
+      id: 1,
+      name: 'Standard Billing Template',
+      file_uri: '',
+      file_base64: generateDefaultTemplateDocxBase64(),
+      header_fields_json: JSON.stringify([
+        { name: 'BN', type: 'numeric', label: 'Bill Number' },
+        { name: 'PartyName', type: 'text', label: 'Customer / Party Name' },
+        { name: 'BillDate', type: 'datetime', label: 'Billing Date' },
+        { name: 'DeliveryLoc', type: 'text', label: 'Place of Delivery' }
+      ]),
+      table_fields_json: JSON.stringify([
+        { name: 'Sno', type: 'numeric', label: 'S/No' },
+        { name: 'DateTime', type: 'datetime', label: 'DATE' },
+        { name: 'MaterialType', type: 'text', label: 'Materials Type' },
+        { name: 'Trip', type: 'numeric', label: 'Trip' },
+        { name: 'Units', type: 'numeric', label: 'Units' },
+        { name: 'Cal1s', type: 'numeric', label: 'Each Value ₹', isVirtual: true }
+      ]),
+      all_fields_json: JSON.stringify([
+        { name: 'BN', type: 'numeric', label: 'Bill Number' },
+        { name: 'PartyName', type: 'text', label: 'Customer / Party Name' },
+        { name: 'BillDate', type: 'datetime', label: 'Billing Date' },
+        { name: 'DeliveryLoc', type: 'text', label: 'Place of Delivery' },
+        { name: 'Sno', type: 'numeric', label: 'S/No' },
+        { name: 'DateTime', type: 'datetime', label: 'DATE' },
+        { name: 'MaterialType', type: 'text', label: 'Materials Type' },
+        { name: 'Trip', type: 'numeric', label: 'Trip' },
+        { name: 'Units', type: 'numeric', label: 'Units' },
+        { name: 'Cal1s', type: 'numeric', label: 'Each Value ₹', isVirtual: true }
+      ]),
+      created_at: new Date().toISOString()
+    };
+    webSetItems('billforge_templates', [defaultTemplate]);
+  } else {
+    // Migration: Update default template base64 if empty
+    let updated = false;
+    const migratedTemplates = templates.map(t => {
+      if (t.id === 1 && !t.file_base64) {
+        updated = true;
+        return { ...t, file_base64: generateDefaultTemplateDocxBase64() };
+      }
+      return t;
+    });
+    if (updated) {
+      webSetItems('billforge_templates', migratedTemplates);
+    }
   }
 
   // 4. Bills
@@ -170,6 +217,56 @@ async function initializeSchema(db) {
       await db.runAsync(
         'INSERT INTO materials (name, price_per_unit, unit_type) VALUES (?, ?, ?)',
         [name, price, unit]
+      );
+    }
+  }
+
+  // Ensure at least one template exists
+  const templateCount = await db.getFirstAsync('SELECT COUNT(*) as count FROM templates');
+  const defaultTemplateBase64 = generateDefaultTemplateDocxBase64();
+  if (templateCount?.count === 0) {
+    await db.runAsync(
+      `INSERT INTO templates (name, file_uri, file_base64, header_fields_json, table_fields_json, all_fields_json) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        'Standard Billing Template',
+        '',
+        defaultTemplateBase64,
+        JSON.stringify([
+          { name: 'BN', type: 'numeric', label: 'Bill Number' },
+          { name: 'PartyName', type: 'text', label: 'Customer / Party Name' },
+          { name: 'BillDate', type: 'datetime', label: 'Billing Date' },
+          { name: 'DeliveryLoc', type: 'text', label: 'Place of Delivery' }
+        ]),
+        JSON.stringify([
+          { name: 'Sno', type: 'numeric', label: 'S/No' },
+          { name: 'DateTime', type: 'datetime', label: 'DATE' },
+          { name: 'MaterialType', type: 'text', label: 'Materials Type' },
+          { name: 'Trip', type: 'numeric', label: 'Trip' },
+          { name: 'Units', type: 'numeric', label: 'Units' },
+          { name: 'Cal1s', type: 'numeric', label: 'Each Value ₹', isVirtual: true }
+        ]),
+        JSON.stringify([
+          { name: 'BN', type: 'numeric', label: 'Bill Number' },
+          { name: 'PartyName', type: 'text', label: 'Customer / Party Name' },
+          { name: 'BillDate', type: 'datetime', label: 'Billing Date' },
+          { name: 'DeliveryLoc', type: 'text', label: 'Place of Delivery' },
+          { name: 'Sno', type: 'numeric', label: 'S/No' },
+          { name: 'DateTime', type: 'datetime', label: 'DATE' },
+          { name: 'MaterialType', type: 'text', label: 'Materials Type' },
+          { name: 'Trip', type: 'numeric', label: 'Trip' },
+          { name: 'Units', type: 'numeric', label: 'Units' },
+          { name: 'Cal1s', type: 'numeric', label: 'Each Value ₹', isVirtual: true }
+        ])
+      ]
+    );
+  } else {
+    // Migration: Update default template's file_base64 if empty
+    const defaultTemplate = await db.getFirstAsync('SELECT file_base64 FROM templates WHERE id = 1');
+    if (defaultTemplate && !defaultTemplate.file_base64) {
+      await db.runAsync(
+        'UPDATE templates SET file_base64 = ? WHERE id = 1',
+        [defaultTemplateBase64]
       );
     }
   }

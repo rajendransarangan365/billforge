@@ -1,6 +1,7 @@
 import * as Print from 'expo-print';
 import { shareAsync } from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
+import { documentDirectory } from 'expo-file-system';
 import { Platform } from 'react-native';
 
 /**
@@ -93,7 +94,7 @@ export async function sharePDF(uri) {
 export async function savePDFPermanently(tempUri, billNumber) {
   try {
     if (Platform.OS === 'web') return tempUri; // Not applicable on web
-    const dir = `${FileSystem.documentDirectory}bills/`;
+    const dir = `${documentDirectory}bills/`;
     const dirInfo = await FileSystem.getInfoAsync(dir);
     if (!dirInfo.exists) {
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true });

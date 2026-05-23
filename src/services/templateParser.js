@@ -264,3 +264,97 @@ export function getKeyboardTypeForField(fieldType) {
       return 'default';
   }
 }
+
+/**
+ * Generate a minimal, valid Microsoft Word (.docx) file containing the standard billing placeholders.
+ * Uses the existing PizZip library to package the OpenXML files.
+ * 
+ * @returns {string} Base64 encoded string of the .docx file
+ */
+export function generateDefaultTemplateDocxBase64() {
+  const zip = new PizZip();
+  
+  const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
+
+  const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="center"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b/>
+          <w:sz w:val="36"/>
+          <w:color w:val="0F2050"/>
+        </w:rPr>
+        <w:t>Billing365 - Standard Billing Invoice</w:t>
+      </w:r>
+    </w:p>
+    <w:p><w:r><w:t></w:t></w:r></w:p>
+    <w:p>
+      <w:r><w:rPr><w:b/></w:rPr><w:t>Bill Number: </w:t></w:r>
+      <w:r><w:t>&lt;BN&gt;</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:r><w:rPr><w:b/></w:rPr><w:t>Customer / Party Name: </w:t></w:r>
+      <w:r><w:t>&lt;PartyName&gt;</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:r><w:rPr><w:b/></w:rPr><w:t>Billing Date: </w:t></w:r>
+      <w:r><w:t>&lt;BillDate&gt;</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:r><w:rPr><w:b/></w:rPr><w:t>Place of Delivery: </w:t></w:r>
+      <w:r><w:t>&lt;DeliveryLoc&gt;</w:t></w:r>
+    </w:p>
+    <w:p><w:r><w:t></w:t></w:r></w:p>
+    
+    <w:tbl>
+      <w:tblPr>
+        <w:tblBorders>
+          <w:top w:val="single" w:sz="6" w:space="0" w:color="0F2050"/>
+          <w:left w:val="single" w:sz="6" w:space="0" w:color="0F2050"/>
+          <w:bottom w:val="single" w:sz="6" w:space="0" w:color="0F2050"/>
+          <w:right w:val="single" w:sz="6" w:space="0" w:color="0F2050"/>
+          <w:insideH w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+          <w:insideV w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+        </w:tblBorders>
+      </w:tblPr>
+      <w:tr>
+        <w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>S/No</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>DATE</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Materials Type</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Trip</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Units</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Each Value ₹</w:t></w:r></w:p></w:tc>
+      </w:tr>
+      <w:tr>
+        <w:tc><w:p><w:r><w:t>&lt;Sno&gt;</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:t>&lt;DateTime&gt;</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:t>&lt;MaterialType&gt;</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:t>&lt;Trip&gt;</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:t>&lt;Units&gt;</w:t></w:r></w:p></w:tc>
+        <w:tc><w:p><w:r><w:t>&lt;Cal1s&gt;</w:t></w:r></w:p></w:tc>
+      </w:tr>
+    </w:tbl>
+  </w:body>
+</w:document>`;
+
+  zip.file('[Content_Types].xml', contentTypesXml);
+  zip.file('_rels/.rels', relsXml);
+  zip.file('word/document.xml', documentXml);
+  
+  return zip.generate({ type: 'base64' });
+}
