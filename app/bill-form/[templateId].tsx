@@ -315,16 +315,7 @@ export default function BillFormScreen() {
       }
 
       let costVal = parseFloat(row[costFieldName] || '0');
-      
-      // Fallback lookup: If costVal is 0 or empty, look up the selected material's preset price
-      if (!costVal || costVal === 0) {
-        const matType = getRowValue(row, ['materialtype', 'materialstype', 'material', 'materials']) || '';
-        const matchedMaterial = materials.find(m => normalizeKey(m.name) === normalizeKey(matType));
-        if (matchedMaterial) {
-          costVal = matchedMaterial.price_per_unit;
-          row[costFieldName] = String(costVal);
-        }
-      }
+      if (isNaN(costVal)) costVal = 0;
       
       // Find calculation / total field in the row case-insensitively
       const calFieldName = Object.keys(row).find(k => {
