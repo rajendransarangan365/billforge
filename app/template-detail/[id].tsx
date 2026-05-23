@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, Alert, Platform, Modal, Switch, TextInput,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,6 +17,8 @@ import { shareAsync } from 'expo-sharing';
 import { generateCustomTemplateDocxBase64 } from '../../src/services/templateParser';
 
 export default function TemplateDetailScreen() {
+  const { width: windowWidth } = useWindowDimensions();
+  const isLargeScreen = windowWidth >= 768;
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams();
@@ -465,9 +468,17 @@ export default function TemplateDetailScreen() {
           </View>
 
           {/* Designer Content */}
-          <View style={styles.designerContent}>
+          <View style={[styles.designerContent, { flexDirection: isLargeScreen ? 'row' : 'column' }]}>
             {/* Sidebar Controls */}
-            <View style={styles.designerSidebar}>
+            <View style={[
+              styles.designerSidebar,
+              {
+                width: isLargeScreen ? 360 : '100%',
+                height: isLargeScreen ? '100%' : 400,
+                borderRightWidth: isLargeScreen ? 1 : 0,
+                borderBottomWidth: isLargeScreen ? 0 : 1,
+              }
+            ]}>
               {/* Tab Selector */}
               <View style={styles.tabSelector}>
                 <TouchableOpacity
@@ -687,11 +698,17 @@ export default function TemplateDetailScreen() {
             </View>
 
             {/* A4 Live Sandbox Canvas */}
-            <View style={styles.designerCanvas}>
+            <View style={[styles.designerCanvas, { padding: isLargeScreen ? Spacing.lg : Spacing.sm }]}>
               <Text style={styles.canvasHeaderTitle}>A4 Interactive Visual Sandbox</Text>
               
               <ScrollView contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
-                <View style={[styles.canvasA4Paper, { borderColor: designerSettings.themeColor }]}>
+                <View style={[
+                  styles.canvasA4Paper, 
+                  { 
+                    borderColor: designerSettings.themeColor,
+                    padding: windowWidth < 500 ? 15 : 30,
+                  }
+                ]}>
                   {/* Shop Details Header Block */}
                   <View style={styles.canvasShopHeader}>
                     {/* Top Row with BN, ShopName, ShopNumber */}
@@ -699,23 +716,43 @@ export default function TemplateDetailScreen() {
                       {/* Left: BN */}
                       <View style={styles.canvasBnContainer}>
                         {bnField ? (
-                          <Text style={[styles.canvasBnText, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>
+                          <Text style={[
+                            styles.canvasBnText, 
+                            { 
+                              fontSize: windowWidth < 500 ? 9 : 12,
+                              fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                            }
+                          ]}>
                             &lt;{bnField.name}&gt;
                           </Text>
                         ) : (
-                          <Text style={styles.canvasMissingFieldPlaceholder}>&lt;BN&gt;</Text>
+                          <Text style={[styles.canvasMissingFieldPlaceholder, { fontSize: windowWidth < 500 ? 9 : 11 }]}>&lt;BN&gt;</Text>
                         )}
                       </View>
 
                       {/* Center: Shop Name */}
                       <View style={styles.canvasShopNameContainer}>
                         {shopNameField ? (
-                          <Text style={[styles.canvasShopNameText, { color: designerSettings.themeColor, fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>
+                          <Text style={[
+                            styles.canvasShopNameText, 
+                            { 
+                              fontSize: windowWidth < 500 ? 15 : 22,
+                              color: designerSettings.themeColor, 
+                              fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                            }
+                          ]}>
                             &lt;{shopNameField.name}&gt;
                           </Text>
                         ) : (
                           <TextInput
-                            style={[styles.canvasShopNameInput, { color: designerSettings.themeColor, fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}
+                            style={[
+                              styles.canvasShopNameInput, 
+                              { 
+                                fontSize: windowWidth < 500 ? 14 : 20,
+                                color: designerSettings.themeColor, 
+                                fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                              }
+                            ]}
                             value={designerSettings.titleText}
                             onChangeText={(val) => setDesignerSettings({ ...designerSettings, titleText: val })}
                             placeholder="&lt;ShopName&gt;"
@@ -726,11 +763,17 @@ export default function TemplateDetailScreen() {
                       {/* Right: Shop Number */}
                       <View style={styles.canvasShopNumContainer}>
                         {shopNumField ? (
-                          <Text style={[styles.canvasShopNumText, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>
+                          <Text style={[
+                            styles.canvasShopNumText, 
+                            { 
+                              fontSize: windowWidth < 500 ? 9 : 11,
+                              fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                            }
+                          ]}>
                             📞 &lt;{shopNumField.name}&gt;
                           </Text>
                         ) : (
-                          <Text style={styles.canvasMissingFieldPlaceholder}>📞 &lt;ShopNumber&gt;</Text>
+                          <Text style={[styles.canvasMissingFieldPlaceholder, { fontSize: windowWidth < 500 ? 9 : 11 }]}>📞 &lt;ShopNumber&gt;</Text>
                         )}
                       </View>
                     </View>
@@ -738,11 +781,17 @@ export default function TemplateDetailScreen() {
                     {/* Sub-header Center: Shop Location */}
                     <View style={styles.canvasShopLocContainer}>
                       {shopLocField ? (
-                        <Text style={[styles.canvasShopLocText, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>
+                        <Text style={[
+                          styles.canvasShopLocText, 
+                          { 
+                            fontSize: windowWidth < 500 ? 10 : 12,
+                            fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                          }
+                        ]}>
                           &lt;{shopLocField.name}&gt;
                         </Text>
                       ) : (
-                        <Text style={styles.canvasMissingFieldPlaceholder}>&lt;ShopLocation&gt;</Text>
+                        <Text style={[styles.canvasMissingFieldPlaceholder, { fontSize: windowWidth < 500 ? 9 : 11 }]}>&lt;ShopLocation&gt;</Text>
                       )}
                     </View>
                   </View>
@@ -751,15 +800,27 @@ export default function TemplateDetailScreen() {
                   <View style={[styles.canvasDividerLine, { backgroundColor: designerSettings.themeColor }]} />
 
                   {/* Customer / Party details grid */}
-                  <View style={styles.canvasCustomerDetailsGrid}>
+                  <View style={[styles.canvasCustomerDetailsGrid, { marginBottom: windowWidth < 500 ? 10 : 20 }]}>
                     {/* Left side: Party Name */}
                     <View style={styles.canvasPartyNameContainer}>
-                      <Text style={[styles.canvasPartyLabel, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>M/s:</Text>
+                      <Text style={[
+                        styles.canvasPartyLabel, 
+                        { 
+                          fontSize: windowWidth < 500 ? 11 : 13,
+                          fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                        }
+                      ]}>M/s:</Text>
                       <View style={styles.canvasSolidUnderline}>
                         {partyNameField ? (
-                          <Text style={[styles.canvasPlaceholderVal, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>&lt;{partyNameField.name}&gt;</Text>
+                          <Text style={[
+                            styles.canvasPlaceholderVal, 
+                            { 
+                              fontSize: windowWidth < 500 ? 9 : 11,
+                              fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                            }
+                          ]}>&lt;{partyNameField.name}&gt;</Text>
                         ) : (
-                          <Text style={styles.canvasMissingFieldPlaceholder}>&lt;PartyName&gt;</Text>
+                          <Text style={[styles.canvasMissingFieldPlaceholder, { fontSize: windowWidth < 500 ? 9 : 11 }]}>&lt;PartyName&gt;</Text>
                         )}
                       </View>
                     </View>
@@ -767,23 +828,47 @@ export default function TemplateDetailScreen() {
                     {/* Right side: Date and Place */}
                     <View style={styles.canvasDatePlaceContainer}>
                       <View style={styles.canvasDateRow}>
-                        <Text style={[styles.canvasPartyLabel, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>Date:</Text>
+                        <Text style={[
+                          styles.canvasPartyLabel, 
+                          { 
+                            fontSize: windowWidth < 500 ? 11 : 13,
+                            fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                          }
+                        ]}>Date:</Text>
                         <View style={styles.canvasSolidUnderlineShort}>
                           {billDateField ? (
-                            <Text style={[styles.canvasPlaceholderVal, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>&lt;{billDateField.name}&gt;</Text>
+                            <Text style={[
+                              styles.canvasPlaceholderVal, 
+                              { 
+                                fontSize: windowWidth < 500 ? 9 : 11,
+                                fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                              }
+                            ]}>&lt;{billDateField.name}&gt;</Text>
                           ) : (
-                            <Text style={styles.canvasMissingFieldPlaceholder}>&lt;BillDate&gt;</Text>
+                            <Text style={[styles.canvasMissingFieldPlaceholder, { fontSize: windowWidth < 500 ? 9 : 11 }]}>&lt;BillDate&gt;</Text>
                           )}
                         </View>
                       </View>
 
-                      <View style={[styles.canvasDateRow, { marginTop: 6 }]}>
-                        <Text style={[styles.canvasPartyLabel, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>Place:</Text>
+                      <View style={[styles.canvasDateRow, { marginTop: windowWidth < 500 ? 3 : 6 }]}>
+                        <Text style={[
+                          styles.canvasPartyLabel, 
+                          { 
+                            fontSize: windowWidth < 500 ? 11 : 13,
+                            fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                          }
+                        ]}>Place:</Text>
                         <View style={styles.canvasSolidUnderlineShort}>
                           {deliveryLocField ? (
-                            <Text style={[styles.canvasPlaceholderVal, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>&lt;{deliveryLocField.name}&gt;</Text>
+                            <Text style={[
+                              styles.canvasPlaceholderVal, 
+                              { 
+                                fontSize: windowWidth < 500 ? 9 : 11,
+                                fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                              }
+                            ]}>&lt;{deliveryLocField.name}&gt;</Text>
                           ) : (
-                            <Text style={styles.canvasMissingFieldPlaceholder}>&lt;DeliveryLoc&gt;</Text>
+                            <Text style={[styles.canvasMissingFieldPlaceholder, { fontSize: windowWidth < 500 ? 9 : 11 }]}>&lt;DeliveryLoc&gt;</Text>
                           )}
                         </View>
                       </View>
@@ -795,8 +880,20 @@ export default function TemplateDetailScreen() {
                     <View style={[styles.canvasCustomHeaderGrid, { borderColor: designerSettings.themeColor }]}>
                       {customHeaderFields.map((field) => (
                         <View key={field.name} style={styles.canvasCustomHeaderItem}>
-                          <Text style={[styles.canvasCustomHeaderLabel, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>{field.label}:</Text>
-                          <Text style={[styles.canvasCustomHeaderVal, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>&lt;{field.name}&gt;</Text>
+                          <Text style={[
+                            styles.canvasCustomHeaderLabel, 
+                            { 
+                              fontSize: windowWidth < 500 ? 9 : 11,
+                              fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                            }
+                          ]}>{field.label}:</Text>
+                          <Text style={[
+                            styles.canvasCustomHeaderVal, 
+                            { 
+                              fontSize: windowWidth < 500 ? 9 : 11,
+                              fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                            }
+                          ]}>&lt;{field.name}&gt;</Text>
                         </View>
                       ))}
                     </View>
@@ -806,9 +903,23 @@ export default function TemplateDetailScreen() {
                   <View style={[styles.canvasTable, { borderColor: designerSettings.themeColor, borderWidth: designerSettings.borderStyle === 'none' ? 0 : 1 }]}>
                     <View style={[styles.canvasTableHeader, { borderBottomColor: designerSettings.themeColor, borderBottomWidth: 1, backgroundColor: '#F8FAFC' }]}>
                       {designerTableFields.map((field) => (
-                        <View key={field.name} style={[styles.canvasTableHeaderCell, { borderColor: designerSettings.themeColor, borderRightWidth: designerSettings.borderStyle === 'none' ? 0 : 1 }]}>
+                        <View key={field.name} style={[
+                          styles.canvasTableHeaderCell, 
+                          { 
+                            borderColor: designerSettings.themeColor, 
+                            borderRightWidth: designerSettings.borderStyle === 'none' ? 0 : 1,
+                            padding: windowWidth < 500 ? 3 : 6,
+                          }
+                        ]}>
                           <TextInput
-                            style={[styles.canvasTableHeaderText, { color: designerSettings.themeColor, fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}
+                            style={[
+                              styles.canvasTableHeaderText, 
+                              { 
+                                fontSize: windowWidth < 500 ? 9 : 11,
+                                color: designerSettings.themeColor, 
+                                fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                              }
+                            ]}
                             value={field.label}
                             onChangeText={(val) => {
                               const idx = designerTableFields.findIndex(f => f.name === field.name);
@@ -822,8 +933,21 @@ export default function TemplateDetailScreen() {
                     {[1, 2].map(rowNum => (
                       <View key={rowNum} style={[styles.canvasTableRow, { borderBottomColor: designerSettings.themeColor, borderBottomWidth: designerSettings.borderStyle === 'none' ? 0 : 1 }]}>
                         {designerTableFields.map((field) => (
-                          <View key={field.name} style={[styles.canvasTableCell, { borderColor: designerSettings.themeColor, borderRightWidth: designerSettings.borderStyle === 'none' ? 0 : 1 }]}>
-                            <Text style={[styles.canvasTableCellText, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>
+                          <View key={field.name} style={[
+                            styles.canvasTableCell, 
+                            { 
+                              borderColor: designerSettings.themeColor, 
+                              borderRightWidth: designerSettings.borderStyle === 'none' ? 0 : 1,
+                              padding: windowWidth < 500 ? 4 : 8,
+                            }
+                          ]}>
+                            <Text style={[
+                              styles.canvasTableCellText, 
+                              { 
+                                fontSize: windowWidth < 500 ? 8 : 10,
+                                fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                              }
+                            ]}>
                               &lt;{field.name}&gt;
                             </Text>
                           </View>
@@ -841,13 +965,38 @@ export default function TemplateDetailScreen() {
                           const isLast = idx === designerTableFields.length - 1;
                           const isSecondLast = idx === designerTableFields.length - 2;
                           return (
-                            <View key={field.name + '_total'} style={[styles.canvasTableCell, { borderColor: designerSettings.themeColor, borderRightWidth: designerSettings.borderStyle === 'none' ? 0 : 1, borderTopWidth: 1, borderTopColor: designerSettings.themeColor }]}>
+                            <View key={field.name + '_total'} style={[
+                              styles.canvasTableCell, 
+                              { 
+                                borderColor: designerSettings.themeColor, 
+                                borderRightWidth: designerSettings.borderStyle === 'none' ? 0 : 1, 
+                                borderTopWidth: 1, 
+                                borderTopColor: designerSettings.themeColor,
+                                padding: windowWidth < 500 ? 4 : 8,
+                              }
+                            ]}>
                               {isSecondLast ? (
-                                <Text style={[styles.canvasTableHeaderText, { color: designerSettings.themeColor, fontWeight: 'bold', fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>
+                                <Text style={[
+                                  styles.canvasTableHeaderText, 
+                                  { 
+                                    fontSize: windowWidth < 500 ? 9 : 11,
+                                    color: designerSettings.themeColor, 
+                                    fontWeight: 'bold', 
+                                    fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                                  }
+                                ]}>
                                   Total
                                 </Text>
                               ) : isLast ? (
-                                <Text style={[styles.canvasTableCellText, { fontWeight: 'bold', color: '#000', fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>
+                                <Text style={[
+                                  styles.canvasTableCellText, 
+                                  { 
+                                    fontSize: windowWidth < 500 ? 8 : 10,
+                                    fontWeight: 'bold', 
+                                    color: '#000', 
+                                    fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                                  }
+                                ]}>
                                   &lt;Total&gt;
                                 </Text>
                               ) : null}
@@ -859,8 +1008,14 @@ export default function TemplateDetailScreen() {
                   </View>
 
                   {/* Signature Section */}
-                  <View style={styles.canvasSignatureSection}>
-                    <Text style={[styles.canvasSignatureText, { fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' }]}>
+                  <View style={[styles.canvasSignatureSection, { marginTop: windowWidth < 500 ? 20 : 40 }]}>
+                    <Text style={[
+                      styles.canvasSignatureText, 
+                      { 
+                        fontSize: windowWidth < 500 ? 11 : 13,
+                        fontFamily: designerSettings.fontFamily === 'Times New Roman' ? 'serif' : designerSettings.fontFamily === 'Courier New' ? 'monospace' : 'sans-serif' 
+                      }
+                    ]}>
                       Receiver's Signature: _________________________
                     </Text>
                   </View>
