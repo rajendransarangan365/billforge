@@ -56,9 +56,26 @@ export function Input({
     outputRange: [error ? Colors.danger : Colors.border, error ? Colors.danger : Colors.accent],
   });
 
+  const backgroundColor = borderAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [
+      error ? Colors.dangerLight : Colors.surfaceElevated,
+      error ? Colors.dangerLight : '#FFFFFF'
+    ],
+  });
+
+  const shadowOpacity = borderAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 0.08],
+  });
+
+  const shadowRadius = borderAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 8],
+  });
+
   const wrapperStyle = [
     styles.inputWrapper,
-    error ? styles.inputError : null,
     !editable && !readOnly ? styles.inputDisabled : null,
   ];
 
@@ -72,7 +89,7 @@ export function Input({
           </Text>
         ) : null}
         <TouchableOpacity
-          style={[styles.inputWrapper, error && styles.inputError]}
+          style={[styles.inputWrapper, { borderColor: error ? Colors.danger : Colors.border, backgroundColor: error ? Colors.dangerLight : Colors.surfaceElevated }]}
           onPress={onPress}
           activeOpacity={0.7}
         >
@@ -103,7 +120,7 @@ export function Input({
           {required ? <Text style={styles.required}> *</Text> : null}
         </Text>
       ) : null}
-      <Animated.View style={[wrapperStyle, { borderColor }]}>
+      <Animated.View style={[wrapperStyle, { borderColor, backgroundColor, shadowOpacity, shadowRadius }]}>
         {icon ? (
           <Ionicons
             name={icon}
@@ -145,6 +162,8 @@ const styles = StyleSheet.create({
     ...Typography.captionSemibold,
     color: Colors.textSecondary,
     marginBottom: Spacing.xs + 2,
+    fontSize: 12,
+    letterSpacing: 0.2,
   },
   labelFocused: {
     color: Colors.accent,
@@ -155,18 +174,14 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surfaceElevated,
     borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg, // 16px rounding for trendy feel
     paddingHorizontal: Spacing.md,
-    minHeight: 50,
-    overflow: 'hidden', // Add overflow: 'hidden' to prevent placeholder bleedout on web/Android
+    minHeight: 52, // 52px taller height
+    shadowColor: Colors.accent,
+    shadowOffset: { width: 0, height: 4 },
   },
-  inputError: {
-    borderColor: Colors.danger,
-    backgroundColor: Colors.dangerLight,
-  },
+  inputError: {},
   inputDisabled: {
     backgroundColor: Colors.divider,
     opacity: 0.6,
@@ -183,7 +198,7 @@ const styles = StyleSheet.create({
     color: Colors.text,
     flex: 1,
     paddingVertical: Spacing.sm + 2,
-    minWidth: 0, // Ensure the native input shrinks correctly in flexboxes
+    minWidth: 0,
     width: '100%',
   },
   inputMultiline: {

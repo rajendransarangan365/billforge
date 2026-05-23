@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
-  TextInput, Modal,
+  TextInput, Modal, Switch,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -40,6 +40,58 @@ export default function BillFormScreen() {
   const [whatsappModalVisible, setWhatsappModalVisible] = useState(false);
   const [whatsappPhone, setWhatsappPhone] = useState('');
   const [sharingWhatsApp, setSharingWhatsApp] = useState(false);
+
+  const [calcSettings, setCalcSettings] = useState({
+    multiplyTrip: true,
+    includeTax: false,
+    taxRate: 18,
+    showTimeInTable: false,
+  });
+
+  const recalculateAllRows = (settings) => {
+    setRowData(prev => {
+      return prev.map(row => {
+        const updatedRow = { ...row };
+        const tripVal = parseFloat(getRowValue(updatedRow, ['trip', 'trips']) || '0');
+        const qtyVal = parseFloat(getRowValue(updatedRow, ['unit', 'units', 'qty', 'quantity']) || '0');
+        
+        let unitVal = 0;
+        if (settings.multiplyTrip) {
+          if (!isNaN(tripVal) && tripVal > 0 && !isNaN(qtyVal) && qtyVal > 0) {
+            unitVal = tripVal * qtyVal;
+          } else if (!isNaN(qtyVal) && qtyVal > 0) {
+            unitVal = qtyVal;
+          } else if (!isNaN(tripVal) && tripVal > 0) {
+            unitVal = tripVal;
+          }
+        } else {
+          if (!isNaN(qtyVal) && qtyVal > 0) {
+            unitVal = qtyVal;
+          }
+        }
+
+        const costFieldName = Object.keys(updatedRow).find(k => {
+          const norm = normalizeKey(k);
+          return norm.includes('cost') || norm.includes('value') || norm.includes('price') || norm.includes('rate');
+        }) || 'MaterialTypeCost';
+        
+        let costVal = parseFloat(updatedRow[costFieldName] || '0');
+        
+        const calFieldName = Object.keys(updatedRow).find(k => {
+          const norm = normalizeKey(k);
+          return norm.startsWith('cal') || norm.includes('total') || norm.includes('amount');
+        });
+
+        if (calFieldName) {
+          if (!isNaN(unitVal) && !isNaN(costVal)) {
+            updatedRow[calFieldName] = String(unitVal * costVal);
+          }
+        }
+        
+        return updatedRow;
+      });
+    });
+  };
 
   // Material selection modal states
   const [materialModalVisible, setMaterialModalVisible] = useState(false);
@@ -247,13 +299,19 @@ export default function BillFormScreen() {
       const tripVal = parseFloat(getRowValue(row, ['trip', 'trips']) || '0');
       const qtyVal = parseFloat(getRowValue(row, ['unit', 'units', 'qty', 'quantity']) || '0');
       
-      if (!isNaN(tripVal) && tripVal > 0 && !isNaN(qtyVal) && qtyVal > 0) {
-        // If both Trip and Units are present and non-zero, total quantity is Trip * Units
-        unitVal = tripVal * qtyVal;
-      } else if (!isNaN(qtyVal) && qtyVal > 0) {
-        unitVal = qtyVal;
-      } else if (!isNaN(tripVal) && tripVal > 0) {
-        unitVal = tripVal;
+      if (calcSettings.multiplyTrip) {
+        if (!isNaN(tripVal) && tripVal > 0 && !isNaN(qtyVal) && qtyVal > 0) {
+          // If both Trip and Units are present and non-zero, total quantity is Trip * Units
+          unitVal = tripVal * qtyVal;
+        } else if (!isNaN(qtyVal) && qtyVal > 0) {
+          unitVal = qtyVal;
+        } else if (!isNaN(tripVal) && tripVal > 0) {
+          unitVal = tripVal;
+        }
+      } else {
+        if (!isNaN(qtyVal) && qtyVal > 0) {
+          unitVal = qtyVal;
+        }
       }
 
       let costVal = parseFloat(row[costFieldName] || '0');
@@ -316,7 +374,7 @@ export default function BillFormScreen() {
   };
 
   const calculateTotal = () => {
-    let total = 0;
+    let subTotal = 0;
     
     // Check if we have Cal fields first (most accurate for this user)
     const calFieldName = tableFields.find(f => {
@@ -327,7 +385,7 @@ export default function BillFormScreen() {
     if (calFieldName) {
       rowData.forEach(row => {
         const val = parseFloat(row[calFieldName]);
-        if (!isNaN(val)) total += val;
+        if (!isNaN(val)) subTotal += val;
       });
     } else {
       // Fallback to last numeric field
@@ -337,15 +395,25 @@ export default function BillFormScreen() {
       if (valueField) {
         rowData.forEach(row => {
           const val = parseFloat(row[valueField.name]);
-          if (!isNaN(val)) total += val;
+          if (!isNaN(val)) subTotal += val;
         });
       }
     }
 
     // Add balance amount
     const balance = parseFloat(getRowValue(headerData, ['balance', 'balanceamount', 'unclearedbalance']) || '0');
+    let total = subTotal;
     if (!isNaN(balance)) {
       total += balance;
+    }
+
+    // Add taxes
+    if (calcSettings.includeTax) {
+      const taxRate = parseFloat(String(calcSettings.taxRate || '18'));
+      if (!isNaN(taxRate) && taxRate > 0) {
+        const taxAmount = subTotal * (taxRate / 100);
+        total += taxAmount;
+      }
     }
     
     return total;
@@ -396,8 +464,39 @@ export default function BillFormScreen() {
     
     const deliveryLoc = getRowValue(headerData, ['deliveryloc', 'place', 'location']) || '';
     const balanceAmount = parseFloat(getRowValue(headerData, ['balance', 'balanceamount', 'unclearedbalance']) || '0') || 0;
-    const subTotal = calculateTotal() - balanceAmount;
-    const grandTotal = subTotal + balanceAmount;
+    
+    // Sum of row amounts (Subtotal before taxes and balance)
+    let subTotal = 0;
+    const calFieldName = tableFields.find(f => {
+      const norm = normalizeKey(f.name);
+      return norm.startsWith('cal') || norm.includes('total') || norm.includes('amount');
+    })?.name;
+    
+    if (calFieldName) {
+      rowData.forEach(row => {
+        const val = parseFloat(row[calFieldName]);
+        if (!isNaN(val)) subTotal += val;
+      });
+    } else {
+      const numericFields = tableFields.filter(f => f.type === 'numeric');
+      const valueField = numericFields.length > 0 ? numericFields[numericFields.length - 1] : null;
+      if (valueField) {
+        rowData.forEach(row => {
+          const val = parseFloat(row[valueField.name]);
+          if (!isNaN(val)) subTotal += val;
+        });
+      }
+    }
+
+    let taxAmount = 0;
+    if (calcSettings.includeTax) {
+      const taxRate = parseFloat(String(calcSettings.taxRate || '18'));
+      if (!isNaN(taxRate) && taxRate > 0) {
+        taxAmount = subTotal * (taxRate / 100);
+      }
+    }
+    
+    const grandTotal = subTotal + balanceAmount + taxAmount;
 
     // Filter out standard fields to get custom header fields
     const normalizedStandardFields = ['bn', 'shopname', 'shoplocation', 'shopnumber', 'partyname', 'billdate', 'deliveryloc', 'total', 'balance', 'balanceamount', 'unclearedbalance'];
@@ -546,13 +645,13 @@ export default function BillFormScreen() {
                             
                             const columnLabelNorm = field.label ? field.label.toLowerCase() : '';
                             
+                            const showTime = calcSettings.showTimeInTable;
                             if (field.type === 'date' || columnLabelNorm === 'date' || columnLabelNorm.includes('date')) {
-                              displayVal = dateStr; // Hide the time part entirely on date/DATE columns!
+                              displayVal = showTime ? `${dateStr} ${timeStr}` : dateStr;
                             } else if (field.type === 'time') {
                               displayVal = timeStr;
                             } else {
-                              // Stack date & time on separate lines so they fit beautifully
-                              displayVal = `${dateStr}\n${timeStr}`;
+                              displayVal = showTime ? `${dateStr}\n${timeStr}` : dateStr;
                             }
                           }
                         } catch (e) {}
@@ -577,19 +676,33 @@ export default function BillFormScreen() {
 
           {/* Footer Totals */}
           <View style={styles.paperTotalsContainer}>
+            {calcSettings.includeTax && (
+              <View style={styles.paperTotalRow}>
+                <Text style={styles.paperTotalLabel}>Subtotal:</Text>
+                <Text style={styles.paperTotalValue}>₹ {formatIndianNumber(subTotal)}</Text>
+              </View>
+            )}
+            {calcSettings.includeTax && (
+              <View style={styles.paperTotalRow}>
+                <Text style={styles.paperTotalLabel}>GST ({calcSettings.taxRate}%):</Text>
+                <Text style={styles.paperTotalValue}>₹ {formatIndianNumber(taxAmount)}</Text>
+              </View>
+            )}
             {balanceAmount > 0 && (
               <>
-                <View style={styles.paperTotalRow}>
-                  <Text style={styles.paperTotalLabel}>Subtotal:</Text>
-                  <Text style={styles.paperTotalValue}>₹ {formatIndianNumber(subTotal)}</Text>
-                </View>
+                {!calcSettings.includeTax && (
+                  <View style={styles.paperTotalRow}>
+                    <Text style={styles.paperTotalLabel}>Subtotal:</Text>
+                    <Text style={styles.paperTotalValue}>₹ {formatIndianNumber(subTotal)}</Text>
+                  </View>
+                )}
                 <View style={styles.paperTotalRow}>
                   <Text style={styles.paperTotalLabel}>Uncleared Balance:</Text>
                   <Text style={styles.paperTotalValue}>₹ {formatIndianNumber(balanceAmount)}</Text>
                 </View>
               </>
             )}
-            <View style={[styles.paperTotalRow, { borderTopWidth: balanceAmount > 0 ? 1 : 0, borderTopColor: '#000', paddingTop: 4 }]}>
+            <View style={[styles.paperTotalRow, { borderTopWidth: (balanceAmount > 0 || calcSettings.includeTax) ? 1 : 0, borderTopColor: '#000', paddingTop: 4 }]}>
               <Text style={[styles.paperTotalLabel, { fontSize: 15, fontWeight: '900' }]}>Total:</Text>
               <Text style={[styles.paperTotalValue, { fontSize: 16, fontWeight: '900' }]}>₹ {formatIndianNumber(grandTotal)}</Text>
             </View>
@@ -649,9 +762,16 @@ export default function BillFormScreen() {
     try {
       const totalAmount = calculateTotal();
       
+      const mergedHeaderData = {
+        ...headerData,
+        calc_multiply_trip: calcSettings.multiplyTrip ? 'true' : 'false',
+        calc_include_tax: calcSettings.includeTax ? 'true' : 'false',
+        calc_tax_rate: String(calcSettings.taxRate),
+        calc_show_time_in_table: calcSettings.showTimeInTable ? 'true' : 'false',
+      };
       const result = await generatePDF({
         companyProfile,
-        headerData,
+        headerData: mergedHeaderData,
         rowData,
         headerFields,
         tableFields,
@@ -725,13 +845,17 @@ export default function BillFormScreen() {
       const headerDataToSave = {
         ...headerData,
         customer_phone: customerPhone,
-        customer_address: customerAddress
+        customer_address: customerAddress,
+        calc_multiply_trip: calcSettings.multiplyTrip ? 'true' : 'false',
+        calc_include_tax: calcSettings.includeTax ? 'true' : 'false',
+        calc_tax_rate: String(calcSettings.taxRate),
+        calc_show_time_in_table: calcSettings.showTimeInTable ? 'true' : 'false',
       };
 
       // Generate PDF (uses original headerData to ensure customer phone/address NEVER print on PDF)
       const pdfResult = await generatePDF({
         companyProfile,
-        headerData,
+        headerData: headerDataToSave,
         rowData,
         headerFields,
         tableFields,
@@ -884,13 +1008,17 @@ export default function BillFormScreen() {
       const headerDataToSave = {
         ...headerData,
         customer_phone: whatsappPhone,
-        customer_address: customerAddress
+        customer_address: customerAddress,
+        calc_multiply_trip: calcSettings.multiplyTrip ? 'true' : 'false',
+        calc_include_tax: calcSettings.includeTax ? 'true' : 'false',
+        calc_tax_rate: String(calcSettings.taxRate),
+        calc_show_time_in_table: calcSettings.showTimeInTable ? 'true' : 'false',
       };
 
       // Generate the PDF (this will write directly to our printWindow on Web!)
       const pdfResult = await generatePDF({
         companyProfile,
-        headerData,
+        headerData: headerDataToSave,
         rowData,
         headerFields,
         tableFields,
@@ -1266,6 +1394,92 @@ export default function BillFormScreen() {
             />
           </Card>
 
+          {/* Calculation & Display Settings Section */}
+          <Card style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <View style={[styles.sectionIconCircle, { backgroundColor: '#EEF0FE' }]}>
+                <Ionicons name="settings-outline" size={18} color={Colors.accent} />
+              </View>
+              <Text style={styles.sectionTitle}>Calculation & Display Settings</Text>
+            </View>
+
+            {/* Multiply Trip Row */}
+            <View style={styles.settingRow}>
+              <View style={styles.settingTextContainer}>
+                <Text style={styles.settingLabel}>Multiply Trip with Cost</Text>
+                <Text style={styles.settingDesc}>
+                  Multiply Trip count by Units and Price for row amount.
+                </Text>
+              </View>
+              <Switch
+                value={calcSettings.multiplyTrip}
+                onValueChange={(val) => {
+                  const newSettings = { ...calcSettings, multiplyTrip: val };
+                  setCalcSettings(newSettings);
+                  recalculateAllRows(newSettings);
+                }}
+                trackColor={{ false: Colors.border, true: Colors.accent }}
+                thumbColor={calcSettings.multiplyTrip ? '#fff' : '#f4f3f4'}
+              />
+            </View>
+
+            <View style={styles.settingDivider} />
+
+            {/* Apply Tax Row */}
+            <View style={styles.settingRow}>
+              <View style={styles.settingTextContainer}>
+                <Text style={styles.settingLabel}>Apply GST / Taxes</Text>
+                <Text style={styles.settingDesc}>
+                  Include GST billing tax to the subtotal of the invoice.
+                </Text>
+              </View>
+              <Switch
+                value={calcSettings.includeTax}
+                onValueChange={(val) => {
+                  setCalcSettings(prev => ({ ...prev, includeTax: val }));
+                }}
+                trackColor={{ false: Colors.border, true: Colors.accent }}
+                thumbColor={calcSettings.includeTax ? '#fff' : '#f4f3f4'}
+              />
+            </View>
+
+            {calcSettings.includeTax && (
+              <View style={styles.taxInputContainer}>
+                <Input
+                  label="GST / Tax Rate (%)"
+                  value={String(calcSettings.taxRate)}
+                  onChangeText={(val) => {
+                    const parsed = parseFloat(val);
+                    setCalcSettings(prev => ({ ...prev, taxRate: isNaN(parsed) ? 0 : parsed }));
+                  }}
+                  placeholder="e.g. 18"
+                  keyboardType="numeric"
+                  icon="percent-outline"
+                />
+              </View>
+            )}
+
+            <View style={styles.settingDivider} />
+
+            {/* Show Time in Table Date Columns */}
+            <View style={styles.settingRow}>
+              <View style={styles.settingTextContainer}>
+                <Text style={styles.settingLabel}>Show Time in Date Columns</Text>
+                <Text style={styles.settingDesc}>
+                  Display both date and time inside table date cells.
+                </Text>
+              </View>
+              <Switch
+                value={calcSettings.showTimeInTable}
+                onValueChange={(val) => {
+                  setCalcSettings(prev => ({ ...prev, showTimeInTable: val }));
+                }}
+                trackColor={{ false: Colors.border, true: Colors.accent }}
+                thumbColor={calcSettings.showTimeInTable ? '#fff' : '#f4f3f4'}
+              />
+            </View>
+          </Card>
+
           {/* Total */}
           {tableFields.some(f => f.type === 'numeric') && (
             <Card style={styles.totalCard}>
@@ -1534,35 +1748,35 @@ const styles = StyleSheet.create({
   partyNameContainer: {
     marginBottom: Spacing.md,
     borderWidth: 1,
-    borderColor: Colors.borderLight,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    backgroundColor: '#F8FAFC',
+    borderColor: 'rgba(79, 106, 245, 0.08)',
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    backgroundColor: 'rgba(79, 106, 245, 0.02)',
   },
   partyNameHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.xs,
+    marginBottom: Spacing.sm,
   },
   partyNameSelectButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EBF5FB',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 0.5,
-    borderColor: 'rgba(52, 152, 219, 0.3)',
+    backgroundColor: Colors.accentSurface,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: 'rgba(79, 106, 245, 0.12)',
   },
   partyNameSelectButtonText: {
-    ...Typography.captionMedium,
-    color: Colors.primary,
+    ...Typography.captionSemibold,
+    color: Colors.accent,
   },
   customerFieldsGroup: {
     flexDirection: 'row',
     gap: Spacing.sm,
-    marginTop: Spacing.xs,
+    marginTop: Spacing.sm,
   },
   customerHalfField: {
     flex: 1,
@@ -1625,12 +1839,16 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xl,
   },
   sectionIconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: BorderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: Spacing.md,
+    shadowColor: 'rgba(15, 32, 80, 0.04)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 4,
   },
   sectionTitle: {
     ...Typography.h3,
@@ -1643,11 +1861,16 @@ const styles = StyleSheet.create({
   },
   rowCard: {
     backgroundColor: Colors.surfaceElevated,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
     marginBottom: Spacing.md,
     borderWidth: 1,
-    borderColor: Colors.borderLight,
+    borderColor: '#EDF1F7',
+    shadowColor: 'rgba(15, 32, 80, 0.02)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 1,
   },
   rowHeader: {
     flexDirection: 'row',
@@ -1682,14 +1905,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: Spacing.md,
     borderWidth: 1.5,
-    borderColor: Colors.primary,
-    borderRadius: BorderRadius.md,
     borderStyle: 'dashed',
-    gap: Spacing.sm,
+    borderColor: Colors.accent,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: 'rgba(79, 106, 245, 0.02)',
+    marginTop: Spacing.sm,
   },
   addRowText: {
-    ...Typography.buttonSmall,
-    color: Colors.primary,
+    ...Typography.bodySemibold,
+    color: Colors.accent,
+    marginLeft: Spacing.xs,
   },
   totalCard: {
     marginBottom: Spacing.lg,
@@ -2042,5 +2267,33 @@ const styles = StyleSheet.create({
     borderBottomColor: '#000',
     marginLeft: 8,
     marginBottom: 2,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.md,
+  },
+  settingTextContainer: {
+    flex: 1,
+    paddingRight: Spacing.md,
+  },
+  settingLabel: {
+    ...Typography.bodySemibold,
+    color: Colors.text,
+  },
+  settingDesc: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  settingDivider: {
+    height: 1,
+    backgroundColor: Colors.divider,
+  },
+  taxInputContainer: {
+    marginTop: -Spacing.xs,
+    marginBottom: Spacing.sm,
+    paddingLeft: Spacing.xs,
   },
 });

@@ -31,25 +31,28 @@ export function Card({ children, style, variant = 'default', noPadding = false }
 const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    shadowColor: Colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
+    borderRadius: BorderRadius.lg + 2, // 18px rounding for an ultra-modern aesthetic
+    padding: Spacing.xl, // More breathing room
+    shadowColor: 'rgba(15, 32, 80, 0.06)', // Ultra-soft subtle shadow
+    shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 1,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowRadius: 24,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#EDF1F7', // Elegant fine border outline
   },
   elevated: {
-    shadowColor: Colors.shadowMedium,
-    shadowOffset: { width: 0, height: 6 },
+    shadowColor: 'rgba(15, 32, 80, 0.10)',
+    shadowOffset: { width: 0, height: 18 },
     shadowOpacity: 1,
-    shadowRadius: 14,
-    elevation: 5,
+    shadowRadius: 36,
+    elevation: 8,
+    borderWidth: 0,
   },
   outlined: {
     shadowOpacity: 0,
     elevation: 0,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: Colors.border,
   },
   tinted: {

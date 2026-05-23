@@ -189,6 +189,18 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
   
   const subTotal = (calFieldName && colTotals[calFieldName]) ? colTotals[calFieldName] : (totalAmount - balanceAmount);
 
+  // Custom calculations settings from headerData
+  const calcMultiplyTrip = headerData.calc_multiply_trip !== 'false';
+  const calcIncludeTax = headerData.calc_include_tax === 'true';
+  const calcTaxRate = parseFloat(headerData.calc_tax_rate || '18');
+  const calcShowTimeInTable = headerData.calc_show_time_in_table === 'true';
+
+  let taxAmount = 0;
+  if (calcIncludeTax) {
+    taxAmount = subTotal * (calcTaxRate / 100);
+  }
+  const grandTotal = subTotal + balanceAmount + taxAmount;
+
   // Extract dynamic custom fields
   const normalizedStandardFields = ['bn', 'shopname', 'shoplocation', 'shopnumber', 'partyname', 'billdate', 'deliveryloc', 'total', 'balance', 'balanceamount', 'unclearedbalance'];
   const customHeaderFields = headerFields.filter(f => !normalizedStandardFields.includes(normalize(f.name)));
@@ -246,7 +258,14 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
         
         let displayVal = val;
         if (field.type === 'date' || field.type === 'time' || field.type === 'datetime') {
-          displayVal = formatDisplayValue(val, field.type);
+          if (field.type === 'date') {
+            displayVal = formatDisplayValue(val, 'date');
+          } else if (field.type === 'time') {
+            displayVal = formatDisplayValue(val, 'time');
+          } else {
+            // For datetime, format based on user's table time format preference
+            displayVal = formatDisplayValue(val, calcShowTimeInTable ? 'datetime' : 'date');
+          }
         } else if (isNumeric && val) {
           const num = parseFloat(val);
           if (!isNaN(num)) {
@@ -262,24 +281,51 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
     // Page-specific table footer rows
     let footerRowsHTML = '';
     if (isLastPage) {
-      if (balanceAmount > 0) {
+      if (calcIncludeTax) {
         footerRowsHTML += `
           <tr>
             <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Subtotal</td>
             <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(subTotal)}</td>
           </tr>
           <tr>
-            <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
-            <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(balanceAmount)}</td>
+            <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">GST (${calcTaxRate}%)</td>
+            <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(taxAmount)}</td>
+          </tr>
+        `;
+        if (balanceAmount > 0) {
+          footerRowsHTML += `
+            <tr>
+              <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
+              <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(balanceAmount)}</td>
+            </tr>
+          `;
+        }
+        footerRowsHTML += `
+          <tr>
+            <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>
+            <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 16px;">${formatIndianNumber(grandTotal)}</td>
+          </tr>
+        `;
+      } else {
+        if (balanceAmount > 0) {
+          footerRowsHTML += `
+            <tr>
+              <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Subtotal</td>
+              <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(subTotal)}</td>
+            </tr>
+            <tr>
+              <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
+              <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(balanceAmount)}</td>
+            </tr>
+          `;
+        }
+        footerRowsHTML += `
+          <tr>
+            <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>
+            <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 16px;">${formatIndianNumber(subTotal + balanceAmount)}</td>
           </tr>
         `;
       }
-      footerRowsHTML += `
-        <tr>
-          <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>
-          <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 16px;">${formatIndianNumber(subTotal + balanceAmount)}</td>
-        </tr>
-      `;
     } else {
       // Multi-page subtotal indicator at the bottom of intermediate tables
       footerRowsHTML += `

@@ -283,7 +283,7 @@ export default function BillPreviewScreen() {
             <Text style={styles.sectionTitle}>Bill Details</Text>
             {Object.entries(headerData).map(([key, value]) => {
               if (!value) return null;
-              if (key === 'customer_phone' || key === 'customer_address') return null;
+              if (key === 'customer_phone' || key === 'customer_address' || key.startsWith('calc_')) return null;
               let displayVal = value;
               if (typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}/)) {
                 try {
