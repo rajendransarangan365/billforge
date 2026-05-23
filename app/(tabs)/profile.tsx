@@ -1,24 +1,20 @@
 // @ts-nocheck
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, SafeAreaView,
+  View, Text, StyleSheet, ScrollView,
   Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Typography, Spacing } from '../../src/theme';
+import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card, Button, Input } from '../../src/components';
 import { getDatabase, getCompanyProfile, saveCompanyProfile } from '../../src/database/db';
 
 export default function ProfileScreen() {
-  const [profile, setProfile] = useState({
-    name: '',
-    address: '',
-    location: '',
-    phone: '',
-  });
+  const insets = useSafeAreaInsets();
+  const [profile, setProfile] = useState({ name: '', address: '', location: '', phone: '' });
   const [saving, setSaving] = useState(false);
-  const [loaded, setLoaded] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -36,8 +32,6 @@ export default function ProfileScreen() {
           }
         } catch (error) {
           console.error('Error loading profile:', error);
-        } finally {
-          setLoaded(true);
         }
       })();
     }, [])
@@ -48,29 +42,31 @@ export default function ProfileScreen() {
       Alert.alert('Required', 'Company name is required.');
       return;
     }
-
     setSaving(true);
     try {
       const db = await getDatabase();
       await saveCompanyProfile(db, profile);
       Alert.alert('Saved', 'Company profile updated successfully.');
     } catch (error) {
-      console.error('Save error:', error);
       Alert.alert('Error', 'Failed to save profile.');
     } finally {
       setSaving(false);
     }
   };
 
-  const updateField = (key, value) => {
-    setProfile(prev => ({ ...prev, [key]: value }));
-  };
+  const updateField = (key, value) => setProfile(prev => ({ ...prev, [key]: value }));
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Company Profile</Text>
-        <Text style={styles.headerSub}>Your business details for bills</Text>
+        <View>
+          <Text style={styles.headerTitle}>Company Profile</Text>
+          <Text style={styles.headerSub}>Business details for bills</Text>
+        </View>
+        <View style={styles.headerIconBox}>
+          <Ionicons name="business" size={22} color={Colors.primary} />
+        </View>
       </View>
 
       <KeyboardAvoidingView
@@ -83,10 +79,19 @@ export default function ProfileScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Info notice */}
+          <View style={styles.infoCard}>
+            <Ionicons name="information-circle" size={18} color={Colors.info} />
+            <Text style={styles.infoText}>
+              This information is automatically used in bill headers when you create new bills.
+            </Text>
+          </View>
+
+          {/* Form card */}
           <Card style={styles.formCard}>
             <View style={styles.sectionHeader}>
-              <View style={styles.sectionIconCircle}>
-                <Ionicons name="business" size={20} color={Colors.primary} />
+              <View style={styles.sectionIconBox}>
+                <Ionicons name="briefcase-outline" size={18} color={Colors.primary} />
               </View>
               <Text style={styles.sectionTitle}>Business Information</Text>
             </View>
@@ -99,25 +104,6 @@ export default function ProfileScreen() {
               icon="business-outline"
               required
             />
-
-            <Input
-              label="Address"
-              value={profile.address}
-              onChangeText={(v) => updateField('address', v)}
-              placeholder="Enter full address"
-              icon="location-outline"
-              multiline
-              numberOfLines={3}
-            />
-
-            <Input
-              label="Location / City"
-              value={profile.location}
-              onChangeText={(v) => updateField('location', v)}
-              placeholder="e.g. Uthukuli, Tirupur - 638751"
-              icon="pin-outline"
-            />
-
             <Input
               label="Phone Number"
               value={profile.phone}
@@ -128,12 +114,31 @@ export default function ProfileScreen() {
             />
           </Card>
 
-          <View style={styles.infoCard}>
-            <Ionicons name="information-circle-outline" size={18} color={Colors.info} />
-            <Text style={styles.infoText}>
-              This information will be automatically filled in the bill header when you create new bills.
-            </Text>
-          </View>
+          <Card style={styles.formCard}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionIconBox}>
+                <Ionicons name="location-outline" size={18} color={Colors.primary} />
+              </View>
+              <Text style={styles.sectionTitle}>Location</Text>
+            </View>
+
+            <Input
+              label="Address"
+              value={profile.address}
+              onChangeText={(v) => updateField('address', v)}
+              placeholder="Enter full address"
+              icon="home-outline"
+              multiline
+              numberOfLines={3}
+            />
+            <Input
+              label="City / Location"
+              value={profile.location}
+              onChangeText={(v) => updateField('location', v)}
+              placeholder="e.g. Uthukuli, Tirupur - 638751"
+              icon="pin-outline"
+            />
+          </Card>
 
           <Button
             title="Save Profile"
@@ -144,11 +149,10 @@ export default function ProfileScreen() {
             icon="checkmark-circle-outline"
             style={styles.saveBtn}
           />
-
-          <View style={{ height: 30 }} />
+          <View style={{ height: Spacing.xxxl }} />
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -158,27 +162,53 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
+    paddingTop: Spacing.md,
     paddingBottom: Spacing.md,
     backgroundColor: Colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderLight,
   },
   headerTitle: {
-    ...Typography.h1,
+    ...Typography.h2,
     color: Colors.text,
   },
   headerSub: {
     ...Typography.caption,
-    color: Colors.textSecondary,
+    color: Colors.textTertiary,
     marginTop: 2,
   },
-  scroll: {
-    flex: 1,
+  headerIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.primarySurface,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  scroll: { flex: 1 },
   scrollContent: {
     padding: Spacing.lg,
+  },
+  infoCard: {
+    flexDirection: 'row',
+    backgroundColor: Colors.infoLight,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.sm,
+    marginBottom: Spacing.lg,
+    alignItems: 'flex-start',
+    borderWidth: 1,
+    borderColor: 'rgba(28, 95, 171, 0.18)',
+  },
+  infoText: {
+    ...Typography.caption,
+    color: Colors.info,
+    flex: 1,
+    lineHeight: 20,
   },
   formCard: {
     marginBottom: Spacing.lg,
@@ -188,11 +218,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.xl,
   },
-  sectionIconCircle: {
+  sectionIconBox: {
     width: 36,
     height: 36,
-    borderRadius: 10,
-    backgroundColor: '#EBF5FB',
+    borderRadius: BorderRadius.sm,
+    backgroundColor: Colors.primarySurface,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: Spacing.md,
@@ -201,22 +231,8 @@ const styles = StyleSheet.create({
     ...Typography.h3,
     color: Colors.text,
   },
-  infoCard: {
-    flexDirection: 'row',
-    backgroundColor: Colors.infoLight,
-    padding: Spacing.md,
-    borderRadius: 10,
-    gap: Spacing.sm,
-    marginBottom: Spacing.xl,
-    alignItems: 'flex-start',
-  },
-  infoText: {
-    ...Typography.caption,
-    color: Colors.info,
-    flex: 1,
-    lineHeight: 20,
-  },
   saveBtn: {
     marginTop: Spacing.sm,
+    marginBottom: Spacing.sm,
   },
 });

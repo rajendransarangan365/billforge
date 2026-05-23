@@ -2,19 +2,21 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, Alert, ActivityIndicator, Platform,
+  Alert, ActivityIndicator, Platform,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
-import { Card, Button, FAB, EmptyState } from '../../src/components';
+import { Card, FAB, EmptyState } from '../../src/components';
 import { getDatabase, getTemplates, saveTemplate, deleteTemplate } from '../../src/database/db';
 import { parseTemplate } from '../../src/services/templateParser';
 
 export default function TemplatesScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -31,11 +33,7 @@ export default function TemplatesScreen() {
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadTemplates();
-    }, [loadTemplates])
-  );
+  useFocusEffect(useCallback(() => { loadTemplates(); }, [loadTemplates]));
 
   const handleUploadTemplate = async () => {
     try {
@@ -46,74 +44,56 @@ export default function TemplatesScreen() {
         ],
         copyToCacheDirectory: true,
       });
-
       if (result.canceled) return;
-
       setUploading(true);
       const file = result.assets[0];
-      
       let base64Content = '';
-      
       if (Platform.OS === 'web') {
-        // Web: Read file using fetch and FileReader
         const response = await fetch(file.uri);
         const blob = await response.blob();
         base64Content = await new Promise((resolve, reject) => {
           const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64String = (reader.result as string).split(',')[1];
-            resolve(base64String);
-          };
+          reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
           reader.onerror = reject;
           reader.readAsDataURL(blob);
         });
       } else {
-        // Mobile: Use expo-file-system
-        base64Content = await FileSystem.readAsStringAsync(file.uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
+        try {
+          base64Content = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.Base64 });
+        } catch (firstErr) {
+          try {
+            const decodedUri = decodeURIComponent(file.uri);
+            base64Content = await FileSystem.readAsStringAsync(decodedUri, { encoding: FileSystem.EncodingType.Base64 });
+          } catch (secondErr) {
+            const safeName = file.name ? file.name.replace(/[^A-Za-z0-9.]/g, '_') : 'temp_template.docx';
+            const tempUri = `${FileSystem.cacheDirectory}${Date.now()}_${safeName}`;
+            try {
+              await FileSystem.copyAsync({ from: file.uri, to: tempUri });
+              base64Content = await FileSystem.readAsStringAsync(tempUri, { encoding: FileSystem.EncodingType.Base64 });
+              try { await FileSystem.deleteAsync(tempUri, { idempotent: true }); } catch (e) {}
+            } catch (copyErr) {
+              throw new Error(`Could not read file: ${copyErr instanceof Error ? copyErr.message : String(copyErr)}`);
+            }
+          }
+        }
       }
-
-      // Parse template to extract fields
       const parsed = parseTemplate(base64Content);
-      
       if (!parsed.success) {
-        Alert.alert('Parsing Error', parsed.error || 'Could not parse the template. Please ensure it contains <FieldName> placeholders.');
-        setUploading(false);
-        return;
+        Alert.alert('Parsing Error', parsed.error || 'Could not parse template. Ensure it has <FieldName> placeholders.');
+        setUploading(false); return;
       }
-
       if (parsed.allFields.length === 0) {
-        Alert.alert(
-          'No Fields Found',
-          'No <FieldName> placeholders were found in this document. Please add placeholders using angle bracket notation like <CustomerName>, <Date>, etc.',
-        );
-        setUploading(false);
-        return;
+        Alert.alert('No Fields Found', 'No <FieldName> placeholders found. Add placeholders like <CustomerName>, <Date>.');
+        setUploading(false); return;
       }
-
-      // Save template name (remove extension)
       const templateName = file.name.replace(/\.(docx|doc)$/i, '');
-      
       const db = await getDatabase();
-      await saveTemplate(db, {
-        name: templateName,
-        file_uri: file.uri,
-        file_base64: base64Content,
-        headerFields: parsed.headerFields,
-        tableFields: parsed.tableFields,
-        allFields: parsed.allFields,
-      });
-
-      Alert.alert(
-        'Template Uploaded',
-        `"${templateName}" uploaded successfully.\n\nDetected ${parsed.headerFields.length} header field(s) and ${parsed.tableFields.length} table field(s).`,
-      );
-
+      await saveTemplate(db, { name: templateName, file_uri: file.uri, file_base64: base64Content, headerFields: parsed.headerFields, tableFields: parsed.tableFields, allFields: parsed.allFields });
+      Alert.alert('Uploaded', `"${templateName}" uploaded.\n${parsed.headerFields.length} header, ${parsed.tableFields.length} table field(s).`);
       await loadTemplates();
     } catch (error) {
-      console.error('Upload error:', error);
-      Alert.alert('Upload Error', 'Failed to upload template. Please try again.');
+      const msg = error instanceof Error ? error.message : String(error);
+      Alert.alert('Upload Error', `Failed to upload template.\n\n${msg}`);
     } finally {
       setUploading(false);
     }
@@ -126,46 +106,43 @@ export default function TemplatesScreen() {
         await deleteTemplate(db, template.id);
         await loadTemplates();
       } catch (error) {
-        console.error('Delete error:', error);
-        Alert.alert('Error', 'Failed to delete template. It might have associated bills.');
+        Alert.alert('Error', 'Failed to delete template. It may have associated bills.');
       }
     };
-
     if (Platform.OS === 'web') {
-      const confirmed = window.confirm(`Are you sure you want to delete "${template.name}"? This cannot be undone.`);
-      if (confirmed) {
-        performDelete();
-      }
+      if (window.confirm(`Delete "${template.name}"?`)) performDelete();
     } else {
-      Alert.alert(
-        'Delete Template',
-        `Are you sure you want to delete "${template.name}"? This cannot be undone.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: performDelete },
-        ],
-      );
+      Alert.alert('Delete Template', `Delete "${template.name}"? This cannot be undone.`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: performDelete },
+      ]);
     }
   };
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Templates</Text>
         </View>
         <View style={styles.loading}>
-          <ActivityIndicator size="large" color={Colors.primary} />
+          <ActivityIndicator size="large" color={Colors.accent} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Templates</Text>
-        <Text style={styles.headerCount}>{templates.length} template(s)</Text>
+        <View>
+          <Text style={styles.headerTitle}>Templates</Text>
+          <Text style={styles.headerCount}>{templates.length} template{templates.length !== 1 ? 's' : ''}</Text>
+        </View>
+        <TouchableOpacity style={styles.uploadBtn} onPress={handleUploadTemplate} activeOpacity={0.8}>
+          <Ionicons name="cloud-upload-outline" size={20} color={Colors.textOnPrimary} />
+          <Text style={styles.uploadBtnText}>Upload</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -174,109 +151,93 @@ export default function TemplatesScreen() {
         showsVerticalScrollIndicator={false}
       >
         {uploading && (
-          <Card style={styles.uploadingCard}>
-            <ActivityIndicator color={Colors.primary} />
-            <Text style={styles.uploadingText}>Parsing template...</Text>
-          </Card>
+          <View style={styles.uploadingBanner}>
+            <ActivityIndicator color={Colors.accent} size="small" />
+            <Text style={styles.uploadingText}>Parsing template…</Text>
+          </View>
         )}
 
         {templates.length === 0 && !uploading ? (
           <EmptyState
             icon="document-attach-outline"
             title="No Templates Yet"
-            message="Upload a Word document (.docx) with <FieldName> placeholders to create your first billing template."
+            message={"Upload a Word document (.docx) with <FieldName> placeholders to create your first billing template."}
           >
-            <Button
-              title="Upload Template"
-              onPress={handleUploadTemplate}
-              icon="cloud-upload-outline"
-              size="lg"
-            />
+            <TouchableOpacity style={styles.emptyUploadBtn} onPress={handleUploadTemplate} activeOpacity={0.8}>
+              <Ionicons name="cloud-upload-outline" size={20} color={Colors.textOnPrimary} style={{ marginRight: 8 }} />
+              <Text style={styles.emptyUploadText}>Upload Template</Text>
+            </TouchableOpacity>
           </EmptyState>
         ) : (
           templates.map((template) => {
             const headerFields = JSON.parse(template.header_fields_json || '[]');
             const tableFields = JSON.parse(template.table_fields_json || '[]');
             const allFields = JSON.parse(template.all_fields_json || '[]');
-
             return (
               <Card key={template.id} style={styles.templateCard}>
-                <View style={styles.templateCardRow}>
-                  {/* Info Area (Touchable for details) */}
-                  <TouchableOpacity 
-                    style={styles.templateMainArea}
-                    onPress={() => router.push(`/template-detail/${template.id}`)}
-                    activeOpacity={0.6}
-                  >
-                    <View style={styles.templateIcon}>
-                      <Ionicons name="document-text" size={22} color={Colors.primary} />
-                    </View>
-                    <View style={styles.templateInfo}>
-                      <Text style={styles.templateName} numberOfLines={1}>{template.name}</Text>
-                      <Text style={styles.templateMeta}>
-                        {allFields.length} field(s) -- {headerFields.length} header, {tableFields.length} table
-                      </Text>
-                      <Text style={styles.templateDate}>
-                        Added {new Date(template.created_at).toLocaleDateString('en-IN')}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-
-                  {/* Actions Area */}
+                {/* Top row */}
+                <TouchableOpacity
+                  style={styles.templateMain}
+                  onPress={() => router.push(`/template-detail/${template.id}`)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.templateIconBox}>
+                    <Ionicons name="document-text" size={22} color={Colors.accent} />
+                  </View>
+                  <View style={styles.templateInfo}>
+                    <Text style={styles.templateName} numberOfLines={1}>{template.name}</Text>
+                    <Text style={styles.templateMeta}>
+                      {allFields.length} field(s) — {headerFields.length} header, {tableFields.length} table
+                    </Text>
+                    <Text style={styles.templateDate}>
+                      Added {new Date(template.created_at).toLocaleDateString('en-IN')}
+                    </Text>
+                  </View>
                   <View style={styles.templateActions}>
                     <TouchableOpacity
-                      style={[styles.actionBtn, { backgroundColor: '#E8F5E9' }]}
+                      style={[styles.iconBtn, { backgroundColor: Colors.successLight }]}
                       onPress={() => router.push(`/bill-form/${template.id}`)}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Ionicons name="add-circle" size={24} color={Colors.success} />
+                      <Ionicons name="add-circle" size={20} color={Colors.success} />
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.actionBtn, { backgroundColor: '#FFEBEE' }]}
+                      style={[styles.iconBtn, { backgroundColor: Colors.dangerLight }]}
                       onPress={() => handleDeleteTemplate(template)}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Ionicons name="trash" size={20} color={Colors.danger} />
+                      <Ionicons name="trash-outline" size={18} color={Colors.danger} />
                     </TouchableOpacity>
                   </View>
-                </View>
+                </TouchableOpacity>
 
-                {/* Field Tags */}
-                <TouchableOpacity 
-                  onPress={() => router.push(`/template-detail/${template.id}`)}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.fieldTags}>
-                    {allFields.slice(0, 6).map((field, idx) => (
-                      <View key={idx} style={[
-                        styles.tag,
-                        tableFields.some(tf => tf.name === field.name) && styles.tagTable,
-                      ]}>
-                        <Text style={[
-                          styles.tagText,
-                          tableFields.some(tf => tf.name === field.name) && styles.tagTextTable,
-                        ]}>
-                          {field.label}
-                        </Text>
-                      </View>
-                    ))}
-                    {allFields.length > 6 && (
+                {/* Field tags */}
+                {allFields.length > 0 && (
+                  <View style={styles.tagRow}>
+                    {allFields.slice(0, 7).map((field, idx) => {
+                      const isTable = tableFields.some(tf => tf.name === field.name);
+                      return (
+                        <View key={idx} style={[styles.tag, isTable && styles.tagTable]}>
+                          <Text style={[styles.tagText, isTable && styles.tagTextTable]}>{field.label}</Text>
+                        </View>
+                      );
+                    })}
+                    {allFields.length > 7 && (
                       <View style={styles.tagMore}>
-                        <Text style={styles.tagMoreText}>+{allFields.length - 6}</Text>
+                        <Text style={styles.tagMoreText}>+{allFields.length - 7}</Text>
                       </View>
                     )}
                   </View>
-                </TouchableOpacity>
+                )}
               </Card>
             );
           })
         )}
-
-        <View style={{ height: 80 }} />
+        <View style={{ height: 100 }} />
       </ScrollView>
 
-      <FAB icon="add" onPress={handleUploadTemplate} />
-    </SafeAreaView>
+      <FAB icon="add" onPress={handleUploadTemplate} bgColor={Colors.accent} />
+    </View>
   );
 }
 
@@ -288,65 +249,88 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
+    alignItems: 'center',
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
+    paddingTop: Spacing.md,
     paddingBottom: Spacing.md,
     backgroundColor: Colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderLight,
   },
   headerTitle: {
-    ...Typography.h1,
+    ...Typography.h2,
     color: Colors.text,
   },
   headerCount: {
     ...Typography.caption,
     color: Colors.textTertiary,
+    marginTop: 2,
+  },
+  uploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    gap: Spacing.xs,
+  },
+  uploadBtnText: {
+    ...Typography.captionSemibold,
+    color: Colors.textOnPrimary,
   },
   loading: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  scroll: {
-    flex: 1,
-  },
+  scroll: { flex: 1 },
   scrollContent: {
     padding: Spacing.lg,
   },
-  uploadingCard: {
+  uploadingBanner: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: Colors.accentSurface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
     marginBottom: Spacing.lg,
-    backgroundColor: Colors.infoLight,
-    borderWidth: 0,
+    gap: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.accentLight,
   },
   uploadingText: {
     ...Typography.bodyMedium,
-    color: Colors.info,
-    marginLeft: Spacing.md,
+    color: Colors.accent,
+  },
+  emptyUploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.accent,
+    paddingHorizontal: Spacing.xxl,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+  },
+  emptyUploadText: {
+    ...Typography.button,
+    color: Colors.textOnPrimary,
   },
   templateCard: {
     marginBottom: Spacing.md,
+    padding: Spacing.md,
   },
-  templateCardRow: {
+  templateMain: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  templateIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#EBF5FB',
+  templateIconBox: {
+    width: 46,
+    height: 46,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.accentSurface,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: Spacing.md,
-  },
-  templateMainArea: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   templateInfo: {
     flex: 1,
@@ -367,13 +351,18 @@ const styles = StyleSheet.create({
   },
   templateActions: {
     flexDirection: 'row',
-    gap: Spacing.md,
+    gap: Spacing.sm,
     alignItems: 'center',
+    marginLeft: Spacing.sm,
   },
-  actionBtn: {
-    padding: 4,
+  iconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: BorderRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  fieldTags: {
+  tagRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.xs + 2,
@@ -386,10 +375,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     paddingHorizontal: Spacing.sm + 2,
     paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.sm,
+    borderRadius: BorderRadius.xs,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
   },
   tagTable: {
-    backgroundColor: '#FFF3CD',
+    backgroundColor: Colors.amberSurface,
+    borderColor: Colors.amberLight,
   },
   tagText: {
     ...Typography.small,
@@ -398,16 +390,17 @@ const styles = StyleSheet.create({
   },
   tagTextTable: {
     color: Colors.warning,
+    fontWeight: '600',
   },
   tagMore: {
     backgroundColor: Colors.divider,
     paddingHorizontal: Spacing.sm + 2,
     paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.sm,
+    borderRadius: BorderRadius.xs,
   },
   tagMoreText: {
     ...Typography.small,
     color: Colors.textTertiary,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

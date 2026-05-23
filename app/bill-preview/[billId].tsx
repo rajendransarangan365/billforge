@@ -1,10 +1,11 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, TouchableOpacity,
+  View, Text, StyleSheet, TouchableOpacity,
   Alert, ActivityIndicator, ScrollView, Modal, KeyboardAvoidingView, Platform, Linking,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card, Button, Input } from '../../src/components';
@@ -13,6 +14,7 @@ import { generatePDF, sharePDF } from '../../src/services/pdfGenerator';
 
 export default function BillPreviewScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { billId } = useLocalSearchParams();
   const [bill, setBill] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -184,24 +186,24 @@ export default function BillPreviewScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color={Colors.primary} />
+          <ActivityIndicator size="large" color={Colors.accent} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (!bill) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={22} color={Colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Bill Not Found</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -209,7 +211,7 @@ export default function BillPreviewScreen() {
   const rowData = JSON.parse(bill.row_data_json || '[]');
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
@@ -452,7 +454,7 @@ export default function BillPreviewScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -521,7 +523,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 14,
-    backgroundColor: '#EBF5FB',
+    backgroundColor: Colors.accentSurface,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: Spacing.md,

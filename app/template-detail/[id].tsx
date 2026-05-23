@@ -1,10 +1,11 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, SafeAreaView,
+  View, Text, StyleSheet, ScrollView,
   TouchableOpacity, Alert, Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card, Button } from '../../src/components';
@@ -12,6 +13,7 @@ import { getDatabase, getTemplateById, deleteTemplate } from '../../src/database
 
 export default function TemplateDetailScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams();
   const [template, setTemplate] = useState(null);
   const [headerFields, setHeaderFields] = useState([]);
@@ -82,16 +84,16 @@ export default function TemplateDetailScreen() {
 
   if (!template) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.centered}>
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
@@ -137,7 +139,7 @@ export default function TemplateDetailScreen() {
             <Card style={styles.fieldListCard}>
               {headerFields.map((field, idx) => (
                 <View key={idx} style={[styles.fieldItem, idx > 0 && styles.fieldItemBorder]}>
-                  <View style={[styles.fieldIconCircle, { backgroundColor: '#EBF5FB' }]}>
+                  <View style={[styles.fieldIconCircle, { backgroundColor: Colors.primarySurface }]}>
                     <Ionicons name={getFieldIcon(field.type)} size={16} color={Colors.primary} />
                   </View>
                   <View style={styles.fieldInfo}>
@@ -161,14 +163,14 @@ export default function TemplateDetailScreen() {
             <Card style={styles.fieldListCard}>
               {tableFields.map((field, idx) => (
                 <View key={idx} style={[styles.fieldItem, idx > 0 && styles.fieldItemBorder]}>
-                  <View style={[styles.fieldIconCircle, { backgroundColor: '#FFF3CD' }]}>
+                  <View style={[styles.fieldIconCircle, { backgroundColor: Colors.amberSurface }]}>
                     <Ionicons name={getFieldIcon(field.type)} size={16} color={Colors.warning} />
                   </View>
                   <View style={styles.fieldInfo}>
                     <Text style={styles.fieldLabel}>{field.label}</Text>
                     <Text style={styles.fieldCode}>&lt;{field.name}&gt;</Text>
                   </View>
-                  <View style={[styles.typeBadge, { backgroundColor: '#FFF3CD' }]}>
+                  <View style={[styles.typeBadge, { backgroundColor: Colors.amberSurface }]}>
                     <Text style={[styles.typeBadgeText, { color: Colors.warning }]}>{field.type}</Text>
                   </View>
                 </View>
@@ -190,7 +192,7 @@ export default function TemplateDetailScreen() {
 
         <View style={{ height: 30 }} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 

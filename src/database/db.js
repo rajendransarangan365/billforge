@@ -182,11 +182,11 @@ export async function getNextBillNumber(db) {
   if (IS_WEB) {
     const bills = webGetItems('billforge_bills') || [];
     const count = bills.length;
-    return `BN-${(count + 1).toString().padStart(4, '0')}`;
+    return (count + 1).toString().padStart(4, '0');
   }
   const result = await db.getFirstAsync('SELECT COUNT(*) as count FROM bills');
   const count = result?.count || 0;
-  return `BN-${(count + 1).toString().padStart(4, '0')}`;
+  return (count + 1).toString().padStart(4, '0');
 }
 
 // === Materials ===

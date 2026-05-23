@@ -2,9 +2,10 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, Alert, Modal, ActivityIndicator, KeyboardAvoidingView, Platform,
+  Alert, Modal, ActivityIndicator, KeyboardAvoidingView, Platform, TextInput,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
 import { Card, Button, Input } from '../src/components';
@@ -12,6 +13,7 @@ import { getDatabase, getCustomers, saveCustomer, deleteCustomer } from '../src/
 
 export default function CustomersScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -132,7 +134,7 @@ export default function CustomersScreen() {
   });
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -152,16 +154,23 @@ export default function CustomersScreen() {
       {/* Search Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
-          <Ionicons name="search-outline" size={20} color={Colors.textTertiary} style={styles.searchIcon} />
-          <Input
+          <Ionicons name="search-outline" size={18} color={Colors.textTertiary} />
+          <TextInput
+            style={styles.searchInput}
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Search by name or phone..."
-            style={styles.searchInput}
-            containerStyle={styles.searchInputContainer}
-            showClear={searchQuery.length > 0}
-            onClear={() => setSearchQuery('')}
+            placeholder="Search by name or phone…"
+            placeholderTextColor={Colors.textTertiary}
+            returnKeyType="search"
           />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close-circle" size={18} color={Colors.textTertiary} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -324,7 +333,7 @@ export default function CustomersScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -366,22 +375,22 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   addBtn: {
-    backgroundColor: '#8E44AD',
+    backgroundColor: '#8B3FC8',
     width: 42,
     height: 42,
     borderRadius: 21,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#8E44AD',
+    shadowColor: '#8B3FC8',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 3,
   },
   searchContainer: {
     backgroundColor: Colors.surface,
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.sm + 2,
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderLight,
   },
@@ -390,23 +399,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.background,
     borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
     paddingHorizontal: Spacing.md,
     height: 46,
-  },
-  searchIcon: {
-    marginRight: Spacing.xs,
-  },
-  searchInputContainer: {
-    flex: 1,
-    marginBottom: 0,
-    borderWidth: 0,
-    backgroundColor: 'transparent',
-    paddingHorizontal: 0,
+    gap: Spacing.sm,
   },
   searchInput: {
-    height: '100%',
-    paddingVertical: 0,
     ...Typography.body,
+    flex: 1,
+    color: Colors.text,
+    paddingVertical: 0,
   },
   scroll: {
     flex: 1,
@@ -431,14 +434,14 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#F3E5F5',
+    backgroundColor: '#F3E5FB',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: Spacing.md,
   },
   avatarText: {
     ...Typography.bodySemibold,
-    color: '#8E44AD',
+    color: '#8B3FC8',
     fontSize: 18,
   },
   customerMeta: {
@@ -479,7 +482,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm,
   },
   editBtn: {
-    backgroundColor: '#EBF5FB',
+    backgroundColor: Colors.primarySurface,
   },
   editBtnText: {
     ...Typography.small,
@@ -487,7 +490,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   deleteBtn: {
-    backgroundColor: '#FDEDEC',
+    backgroundColor: Colors.dangerLight,
   },
   deleteBtnText: {
     ...Typography.small,

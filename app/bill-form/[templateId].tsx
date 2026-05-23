@@ -1,11 +1,12 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, SafeAreaView,
+  View, Text, StyleSheet, ScrollView,
   TouchableOpacity, Alert, KeyboardAvoidingView, Platform,
   TextInput, Modal,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card, Button, Input, DateTimePickerInput } from '../../src/components';
@@ -26,6 +27,7 @@ const getRowValue = (row: any, targetNames: string[]) => {
 
 export default function BillFormScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { templateId } = useLocalSearchParams();
   const [template, setTemplate] = useState(null);
   const [headerFields, setHeaderFields] = useState([]);
@@ -35,6 +37,9 @@ export default function BillFormScreen() {
   const [companyProfile, setCompanyProfile] = useState({});
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [whatsappModalVisible, setWhatsappModalVisible] = useState(false);
+  const [whatsappPhone, setWhatsappPhone] = useState('');
+  const [sharingWhatsApp, setSharingWhatsApp] = useState(false);
 
   // Material selection modal states
   const [materialModalVisible, setMaterialModalVisible] = useState(false);
@@ -491,61 +496,84 @@ export default function BillFormScreen() {
             </View>
           )}
 
-          {/* Data Table */}
-          <View style={styles.paperTable}>
-            {/* Table Header */}
-            <View style={styles.paperTableHeader}>
-              {activeTableFields.map(f => {
-                let label = f.label;
-                const norm = normalizeKey(f.name);
-                if (norm.startsWith('cal') || norm.includes('total') || norm.includes('amount')) label = 'Each Value ₹';
-                if (['materialtype', 'materialstype', 'material', 'materials'].includes(norm)) label = 'Materials Type';
-                if (norm === 'sno' || norm === 'slno') label = 'S/No';
-                if (norm.includes('date')) label = 'DATE';
-                
-                const isNumeric = f.type === 'numeric' || norm.startsWith('cal') || norm.includes('total') || norm.includes('amount') || f.isVirtual;
-                return (
-                  <View key={f.name} style={[styles.paperTableHeaderCell, isNumeric && { alignItems: 'flex-end', justifyContent: 'center' }]}>
-                    <Text style={styles.paperTableHeaderText}>{label}</Text>
-                  </View>
-                );
-              })}
-            </View>
+          {/* Data Table (Wrapped in a horizontally scrollable container on mobile to prevent squishing) */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ width: '100%' }}>
+            <View style={{ minWidth: 550 }}>
+              <View style={styles.paperTable}>
+                {/* Table Header */}
+                <View style={styles.paperTableHeader}>
+                  {activeTableFields.map(f => {
+                    let label = f.label;
+                    const norm = normalizeKey(f.name);
+                    if (norm.startsWith('cal') || norm.includes('total') || norm.includes('amount')) label = 'Each Value ₹';
+                    if (['materialtype', 'materialstype', 'material', 'materials'].includes(norm)) label = 'Materials Type';
+                    if (norm === 'sno' || norm === 'slno') label = 'S/No';
+                    if (norm.includes('date')) label = 'DATE';
+                    
+                    const isNumeric = f.type === 'numeric' || norm.startsWith('cal') || norm.includes('total') || norm.includes('amount') || f.isVirtual;
+                    return (
+                      <View key={f.name} style={[styles.paperTableHeaderCell, isNumeric && { alignItems: 'flex-end', justifyContent: 'center' }]}>
+                        <Text style={styles.paperTableHeaderText}>{label}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
 
-            {/* Table Rows */}
-            {displayRows.map((row, idx) => (
-              <View key={idx} style={styles.paperTableRow}>
-                {activeTableFields.map(field => {
-                  const val = row[field.name] || '';
-                  const norm = normalizeKey(field.name);
-                  const isNumeric = field.type === 'numeric' || norm.startsWith('cal') || norm.includes('total') || norm.includes('amount') || field.isVirtual;
-                  
-                  let displayVal = val;
-                  if ((field.type === 'date' || field.type === 'time' || field.type === 'datetime') && val) {
-                    try {
-                      const dObj = new Date(val);
-                      if (!isNaN(dObj.getTime())) {
-                        if (field.type === 'date') displayVal = dObj.toLocaleDateString('en-IN');
-                        else if (field.type === 'time') displayVal = dObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-                        else displayVal = dObj.toLocaleDateString('en-IN') + ' ' + dObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+                {/* Table Rows */}
+                {displayRows.map((row, idx) => (
+                  <View key={idx} style={styles.paperTableRow}>
+                    {activeTableFields.map(field => {
+                      const val = row[field.name] || '';
+                      const norm = normalizeKey(field.name);
+                      const isNumeric = field.type === 'numeric' || norm.startsWith('cal') || norm.includes('total') || norm.includes('amount') || field.isVirtual;
+                      
+                      let displayVal = val;
+                      if ((field.type === 'date' || field.type === 'time' || field.type === 'datetime') && val) {
+                        try {
+                          const dObj = new Date(val);
+                          if (!isNaN(dObj.getTime())) {
+                            const day = String(dObj.getDate()).padStart(2, '0');
+                            const month = String(dObj.getMonth() + 1).padStart(2, '0');
+                            const year = String(dObj.getFullYear()).slice(-2);
+                            const dateStr = `${day}-${month}-${year}`; // e.g. 23-05-26
+                            
+                            let hours = dObj.getHours();
+                            const ampm = hours >= 12 ? 'PM' : 'AM';
+                            hours = hours % 12;
+                            hours = hours ? hours : 12;
+                            const min = String(dObj.getMinutes()).padStart(2, '0');
+                            const timeStr = `${String(hours).padStart(2, '0')}:${min} ${ampm}`;
+                            
+                            const columnLabelNorm = field.label ? field.label.toLowerCase() : '';
+                            
+                            if (field.type === 'date' || columnLabelNorm === 'date' || columnLabelNorm.includes('date')) {
+                              displayVal = dateStr; // Hide the time part entirely on date/DATE columns!
+                            } else if (field.type === 'time') {
+                              displayVal = timeStr;
+                            } else {
+                              // Stack date & time on separate lines so they fit beautifully
+                              displayVal = `${dateStr}\n${timeStr}`;
+                            }
+                          }
+                        } catch (e) {}
+                      } else if (isNumeric && val) {
+                        const num = parseFloat(val);
+                        if (!isNaN(num)) {
+                          displayVal = formatIndianNumber(num);
+                        }
                       }
-                    } catch (e) {}
-                  } else if (isNumeric && val) {
-                    const num = parseFloat(val);
-                    if (!isNaN(num)) {
-                      displayVal = formatIndianNumber(num);
-                    }
-                  }
 
-                  return (
-                    <View key={field.name} style={[styles.paperTableCell, isNumeric && { alignItems: 'flex-end' }]}>
-                      <Text style={styles.paperTableCellText}>{displayVal}</Text>
-                    </View>
-                  );
-                })}
+                      return (
+                        <View key={field.name} style={[styles.paperTableCell, isNumeric && { alignItems: 'flex-end' }]}>
+                          <Text style={styles.paperTableCellText}>{displayVal}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
+            </View>
+          </ScrollView>
 
           {/* Footer Totals */}
           <View style={styles.paperTotalsContainer}>
@@ -788,6 +816,194 @@ export default function BillFormScreen() {
     }
   };
 
+  const handleSaveAndShareWhatsAppPress = () => {
+    // Find customer phone from state or pre-existing customer records to pre-populate
+    setWhatsappPhone(customerPhone || '');
+    setWhatsappModalVisible(true);
+  };
+
+  const confirmSaveAndShareWhatsApp = async () => {
+    setWhatsappModalVisible(false);
+    setSaving(true);
+    setSharingWhatsApp(true);
+    
+    // Open the print and WhatsApp windows immediately in the user-initiated handler to bypass popup blockers!
+    let printWindow = null;
+    let waWindow = null;
+    
+    // Format WhatsApp number
+    let formattedPhone = whatsappPhone.trim().replace(/[\s+-]/g, '');
+    if (formattedPhone.length === 10) {
+      formattedPhone = `91${formattedPhone}`; // Standard India country code
+    }
+    
+    if (Platform.OS === 'web') {
+      // 1. Open placeholder window for printing
+      printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.open();
+        printWindow.document.write('<html><head><title>Preparing Invoice PDF...</title><style>body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #666; }</style></head><body><div><h2>Generating invoice PDF...</h2><p>Please wait a moment.</p></div></body></html>');
+        printWindow.document.close();
+      }
+      
+      // 2. Open placeholder window for WhatsApp Web
+      waWindow = window.open('', '_blank');
+      if (waWindow) {
+        waWindow.document.open();
+        waWindow.document.write('<html><head><title>Opening WhatsApp...</title><style>body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #666; }</style></head><body><div><h2>Preparing WhatsApp chat...</h2><p>Please wait.</p></div></body></html>');
+        waWindow.document.close();
+      }
+    }
+
+    try {
+      const db = await getDatabase();
+      const totalAmount = calculateTotal();
+      const billNumber = headerData.BN || `BF-${Date.now().toString(36).toUpperCase()}`;
+      
+      const customerName = getRowValue(headerData, ['partyname', 'customername', 'clientname', 'name']) || '';
+
+      // Auto-save/update customer details in DB
+      if (customerName && customerName.trim() !== '') {
+        const existing = customers.find(c => normalizeKey(c.name) === normalizeKey(customerName));
+        const customerData = {
+          name: customerName,
+          phone: whatsappPhone || '',
+          address: customerAddress || ''
+        };
+        if (existing) {
+          if (existing.phone !== whatsappPhone || existing.address !== customerAddress) {
+            await saveCustomer(db, { ...existing, ...customerData });
+          }
+        } else {
+          await saveCustomer(db, customerData);
+        }
+        await loadCustomers();
+      }
+
+      // Save confirmed number in header
+      const headerDataToSave = {
+        ...headerData,
+        customer_phone: whatsappPhone,
+        customer_address: customerAddress
+      };
+
+      // Generate the PDF (this will write directly to our printWindow on Web!)
+      const pdfResult = await generatePDF({
+        companyProfile,
+        headerData,
+        rowData,
+        headerFields,
+        tableFields,
+        templateName: template.name,
+        totalAmount,
+        printWindow, // pass the print window to draw the PDF
+      });
+
+      let pdfUri = '';
+      if (pdfResult.success && Platform.OS !== 'web') {
+        pdfUri = await savePDFPermanently(pdfResult.uri, billNumber);
+      }
+
+      // Save bill record in DB
+      await saveBill(db, {
+        template_id: parseInt(templateId),
+        company_id: 1,
+        bill_number: billNumber,
+        customer_name: customerName,
+        headerData: headerDataToSave,
+        rowData,
+        total_amount: totalAmount,
+        pdf_uri: pdfUri,
+      });
+
+      const shopNameStr = getRowValue(headerData, ['shopname', 'companyname']) || companyProfile.name || template.name;
+      const messageText = `Dear Customer, here is your invoice (No: ${billNumber}) from ${shopNameStr}. Total Amount: Rs. ${formatIndianNumber(totalAmount)}. Thank you for your business!`;
+      const encodedMsg = encodeURIComponent(messageText);
+
+      // On Mobile (built Android/iOS app): Trigger native sharing of the PDF itself so the actual PDF gets sent!
+      if (Platform.OS !== 'web' && pdfUri) {
+        await sharePDF(pdfUri);
+        
+        // Also open WhatsApp chat message if phone is provided
+        if (formattedPhone) {
+          const waUrl = `whatsapp://send?phone=${formattedPhone}&text=${encodedMsg}`;
+          try {
+            const { Linking } = require('react-native');
+            const supported = await Linking.canOpenURL(waUrl);
+            if (supported) {
+              setTimeout(() => {
+                Linking.openURL(waUrl);
+              }, 1200);
+            }
+          } catch (e) {
+            console.error('Error opening WhatsApp chat:', e);
+          }
+        }
+      } else {
+        // On Web Browsers: Redirect our already open waWindow to WhatsApp Web!
+        if (waWindow) {
+          const webWaUrl = `https://wa.me/${formattedPhone || ''}?text=${encodedMsg}`;
+          waWindow.location.href = webWaUrl;
+        }
+      }
+
+      Alert.alert(
+        'Success',
+        `Bill "${billNumber}" saved and shared successfully.`,
+        [
+          {
+            text: 'Create Another',
+            onPress: async () => {
+              try {
+                setCustomerPhone('');
+                setCustomerAddress('');
+                const db = await getDatabase();
+                const nextBn = await getNextBillNumber(db);
+                const hData = {};
+                headerFields.forEach(f => { 
+                  const norm = normalizeKey(f.name);
+                  if (f.type === 'date' || f.type === 'datetime') {
+                    hData[f.name] = new Date().toISOString();
+                  } else if (norm === 'bn' || norm === 'billnumber' || norm === 'billno') {
+                    hData[f.name] = nextBn;
+                  } else if (companyProfile && (norm === 'shopname' || norm === 'companyname')) {
+                    hData[f.name] = companyProfile.name || '';
+                  } else if (companyProfile && (norm === 'shoplocation' || norm === 'shopaddress' || norm === 'address')) {
+                    hData[f.name] = companyProfile.location || companyProfile.address || '';
+                  } else if (companyProfile && (norm === 'shopnumber' || norm === 'shopphone' || norm === 'phone')) {
+                    hData[f.name] = companyProfile.phone || '';
+                  } else {
+                    hData[f.name] = ''; 
+                  }
+                });
+                setHeaderData(hData);
+                const rowInit = {};
+                tableFields.forEach(f => { 
+                  if (f.type === 'date' || f.type === 'datetime' || f.type === 'time') {
+                    rowInit[f.name] = new Date().toISOString();
+                  } else {
+                    rowInit[f.name] = ''; 
+                  }
+                });
+                setRowData([{ ...rowInit }]);
+              } catch (err) {
+                console.error('Error resetting form:', err);
+              }
+            }
+          },
+          { text: 'OK' }
+        ]
+      );
+    } catch (error) {
+      console.error('Save & Share WhatsApp Error:', error);
+      if (printWindow) printWindow.close();
+      Alert.alert('Error', 'Failed to save and share bill.');
+    } finally {
+      setSaving(false);
+      setSharingWhatsApp(false);
+    }
+  };
+
   const renderField = (field, value, onChange) => {
     const isPartyName = ['partyname', 'customername', 'clientname', 'name'].includes(normalizeKey(field.name));
 
@@ -826,7 +1042,7 @@ export default function BillFormScreen() {
                 label="Customer Phone (Optional)"
                 value={customerPhone}
                 onChangeText={setCustomerPhone}
-                placeholder="Internal only (won't appear in PDF)"
+                placeholder="Won't show on PDF"
                 keyboardType="phone-pad"
                 icon="call-outline"
               />
@@ -836,7 +1052,7 @@ export default function BillFormScreen() {
                 label="Resident Address (Optional)"
                 value={customerAddress}
                 onChangeText={setCustomerAddress}
-                placeholder="Internal only (won't appear in PDF)"
+                placeholder="Won't show on PDF"
                 icon="home-outline"
               />
             </View>
@@ -893,16 +1109,16 @@ export default function BillFormScreen() {
 
   if (!template) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.centered}>
           <Text style={styles.loadingText}>Loading template...</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
@@ -992,10 +1208,14 @@ export default function BillFormScreen() {
                                 onPress={() => openMaterialPicker(rowIndex, field.name)}
                                 activeOpacity={0.7}
                               >
-                                <Text style={[styles.dropdownText, !row[field.name] && styles.placeholder]}>
-                                  {row[field.name] || 'Select Material'}
+                                <Text
+                                  style={[styles.dropdownText, !row[field.name] && styles.placeholder]}
+                                  numberOfLines={1}
+                                  ellipsizeMode="tail"
+                                >
+                                  {row[field.name] || 'Select...'}
                                 </Text>
-                                <Ionicons name="chevron-down" size={16} color={Colors.textTertiary} />
+                                <Ionicons name="chevron-down" size={14} color={Colors.textTertiary} style={{ marginLeft: 4 }} />
                               </TouchableOpacity>
                             </View>
                           ) : (field.type === 'date' || field.type === 'time' || field.type === 'datetime') ? (
@@ -1064,11 +1284,21 @@ export default function BillFormScreen() {
             <Button
               title="Save Bill"
               onPress={handleSaveBill}
-              loading={saving}
+              loading={saving && !sharingWhatsApp}
               variant="primary"
               fullWidth
               size="lg"
               icon="save-outline"
+              style={styles.actionBtn}
+            />
+            <Button
+              title="Save & Share on WhatsApp"
+              onPress={handleSaveAndShareWhatsAppPress}
+              loading={saving && sharingWhatsApp}
+              variant="success"
+              fullWidth
+              size="lg"
+              icon="logo-whatsapp"
               style={styles.actionBtn}
             />
             <Button
@@ -1230,7 +1460,60 @@ export default function BillFormScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+
+      {/* WhatsApp Number Prompt Modal */}
+      <Modal
+        visible={whatsappModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setWhatsappModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="logo-whatsapp" size={22} color={Colors.success} />
+                <Text style={styles.modalTitle}>Confirm WhatsApp Number</Text>
+              </View>
+              <TouchableOpacity onPress={() => setWhatsappModalVisible(false)} style={styles.closeBtn}>
+                <Ionicons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={{ paddingHorizontal: 24, paddingVertical: 20 }}>
+              <Text style={{ ...Typography.bodyMedium, color: Colors.textSecondary, marginBottom: 16 }}>
+                Do you want to send the invoice PDF to this WhatsApp number? You can edit the number below if needed.
+              </Text>
+              
+              <Input
+                label="WhatsApp Number (10 digits)"
+                value={whatsappPhone}
+                onChangeText={setWhatsappPhone}
+                placeholder="Enter 10-digit WhatsApp number"
+                keyboardType="phone-pad"
+                icon="call-outline"
+              />
+
+              <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+                <Button
+                  title="Cancel"
+                  onPress={() => setWhatsappModalVisible(false)}
+                  variant="secondary"
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  title="Send Invoice"
+                  onPress={confirmSaveAndShareWhatsApp}
+                  variant="success"
+                  style={{ flex: 1.2 }}
+                  icon="send"
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -1435,8 +1718,8 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
   },
   dropdownLabel: {
-    ...Typography.captionMedium,
-    color: Colors.text,
+    ...Typography.captionSemibold,
+    color: Colors.textSecondary,
     marginBottom: Spacing.xs + 2,
   },
   dropdownButton: {
@@ -1447,13 +1730,15 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     borderRadius: BorderRadius.md,
     paddingHorizontal: Spacing.md,
-    minHeight: 46,
+    minHeight: 50, // Matches Input minHeight perfectly!
+    overflow: 'hidden',
   },
   dropdownText: {
     ...Typography.body,
     color: Colors.text,
     flex: 1,
-    paddingVertical: Spacing.sm + 2,
+    paddingVertical: 0, // Perfectly centers text vertically!
+    minWidth: 0,
   },
   placeholder: {
     color: Colors.textTertiary,

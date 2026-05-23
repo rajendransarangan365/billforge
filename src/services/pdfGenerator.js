@@ -157,8 +157,7 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
     );
   });
 
-  // Build table rows
-  let tableRowsHTML = '';
+  // 1. Pre-calculate totals across all rowData first (essential for multi-page invoices)
   let colTotals = {};
   activeTableFields.forEach(f => {
     const norm = normalize(f.name);
@@ -167,35 +166,19 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
     }
   });
 
-  if (rowData.length > 0) {
-    // Ensure we have at least a few empty rows for that "bill book" look if needed
-    const displayRows = [...rowData];
-    while (displayRows.length < 5) displayRows.push({});
-
-    displayRows.forEach((row, idx) => {
-      tableRowsHTML += '<tr>';
-      activeTableFields.forEach(field => {
-        const val = row[field.name] || '';
-        const normName = normalize(field.name);
-        const isNumeric = field.type === 'numeric' || normName.startsWith('cal') || normName.includes('total') || normName.includes('amount') || field.isVirtual;
-        const align = isNumeric ? 'right' : 'center';
-        
-        let displayVal = val;
-        if (field.type === 'date' || field.type === 'time' || field.type === 'datetime') {
-          displayVal = formatDisplayValue(val, field.type);
-        } else if (isNumeric && val) {
-          const num = parseFloat(val);
-          if (!isNaN(num)) {
-            displayVal = formatIndianNumber(num);
-            if (idx < rowData.length) colTotals[field.name] = (colTotals[field.name] || 0) + num;
-          }
+  rowData.forEach(row => {
+    activeTableFields.forEach(field => {
+      const val = row[field.name] || '';
+      const normName = normalize(field.name);
+      const isNumeric = field.type === 'numeric' || normName.startsWith('cal') || normName.includes('total') || normName.includes('amount') || field.isVirtual;
+      if (isNumeric && val) {
+        const num = parseFloat(val);
+        if (!isNaN(num)) {
+          colTotals[field.name] = (colTotals[field.name] || 0) + num;
         }
-        
-        tableRowsHTML += `<td style="border: 1px solid #000; padding: 10px 6px; text-align: ${align}; font-size: 13px; height: 35px; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; max-width: 150px;">${displayVal}</td>`;
-      });
-      tableRowsHTML += '</tr>';
+      }
     });
-  }
+  });
 
   // Calculate grand total
   const calFieldName = activeTableFields.find(f => {
@@ -227,27 +210,138 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
     customFieldsHTML += '</div>';
   }
 
-  // Footer totals and balance rows
-  const colSpan = activeTableFields.length - 1;
-  let footerRowsHTML = '';
-  if (balanceAmount > 0) {
-    footerRowsHTML += `
-      <tr>
-        <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Subtotal</td>
-        <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(subTotal)}</td>
-      </tr>
-      <tr>
-        <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
-        <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(balanceAmount)}</td>
-      </tr>
-    `;
+  // 2. Chunk rowData into exactly 10 materials per page
+  const chunks = [];
+  for (let i = 0; i < rowData.length; i += 10) {
+    chunks.push(rowData.slice(i, i + 10));
   }
-  footerRowsHTML += `
-    <tr>
-      <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>
-      <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 16px;">${formatIndianNumber(subTotal + balanceAmount)}</td>
-    </tr>
-  `;
+  if (chunks.length === 0) {
+    chunks.push([{}]); // Render at least one blank row on one page
+  }
+
+  const colSpan = activeTableFields.length - 1;
+  let pagesHTML = '';
+
+  chunks.forEach((chunk, pageIdx) => {
+    const isLastPage = pageIdx === chunks.length - 1;
+    const pageNumText = chunks.length > 1 ? `<div style="text-align: right; font-size: 11px; margin-bottom: 5px; font-style: italic; font-weight: bold;">Page ${pageIdx + 1} of ${chunks.length}</div>` : '';
+    
+    // Build rows HTML for this page's chunk
+    let tableRowsHTML = '';
+    const displayRows = [...chunk];
+    
+    // Pad to 5 rows if it's the last page and too short (to preserve the formal "bill book" layout)
+    if (isLastPage) {
+      while (displayRows.length < 5) displayRows.push({});
+    }
+
+    displayRows.forEach((row, idx) => {
+      tableRowsHTML += '<tr>';
+      activeTableFields.forEach(field => {
+        const val = row[field.name] || '';
+        const normName = normalize(field.name);
+        const isNumeric = field.type === 'numeric' || normName.startsWith('cal') || normName.includes('total') || normName.includes('amount') || field.isVirtual;
+        const align = isNumeric ? 'right' : 'center';
+        
+        let displayVal = val;
+        if (field.type === 'date' || field.type === 'time' || field.type === 'datetime') {
+          displayVal = formatDisplayValue(val, field.type);
+        } else if (isNumeric && val) {
+          const num = parseFloat(val);
+          if (!isNaN(num)) {
+            displayVal = formatIndianNumber(num);
+          }
+        }
+        
+        tableRowsHTML += `<td style="border: 1px solid #000; padding: 10px 6px; text-align: ${align}; font-size: 13px; height: 35px; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; max-width: 150px;">${displayVal}</td>`;
+      });
+      tableRowsHTML += '</tr>';
+    });
+
+    // Page-specific table footer rows
+    let footerRowsHTML = '';
+    if (isLastPage) {
+      if (balanceAmount > 0) {
+        footerRowsHTML += `
+          <tr>
+            <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Subtotal</td>
+            <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(subTotal)}</td>
+          </tr>
+          <tr>
+            <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
+            <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(balanceAmount)}</td>
+          </tr>
+        `;
+      }
+      footerRowsHTML += `
+        <tr>
+          <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>
+          <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 16px;">${formatIndianNumber(subTotal + balanceAmount)}</td>
+        </tr>
+      `;
+    } else {
+      // Multi-page subtotal indicator at the bottom of intermediate tables
+      footerRowsHTML += `
+        <tr>
+          <td colspan="${activeTableFields.length}" style="border: 1px solid #000; padding: 12px; font-weight: bold; text-align: right; font-size: 13px; font-style: italic; background-color: #FDFEFE; letter-spacing: 0.5px; color: #555;">
+            Continued on next page...
+          </td>
+        </tr>
+      `;
+    }
+
+    pagesHTML += `
+      <div class="page-container" style="${isLastPage ? '' : 'page-break-after: always;'}">
+        ${pageNumText}
+        <div class="header-section">
+          <div class="top-row">
+            <div class="bn">${billNumber}</div>
+            <div class="shop-name">${companyName}</div>
+            <div class="shop-phone">Phone: ${companyPhone}</div>
+          </div>
+          <div class="shop-loc">${companyAddress}</div>
+        </div>
+
+        <div class="info-section">
+          <div class="party-info">
+            M/s: <span class="underline" style="min-width: 350px;">${partyName}</span>
+          </div>
+          <div class="date-place">
+            Date: <span class="underline" style="min-width: 120px;">${billDate}</span><br/>
+            Place: <span class="underline" style="min-width: 120px; margin-top: 8px;">${deliveryLoc}</span>
+          </div>
+        </div>
+
+        ${customFieldsHTML}
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              ${activeTableFields.map(f => {
+                let label = f.label;
+                const norm = normalize(f.name);
+                if (norm.startsWith('cal')) label = 'Each Value ₹';
+                if (['materialtype', 'materialstype', 'material', 'materials'].includes(norm)) label = 'Materials Type';
+                if (norm === 'sno' || norm === 'slno') label = 'S/No';
+                if (norm.includes('date')) label = 'DATE';
+                return `<th>${label}</th>`;
+              }).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHTML}
+            ${footerRowsHTML}
+          </tbody>
+        </table>
+
+        ${isLastPage ? `
+          <div class="signature">
+            Receiver's Signature: <span class="sig-line"></span>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  });
 
   return `
     <!DOCTYPE html>
@@ -256,14 +350,20 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
       <meta charset="utf-8">
       <style>
         @page { 
-          size: auto;
+          size: A4;
           margin: 0mm; 
         }
         body { 
           font-family: 'Times New Roman', Times, serif; 
           color: #000; 
+          margin: 0;
+          padding: 0;
+          background-color: #fff;
+        }
+        .page-container {
           padding: 15mm 20mm;
-          line-height: 1.2;
+          box-sizing: border-box;
+          page-break-inside: avoid;
         }
         .header-section { margin-bottom: 25px; }
         .top-row { display: flex; justify-content: space-between; align-items: flex-start; }
@@ -290,55 +390,12 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
         .data-table th { border: 1px solid #000; padding: 10px; font-size: 14px; text-align: center; font-weight: bold; word-wrap: break-word; overflow-wrap: break-word; }
         .data-table td { border: 1px solid #000; }
         
-        .signature { margin-top: 100px; font-size: 15px; }
+        .signature { margin-top: 60px; font-size: 15px; page-break-inside: avoid; }
         .sig-line { border-bottom: 1px solid #000; display: inline-block; width: 300px; margin-left: 10px; }
       </style>
     </head>
     <body>
-      <div class="header-section">
-        <div class="top-row">
-          <div class="bn">${billNumber}</div>
-          <div class="shop-name">${companyName}</div>
-          <div class="shop-phone">Phone: ${companyPhone}</div>
-        </div>
-        <div class="shop-loc">${companyAddress}</div>
-      </div>
-
-      <div class="info-section">
-        <div class="party-info">
-          M/s: <span class="underline" style="min-width: 350px;">${partyName}</span>
-        </div>
-        <div class="date-place">
-          Date: <span class="underline" style="min-width: 120px;">${billDate}</span><br/>
-          Place: <span class="underline" style="min-width: 120px; margin-top: 8px;">${deliveryLoc}</span>
-        </div>
-      </div>
-
-      ${customFieldsHTML}
-
-      <table class="data-table">
-        <thead>
-          <tr>
-            ${activeTableFields.map(f => {
-              let label = f.label;
-              const norm = normalize(f.name);
-              if (norm.startsWith('cal')) label = 'Each Value ₹';
-              if (['materialtype', 'materialstype', 'material', 'materials'].includes(norm)) label = 'Materials Type';
-              if (norm === 'sno' || norm === 'slno') label = 'S/No';
-              if (norm.includes('date')) label = 'DATE';
-              return `<th>${label}</th>`;
-            }).join('')}
-          </tr>
-        </thead>
-        <tbody>
-          ${tableRowsHTML}
-          ${footerRowsHTML}
-        </tbody>
-      </table>
-
-      <div class="signature">
-        Receiver's Signature: <span class="sig-line"></span>
-      </div>
+      ${pagesHTML}
     </body>
     </html>
   `;

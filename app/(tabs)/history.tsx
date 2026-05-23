@@ -2,17 +2,18 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, TextInput, ActivityIndicator,
+  TextInput, ActivityIndicator, Alert,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card, EmptyState } from '../../src/components';
 import { getDatabase, getBills, deleteBill } from '../../src/database/db';
-import { Alert } from 'react-native';
 
 export default function HistoryScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [bills, setBills] = useState([]);
   const [filteredBills, setFilteredBills] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,44 +32,33 @@ export default function HistoryScreen() {
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadBills();
-    }, [loadBills])
-  );
+  useFocusEffect(useCallback(() => { loadBills(); }, [loadBills]));
 
   const handleSearch = (query) => {
     setSearchQuery(query);
-    if (!query.trim()) {
-      setFilteredBills(bills);
-      return;
-    }
+    if (!query.trim()) { setFilteredBills(bills); return; }
     const lower = query.toLowerCase();
-    const filtered = bills.filter(bill =>
-      (bill.customer_name || '').toLowerCase().includes(lower) ||
-      (bill.bill_number || '').toLowerCase().includes(lower) ||
-      (bill.template_name || '').toLowerCase().includes(lower)
-    );
-    setFilteredBills(filtered);
+    setFilteredBills(bills.filter(b =>
+      (b.customer_name || '').toLowerCase().includes(lower) ||
+      (b.bill_number || '').toLowerCase().includes(lower) ||
+      (b.template_name || '').toLowerCase().includes(lower)
+    ));
   };
 
   const handleDeleteBill = (bill) => {
     Alert.alert(
       'Delete Bill',
-      `Delete bill "${bill.customer_name || bill.bill_number || `#${bill.id}`}"?`,
+      `Delete "${bill.customer_name || bill.bill_number || `Bill #${bill.id}`}"?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
-          style: 'destructive',
+          text: 'Delete', style: 'destructive',
           onPress: async () => {
             try {
               const db = await getDatabase();
               await deleteBill(db, bill.id);
               await loadBills();
-            } catch (error) {
-              console.error('Delete error:', error);
-            }
+            } catch (error) { console.error('Delete error:', error); }
           },
         },
       ],
@@ -78,49 +68,50 @@ export default function HistoryScreen() {
   const formatCurrency = (amount) => {
     if (!amount) return 'Rs. 0';
     const str = Math.round(amount).toString();
-    let result = '';
-    let count = 0;
+    let result = ''; let count = 0;
     for (let i = str.length - 1; i >= 0; i--) {
       if (count === 3 || (count > 3 && (count - 3) % 2 === 0)) result = ',' + result;
-      result = str[i] + result;
-      count++;
+      result = str[i] + result; count++;
     }
-    return `Rs. ${result}`;
+    return `Rs.\u00A0${result}`;
   };
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Bill History</Text>
         </View>
         <View style={styles.loading}>
-          <ActivityIndicator size="large" color={Colors.primary} />
+          <ActivityIndicator size="large" color={Colors.accent} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Bill History</Text>
-        <Text style={styles.headerCount}>{bills.length} bill(s)</Text>
+        <View>
+          <Text style={styles.headerTitle}>Bill History</Text>
+          <Text style={styles.headerCount}>{bills.length} bill{bills.length !== 1 ? 's' : ''}</Text>
+        </View>
       </View>
 
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
+      {/* Search bar */}
+      <View style={styles.searchWrap}>
         <View style={styles.searchBar}>
-          <Ionicons name="search" size={18} color={Colors.textTertiary} />
+          <Ionicons name="search-outline" size={18} color={Colors.textTertiary} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search by customer, bill number..."
+            placeholder="Search customer, bill number…"
             placeholderTextColor={Colors.textTertiary}
             value={searchQuery}
             onChangeText={handleSearch}
+            returnKeyType="search"
           />
           {searchQuery ? (
-            <TouchableOpacity onPress={() => handleSearch('')}>
+            <TouchableOpacity onPress={() => handleSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="close-circle" size={18} color={Colors.textTertiary} />
             </TouchableOpacity>
           ) : null}
@@ -136,20 +127,20 @@ export default function HistoryScreen() {
           <EmptyState
             icon="time-outline"
             title={searchQuery ? 'No Results' : 'No Bills Yet'}
-            message={searchQuery ? 'No bills match your search criteria.' : 'Create your first bill to see it here.'}
+            message={searchQuery ? 'No bills match your search.' : 'Create your first bill and it will appear here.'}
           />
         ) : (
           filteredBills.map((bill) => (
             <TouchableOpacity
               key={bill.id}
-              activeOpacity={0.7}
+              activeOpacity={0.75}
               onPress={() => router.push(`/bill-preview/${bill.id}`)}
               onLongPress={() => handleDeleteBill(bill)}
             >
               <Card style={styles.billCard}>
                 <View style={styles.billRow}>
-                  <View style={styles.billIconCircle}>
-                    <Ionicons name="receipt-outline" size={20} color={Colors.primary} />
+                  <View style={styles.billIconBox}>
+                    <Ionicons name="receipt-outline" size={20} color={Colors.accent} />
                   </View>
                   <View style={styles.billInfo}>
                     <Text style={styles.billCustomer} numberOfLines={1}>
@@ -158,26 +149,24 @@ export default function HistoryScreen() {
                     <Text style={styles.billTemplate}>{bill.template_name || 'Custom'}</Text>
                     <Text style={styles.billDate}>
                       {new Date(bill.created_at).toLocaleDateString('en-IN', {
-                        day: '2-digit',
-                        month: 'short',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
+                        day: '2-digit', month: 'short', year: 'numeric',
                       })}
                     </Text>
                   </View>
                   <View style={styles.billRight}>
                     <Text style={styles.billAmount}>{formatCurrency(bill.total_amount)}</Text>
-                    <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+                    <View style={styles.chevronWrap}>
+                      <Ionicons name="chevron-forward" size={14} color={Colors.textTertiary} />
+                    </View>
                   </View>
                 </View>
               </Card>
             </TouchableOpacity>
           ))
         )}
-        <View style={{ height: 30 }} />
+        <View style={{ height: 24 }} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -189,29 +178,29 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
+    alignItems: 'center',
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
+    paddingTop: Spacing.md,
     paddingBottom: Spacing.md,
     backgroundColor: Colors.surface,
-    borderBottomWidth: 0,
   },
   headerTitle: {
-    ...Typography.h1,
+    ...Typography.h2,
     color: Colors.text,
   },
   headerCount: {
     ...Typography.caption,
     color: Colors.textTertiary,
+    marginTop: 2,
   },
   loading: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  searchContainer: {
+  searchWrap: {
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm + 2,
+    paddingVertical: Spacing.sm,
     backgroundColor: Colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderLight,
@@ -222,8 +211,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     borderRadius: BorderRadius.md,
     paddingHorizontal: Spacing.md,
-    height: 40,
+    height: 44,
     gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
   },
   searchInput: {
     ...Typography.body,
@@ -231,31 +222,28 @@ const styles = StyleSheet.create({
     color: Colors.text,
     paddingVertical: 0,
   },
-  scroll: {
-    flex: 1,
-  },
+  scroll: { flex: 1 },
   scrollContent: {
     padding: Spacing.lg,
   },
   billCard: {
-    marginBottom: Spacing.sm + 2,
+    marginBottom: Spacing.sm,
+    paddingVertical: Spacing.md,
   },
   billRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  billIconCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: '#EBF5FB',
+  billIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.accentSurface,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: Spacing.md,
   },
-  billInfo: {
-    flex: 1,
-  },
+  billInfo: { flex: 1 },
   billCustomer: {
     ...Typography.bodySemibold,
     color: Colors.text,
@@ -263,7 +251,7 @@ const styles = StyleSheet.create({
   billTemplate: {
     ...Typography.caption,
     color: Colors.textSecondary,
-    marginTop: 1,
+    marginTop: 2,
   },
   billDate: {
     ...Typography.small,
@@ -272,10 +260,18 @@ const styles = StyleSheet.create({
   },
   billRight: {
     alignItems: 'flex-end',
-    gap: 4,
+    gap: 6,
   },
   billAmount: {
-    ...Typography.bodySemibold,
+    ...Typography.captionSemibold,
     color: Colors.success,
+  },
+  chevronWrap: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: Colors.divider,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
