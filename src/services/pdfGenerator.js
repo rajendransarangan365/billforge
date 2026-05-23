@@ -26,6 +26,9 @@ export async function generatePDF({
   templateName = 'Invoice',
   totalAmount = 0,
   printWindow = null,
+  themeColor = null,
+  fontFamily = null,
+  borderStyle = null,
 }) {
   try {
     const html = buildHTML({
@@ -36,6 +39,9 @@ export async function generatePDF({
       tableFields,
       templateName,
       totalAmount,
+      themeColor,
+      fontFamily,
+      borderStyle,
     });
 
     if (Platform.OS === 'web') {
@@ -113,7 +119,19 @@ export async function savePDFPermanently(tempUri, billNumber) {
 /**
  * Build the HTML template for the PDF.
  */
-function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFields, templateName, totalAmount }) {
+function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFields, templateName, totalAmount, themeColor, fontFamily, borderStyle }) {
+  const primaryThemeColor = themeColor || '#0F2050';
+  const selectedFont = fontFamily || 'Arial';
+  const selectedBorderStyle = borderStyle || 'single';
+
+  let cssFontStack = "Arial, sans-serif";
+  if (selectedFont === 'Georgia') cssFontStack = "Georgia, serif";
+  else if (selectedFont === 'Times New Roman') cssFontStack = "'Times New Roman', Times, serif";
+  else if (selectedFont === 'Courier New') cssFontStack = "'Courier New', Courier, monospace";
+
+  const borderStyleCss = selectedBorderStyle === 'none' ? 'border: none; border-bottom: 1px solid #EEEEEE;' : selectedBorderStyle === 'double' ? 'border: 3px double ' + primaryThemeColor + ';' : selectedBorderStyle === 'fine' ? 'border: 1px solid #DDDDDD;' : 'border: 1px solid ' + primaryThemeColor + ';';
+  const tableHeaderBg = selectedBorderStyle === 'none' ? 'transparent' : '#F8FAFC';
+
   const normalize = (name) => name ? name.toLowerCase().replace(/[\s_-]/g, '') : '';
   const getFieldVal = (obj, targets) => {
     const matchedKey = Object.keys(obj || {}).find(k => targets.includes(normalize(k)));
@@ -208,7 +226,7 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
   let customFieldsHTML = '';
   if (customHeaderFields.length > 0) {
     customFieldsHTML = `
-      <div style="display: flex; flex-wrap: wrap; margin-top: 15px; margin-bottom: 15px; font-size: 14px; border: 1.5px solid #000; padding: 12px; border-radius: 4px; gap: 8px 0; font-family: 'Times New Roman', Times, serif;">
+      <div style="display: flex; flex-wrap: wrap; margin-top: 15px; margin-bottom: 15px; font-size: 14px; border: 1.5px solid ${primaryThemeColor}; padding: 12px; border-radius: 4px; gap: 8px 0; font-family: ${cssFontStack};">
     `;
     customHeaderFields.forEach(f => {
       const val = formatDisplayValue(headerData[f.name], f.type);
@@ -273,7 +291,7 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
           }
         }
         
-        tableRowsHTML += `<td style="border: 1px solid #000; padding: 10px 6px; text-align: ${align}; font-size: 13px; height: 35px; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; max-width: 150px;">${displayVal}</td>`;
+        tableRowsHTML += `<td style="border: ${borderStyleCss}; padding: 10px 6px; text-align: ${align}; font-size: 13px; height: 35px; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; max-width: 150px;">${displayVal}</td>`;
       });
       tableRowsHTML += '</tr>';
     });
@@ -284,45 +302,45 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
       if (calcIncludeTax) {
         footerRowsHTML += `
           <tr>
-            <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Subtotal</td>
-            <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(subTotal)}</td>
+            <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Subtotal</td>
+            <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(subTotal)}</td>
           </tr>
           <tr>
-            <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">GST (${calcTaxRate}%)</td>
-            <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(taxAmount)}</td>
+            <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">GST (${calcTaxRate}%)</td>
+            <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(taxAmount)}</td>
           </tr>
         `;
         if (balanceAmount > 0) {
           footerRowsHTML += `
             <tr>
-              <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
-              <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(balanceAmount)}</td>
+              <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
+              <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(balanceAmount)}</td>
             </tr>
           `;
         }
         footerRowsHTML += `
           <tr>
-            <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>
-            <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 16px;">${formatIndianNumber(grandTotal)}</td>
+            <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>
+            <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 16px;">${formatIndianNumber(grandTotal)}</td>
           </tr>
         `;
       } else {
         if (balanceAmount > 0) {
           footerRowsHTML += `
             <tr>
-              <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Subtotal</td>
-              <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(subTotal)}</td>
+              <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Subtotal</td>
+              <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(subTotal)}</td>
             </tr>
             <tr>
-              <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
-              <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(balanceAmount)}</td>
+              <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
+              <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(balanceAmount)}</td>
             </tr>
           `;
         }
         footerRowsHTML += `
           <tr>
-            <td colspan="${colSpan}" style="border: 1px solid #000; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>
-            <td style="border: 1px solid #000; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 16px;">${formatIndianNumber(subTotal + balanceAmount)}</td>
+            <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>
+            <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 16px;">${formatIndianNumber(subTotal + balanceAmount)}</td>
           </tr>
         `;
       }
@@ -330,7 +348,7 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
       // Multi-page subtotal indicator at the bottom of intermediate tables
       footerRowsHTML += `
         <tr>
-          <td colspan="${activeTableFields.length}" style="border: 1px solid #000; padding: 12px; font-weight: bold; text-align: right; font-size: 13px; font-style: italic; background-color: #FDFEFE; letter-spacing: 0.5px; color: #555;">
+          <td colspan="${activeTableFields.length}" style="border: ${borderStyleCss}; padding: 12px; font-weight: bold; text-align: right; font-size: 13px; font-style: italic; background-color: #FDFEFE; letter-spacing: 0.5px; color: #555;">
             Continued on next page...
           </td>
         </tr>
@@ -365,13 +383,7 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
           <thead>
             <tr>
               ${activeTableFields.map(f => {
-                let label = f.label;
-                const norm = normalize(f.name);
-                if (norm.startsWith('cal')) label = 'Each Value ₹';
-                if (['materialtype', 'materialstype', 'material', 'materials'].includes(norm)) label = 'Materials Type';
-                if (norm === 'sno' || norm === 'slno') label = 'S/No';
-                if (norm.includes('date')) label = 'DATE';
-                return `<th>${label}</th>`;
+                return `<th style="border: ${borderStyleCss}; background-color: ${tableHeaderBg}; color: ${primaryThemeColor}; padding: 10px; font-size: 14px; text-align: center; font-weight: bold; word-wrap: break-word; overflow-wrap: break-word;">${f.label || f.name}</th>`;
               }).join('')}
             </tr>
           </thead>
@@ -401,7 +413,7 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
           margin: 0mm; 
         }
         body { 
-          font-family: 'Times New Roman', Times, serif; 
+          font-family: ${cssFontStack}; 
           color: #000; 
           margin: 0;
           padding: 0;
@@ -424,6 +436,7 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
           letter-spacing: 2px;
           word-wrap: break-word;
           overflow-wrap: break-word;
+          color: ${primaryThemeColor};
         }
         .shop-phone { font-size: 14px; text-align: right; width: 180px; font-weight: bold; }
         .shop-loc { text-align: center; font-size: 14px; margin-top: -5px; font-weight: bold; }
@@ -434,8 +447,8 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
         .underline { border-bottom: 1px dotted #000; display: inline-block; min-width: 150px; padding-bottom: 2px; }
         
         .data-table { width: 100%; border-collapse: collapse; margin-bottom: 0px; }
-        .data-table th { border: 1px solid #000; padding: 10px; font-size: 14px; text-align: center; font-weight: bold; word-wrap: break-word; overflow-wrap: break-word; }
-        .data-table td { border: 1px solid #000; }
+        .data-table th { border: ${borderStyleCss}; padding: 10px; font-size: 14px; text-align: center; font-weight: bold; word-wrap: break-word; overflow-wrap: break-word; }
+        .data-table td { border: ${borderStyleCss}; }
         
         .signature { margin-top: 60px; font-size: 15px; page-break-inside: avoid; }
         .sig-line { border-bottom: 1px solid #000; display: inline-block; width: 300px; margin-left: 10px; }

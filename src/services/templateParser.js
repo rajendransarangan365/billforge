@@ -358,3 +358,375 @@ export function generateDefaultTemplateDocxBase64() {
   
   return zip.generate({ type: 'base64' });
 }
+
+/**
+ * Generate a customized Microsoft Word (.docx) template package based on layout designs.
+ */
+export function generateCustomTemplateDocxBase64(settings = {}, headerFields = [], tableFields = []) {
+  const zip = new PizZip();
+  
+  const themeColor = (settings.themeColor || '0F2050').replace('#', '');
+  const fontFamily = settings.fontFamily || 'Arial';
+  const borderStyle = settings.borderStyle || 'single';
+  const titleText = settings.titleText || 'Standard Billing Invoice';
+
+  // Border style XML configuration
+  let bordersXml = '';
+  if (borderStyle === 'double') {
+    bordersXml = `
+      <w:top w:val="double" w:sz="12" w:space="0" w:color="${themeColor}"/>
+      <w:left w:val="double" w:sz="12" w:space="0" w:color="${themeColor}"/>
+      <w:bottom w:val="double" w:sz="12" w:space="0" w:color="${themeColor}"/>
+      <w:right w:val="double" w:sz="12" w:space="0" w:color="${themeColor}"/>
+      <w:insideH w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+      <w:insideV w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>`;
+  } else if (borderStyle === 'none') {
+    bordersXml = `
+      <w:top w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+      <w:left w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+      <w:bottom w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+      <w:right w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+      <w:insideH w:val="single" w:sz="4" w:space="0" w:color="EEEEEE"/>
+      <w:insideV w:val="none" w:sz="0" w:space="0" w:color="auto"/>`;
+  } else if (borderStyle === 'fine') {
+    bordersXml = `
+      <w:top w:val="single" w:sz="4" w:space="0" w:color="${themeColor}"/>
+      <w:left w:val="single" w:sz="4" w:space="0" w:color="${themeColor}"/>
+      <w:bottom w:val="single" w:sz="4" w:space="0" w:color="${themeColor}"/>
+      <w:right w:val="single" w:sz="4" w:space="0" w:color="${themeColor}"/>
+      <w:insideH w:val="single" w:sz="2" w:space="0" w:color="DDDDDD"/>
+      <w:insideV w:val="single" w:sz="2" w:space="0" w:color="DDDDDD"/>`;
+  } else {
+    bordersXml = `
+      <w:top w:val="single" w:sz="8" w:space="0" w:color="${themeColor}"/>
+      <w:left w:val="single" w:sz="8" w:space="0" w:color="${themeColor}"/>
+      <w:bottom w:val="single" w:sz="8" w:space="0" w:color="${themeColor}"/>
+      <w:right w:val="single" w:sz="8" w:space="0" w:color="${themeColor}"/>
+      <w:insideH w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>
+      <w:insideV w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>`;
+  }
+
+  // Header layout matching Word template (3-column top header, 2-column details)
+  const normalize = (name) => name ? name.toLowerCase().replace(/[\s_-]/g, '') : '';
+  const findField = (fields, targets) => fields.find(f => targets.includes(normalize(f.name)));
+
+  // Identify standard fields
+  const bnField = findField(headerFields, ['bn', 'billnumber']);
+  const shopNameField = findField(headerFields, ['shopname', 'companyname']);
+  const shopLocField = findField(headerFields, ['shoplocation', 'shopaddress', 'address']);
+  const shopNumField = findField(headerFields, ['shopnumber', 'shopphone', 'phone']);
+  const partyNameField = findField(headerFields, ['partyname', 'customername', 'clientname']);
+  const billDateField = findField(headerFields, ['billdate', 'date']);
+  const deliveryLocField = findField(headerFields, ['deliveryloc', 'place', 'location']);
+
+  // Extract custom fields (non-standard fields)
+  const standardNames = ['bn', 'billnumber', 'shopname', 'companyname', 'shoplocation', 'shopaddress', 'address', 'shopnumber', 'shopphone', 'phone', 'partyname', 'customername', 'clientname', 'billdate', 'date', 'deliveryloc', 'place', 'location', 'total'];
+  const customHeaderFields = headerFields.filter(f => !standardNames.includes(normalize(f.name)));
+
+  const bnVal = bnField ? `<${bnField.name}>` : '';
+  const shopNameVal = shopNameField ? `<${shopNameField.name}>` : titleText;
+  const shopLocVal = shopLocField ? `<${shopLocField.name}>` : '';
+  const shopNumVal = shopNumField ? `📞 <${shopNumField.name}>` : '';
+
+  const partyNameVal = partyNameField ? `<${partyNameField.name}>` : '<PartyName>';
+  const billDateVal = billDateField ? `<${billDateField.name}>` : '<BillDate>';
+  const deliveryLocVal = deliveryLocField ? `<${deliveryLocField.name}>` : '<DeliveryLoc>';
+
+  // Shop details table (3 columns, borderless)
+  const shopHeaderTableXml = `
+    <w:tbl>
+      <w:tblPr>
+        <w:tblBorders>
+          <w:top w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+          <w:left w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+          <w:bottom w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+          <w:right w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+          <w:insideH w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+          <w:insideV w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+        </w:tblBorders>
+        <w:tblCellMar>
+          <w:top w:w="80" w:type="dxa"/>
+          <w:left w:w="80" w:type="dxa"/>
+          <w:bottom w:w="80" w:type="dxa"/>
+          <w:right w:w="80" w:type="dxa"/>
+        </w:tblCellMar>
+      </w:tblPr>
+      <w:tr>
+        <w:tc>
+          <w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr>
+          <w:p>
+            <w:pPr><w:jc w:val="left"/></w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:b/>
+                <w:sz w:val="24"/>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+              </w:rPr>
+              <w:t>${bnVal}</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr><w:tcW w:w="5000" w:type="dxa"/></w:tcPr>
+          <w:p>
+            <w:pPr><w:jc w:val="center"/></w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:b/>
+                <w:sz w:val="38"/>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+                <w:color w:val="${themeColor}"/>
+              </w:rPr>
+              <w:t>${shopNameVal}</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr><w:jc w:val="center"/></w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:b/>
+                <w:sz w:val="20"/>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+              </w:rPr>
+              <w:t>${shopLocVal}</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr>
+          <w:p>
+            <w:pPr><w:jc w:val="right"/></w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:b/>
+                <w:sz w:val="22"/>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+              </w:rPr>
+              <w:t>${shopNumVal}</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+    </w:tbl>
+  `;
+
+  // Customer Details (2 columns, borderless)
+  const customerDetailsTableXml = `
+    <w:tbl>
+      <w:tblPr>
+        <w:tblBorders>
+          <w:top w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+          <w:left w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+          <w:bottom w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+          <w:right w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+          <w:insideH w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+          <w:insideV w:val="none" w:sz="0" w:space="0" w:color="auto"/>
+        </w:tblBorders>
+        <w:tblCellMar>
+          <w:top w:w="80" w:type="dxa"/>
+          <w:left w:w="80" w:type="dxa"/>
+          <w:bottom w:w="80" w:type="dxa"/>
+          <w:right w:w="80" w:type="dxa"/>
+        </w:tblCellMar>
+      </w:tblPr>
+      <w:tr>
+        <w:tc>
+          <w:tcPr><w:tcW w:w="5800" w:type="dxa"/></w:tcPr>
+          <w:p>
+            <w:pPr><w:jc w:val="left"/></w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:b/>
+                <w:sz w:val="24"/>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+              </w:rPr>
+              <w:t>M/s: </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:u w:val="single"/>
+                <w:sz w:val="24"/>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+              </w:rPr>
+              <w:t>${partyNameVal}</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr><w:tcW w:w="3200" w:type="dxa"/></w:tcPr>
+          <w:p>
+            <w:pPr><w:jc w:val="left"/></w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:b/>
+                <w:sz w:val="24"/>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+              </w:rPr>
+              <w:t>Date: </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:u w:val="single"/>
+                <w:sz w:val="24"/>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+              </w:rPr>
+              <w:t>${billDateVal}</w:t>
+            </w:r>
+          </w:p>
+          <w:p>
+            <w:pPr><w:jc w:val="left"/></w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:b/>
+                <w:sz w:val="24"/>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+              </w:rPr>
+              <w:t>Place: </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:u w:val="single"/>
+                <w:sz w:val="24"/>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+              </w:rPr>
+              <w:t>${deliveryLocVal}</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+    </w:tbl>
+  `;
+
+  // Custom Header Fields
+  let customFieldsXml = '';
+  if (customHeaderFields.length > 0) {
+    customFieldsXml += `<w:p><w:r><w:t></w:t></w:r></w:p>`;
+    customHeaderFields.forEach(f => {
+      customFieldsXml += `
+      <w:p>
+        <w:pPr>
+          <w:rPr>
+            <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+          </w:rPr>
+        </w:pPr>
+        <w:r><w:rPr><w:b/><w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/></w:rPr><w:t>${f.label}: </w:t></w:r>
+        <w:r><w:rPr><w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/></w:rPr><w:t>&lt;${f.name}&gt;</w:t></w:r>
+      </w:p>`;
+    });
+  }
+
+  // Table items XML
+  let tableHeadersXml = '';
+  let tableCellsXml = '';
+  tableFields.forEach(f => {
+    tableHeadersXml += `
+        <w:tc>
+          <w:p>
+            <w:r>
+              <w:rPr>
+                <w:b/>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+                <w:color w:val="${themeColor}"/>
+              </w:rPr>
+              <w:t>${f.label}</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>`;
+
+    tableCellsXml += `
+        <w:tc>
+          <w:p>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+              </w:rPr>
+              <w:t>&lt;${f.name}&gt;</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>`;
+  });
+
+  // Table total footer row
+  let tableFooterXml = '';
+  if (tableFields.length > 0) {
+    tableFooterXml += `<w:tr>`;
+    tableFields.forEach((f, idx) => {
+      const isLast = idx === tableFields.length - 1;
+      const isSecondLast = idx === tableFields.length - 2;
+      tableFooterXml += `
+        <w:tc>
+          <w:p>
+            <w:r>
+              <w:rPr>
+                <w:b/>
+                <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+              </w:rPr>
+              <w:t>${isSecondLast ? 'Total' : isLast ? '<Total>' : ''}</w:t>
+            </w:r>
+          </w:p>
+        </w:tc>`;
+    });
+    tableFooterXml += `</w:tr>`;
+  }
+
+  const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
+
+  const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    ${shopHeaderTableXml}
+    
+    <w:p><w:r><w:t></w:t></w:r></w:p>
+    
+    ${customerDetailsTableXml}
+    
+    ${customFieldsXml}
+    
+    <w:p><w:r><w:t></w:t></w:r></w:p>
+    
+    <w:tbl>
+      <w:tblPr>
+        <w:tblBorders>
+          ${bordersXml}
+        </w:tblBorders>
+      </w:tblPr>
+      <w:tr>
+        ${tableHeadersXml}
+      </w:tr>
+      <w:tr>
+        ${tableCellsXml}
+      </w:tr>
+      ${tableFooterXml}
+    </w:tbl>
+    
+    <w:p><w:r><w:t></w:t></w:r></w:p>
+    <w:p><w:r><w:t></w:t></w:r></w:p>
+    <w:p>
+      <w:r>
+        <w:rPr>
+          <w:sz w:val="24"/>
+          <w:rFonts w:ascii="${fontFamily}" w:hAnsi="${fontFamily}"/>
+        </w:rPr>
+        <w:t>Receiver's Signature: _________________________</w:t>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>`;
+
+  zip.file('[Content_Types].xml', contentTypesXml);
+  zip.file('_rels/.rels', relsXml);
+  zip.file('word/document.xml', documentXml);
+  
+  return zip.generate({ type: 'base64' });
+}
+

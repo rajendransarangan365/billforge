@@ -157,6 +157,9 @@ async function initializeSchema(db) {
       header_fields_json TEXT DEFAULT '[]',
       table_fields_json TEXT DEFAULT '[]',
       all_fields_json TEXT DEFAULT '[]',
+      theme_color TEXT DEFAULT '#0F2050',
+      font_family TEXT DEFAULT 'Arial',
+      border_style TEXT DEFAULT 'single',
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -270,6 +273,17 @@ async function initializeSchema(db) {
       );
     }
   }
+
+  // Safe migrations for existing SQLite databases
+  try {
+    await db.execAsync('ALTER TABLE templates ADD COLUMN theme_color TEXT DEFAULT "#0F2050";');
+  } catch (e) {}
+  try {
+    await db.execAsync('ALTER TABLE templates ADD COLUMN font_family TEXT DEFAULT "Arial";');
+  } catch (e) {}
+  try {
+    await db.execAsync('ALTER TABLE templates ADD COLUMN border_style TEXT DEFAULT "single";');
+  } catch (e) {}
 }
 
 /**

@@ -152,6 +152,9 @@ export default function BillPreviewScreen() {
         tableFields,
         templateName: template?.name || 'Invoice',
         totalAmount: bill.total_amount,
+        themeColor: template?.theme_color,
+        fontFamily: template?.font_family,
+        borderStyle: template?.border_style,
       });
 
       if (result.success) {

@@ -430,6 +430,37 @@ export default function BillFormScreen() {
   }, [rowData, balanceVal, headerFields]);
 
   const renderLivePreview = () => {
+    const primaryThemeColor = template?.theme_color || '#0F2050';
+    const selectedFont = template?.font_family || 'Arial';
+    const selectedBorderStyle = template?.border_style || 'single';
+
+    const getFontFamilyStyle = () => {
+      if (selectedFont === 'Times New Roman') return Platform.OS === 'web' ? 'Times New Roman, Times, serif' : 'serif';
+      if (selectedFont === 'Courier New') return Platform.OS === 'web' ? 'Courier New, Courier, monospace' : 'monospace';
+      if (selectedFont === 'Georgia') return Platform.OS === 'web' ? 'Georgia, serif' : 'serif';
+      return Platform.OS === 'web' ? 'Arial, sans-serif' : 'sans-serif';
+    };
+
+    const fontFamilyStyle = getFontFamilyStyle();
+
+    const getBorderStyle = () => {
+      if (selectedBorderStyle === 'none') return { borderWidth: 0 };
+      if (selectedBorderStyle === 'double') return { borderWidth: 3, borderStyle: 'double', borderColor: primaryThemeColor };
+      if (selectedBorderStyle === 'fine') return { borderWidth: 1, borderColor: '#DDDDDD' };
+      return { borderWidth: 1, borderColor: primaryThemeColor };
+    };
+
+    const getCellBorderStyle = () => {
+      if (selectedBorderStyle === 'none') return { borderWidth: 0, borderBottomWidth: 1, borderBottomColor: '#EEEEEE' };
+      if (selectedBorderStyle === 'double') return { borderWidth: 1, borderColor: primaryThemeColor }; // fine inside double table
+      if (selectedBorderStyle === 'fine') return { borderWidth: 1, borderColor: '#DDDDDD' };
+      return { borderWidth: 1, borderColor: primaryThemeColor };
+    };
+
+    const tableBorder = getBorderStyle();
+    const cellBorder = getCellBorderStyle();
+    const tableHeaderBg = selectedBorderStyle === 'none' ? 'transparent' : '#F8FAFC';
+
     const companyName = getRowValue(headerData, ['shopname', 'companyname']) || companyProfile.name || template.name;
     
     let companyAddress = getRowValue(headerData, ['shoplocation', 'shopaddress', 'address']);
@@ -537,36 +568,73 @@ export default function BillFormScreen() {
         </View>
 
         {/* Paper Sheet */}
-        <View style={styles.paperSheet}>
-          {/* Bill Header */}
-          <View style={styles.paperHeader}>
-            <View style={styles.paperHeaderTop}>
-              <Text style={styles.paperBN}>{billNumber}</Text>
-              <Text style={styles.paperShopName} numberOfLines={1}>{companyName}</Text>
-              <Text style={styles.paperPhone}>Phone: {companyPhone}</Text>
+        <View style={[styles.paperSheet, { borderColor: primaryThemeColor }]}>
+          {/* Shop Details Header Block */}
+          <View style={styles.canvasShopHeader}>
+            {/* Top Row with BN, ShopName, ShopNumber */}
+            <View style={styles.canvasShopHeaderTop}>
+              {/* Left: BN */}
+              <View style={styles.canvasBnContainer}>
+                <Text style={[styles.canvasBnText, { fontFamily: fontFamilyStyle }]}>
+                  {billNumber || <Text style={styles.canvasMissingFieldPlaceholder}>&lt;BN&gt;</Text>}
+                </Text>
+              </View>
+
+              {/* Center: Shop Name */}
+              <View style={styles.canvasShopNameContainer}>
+                <Text style={[styles.canvasShopNameText, { color: primaryThemeColor, fontFamily: fontFamilyStyle }]}>
+                  {companyName || <Text style={styles.canvasMissingFieldPlaceholder}>&lt;ShopName&gt;</Text>}
+                </Text>
+              </View>
+
+              {/* Right: Shop Number */}
+              <View style={styles.canvasShopNumContainer}>
+                <Text style={[styles.canvasShopNumText, { fontFamily: fontFamilyStyle }]}>
+                  {companyPhone ? `📞 ${companyPhone}` : <Text style={styles.canvasMissingFieldPlaceholder}>📞 &lt;ShopNumber&gt;</Text>}
+                </Text>
+              </View>
             </View>
-            <Text style={styles.paperShopLoc}>{companyAddress}</Text>
+
+            {/* Sub-header Center: Shop Location */}
+            <View style={styles.canvasShopLocContainer}>
+              <Text style={[styles.canvasShopLocText, { fontFamily: fontFamilyStyle }]}>
+                {companyAddress || <Text style={styles.canvasMissingFieldPlaceholder}>&lt;ShopLocation&gt;</Text>}
+              </Text>
+            </View>
           </View>
 
-          {/* Customer / Party Section */}
-          <View style={styles.paperCustomerRow}>
-            <View style={styles.paperMsCol}>
-              <Text style={styles.paperCustomerLabel}>M/s: </Text>
-              <View style={styles.paperDottedLine}>
-                <Text style={styles.paperCustomerVal}>{partyName}</Text>
+          {/* Horizontal Divider Line */}
+          <View style={[styles.canvasDividerLine, { backgroundColor: primaryThemeColor }]} />
+
+          {/* Customer / Party details grid */}
+          <View style={styles.canvasCustomerDetailsGrid}>
+            {/* Left side: Party Name */}
+            <View style={styles.canvasPartyNameContainer}>
+              <Text style={[styles.canvasPartyLabel, { fontFamily: fontFamilyStyle }]}>M/s:</Text>
+              <View style={[styles.canvasSolidUnderline, { borderBottomColor: primaryThemeColor }]}>
+                <Text style={[styles.canvasPlaceholderVal, { fontFamily: fontFamilyStyle, fontWeight: 'bold', color: '#000' }]}>
+                  {partyName || <Text style={styles.canvasMissingFieldPlaceholder}>&lt;PartyName&gt;</Text>}
+                </Text>
               </View>
             </View>
-            <View style={styles.paperDatePlaceCol}>
-              <View style={styles.paperDatePlaceRow}>
-                <Text style={styles.paperCustomerLabel}>Date: </Text>
-                <View style={[styles.paperDottedLine, { minWidth: 100 }]}>
-                  <Text style={styles.paperCustomerVal}>{displayDate}</Text>
+
+            {/* Right side: Date and Place */}
+            <View style={styles.canvasDatePlaceContainer}>
+              <View style={styles.canvasDateRow}>
+                <Text style={[styles.canvasPartyLabel, { fontFamily: fontFamilyStyle }]}>Date:</Text>
+                <View style={[styles.canvasSolidUnderlineShort, { borderBottomColor: primaryThemeColor }]}>
+                  <Text style={[styles.canvasPlaceholderVal, { fontFamily: fontFamilyStyle, fontWeight: 'bold', color: '#000' }]}>
+                    {displayDate || <Text style={styles.canvasMissingFieldPlaceholder}>&lt;BillDate&gt;</Text>}
+                  </Text>
                 </View>
               </View>
-              <View style={[styles.paperDatePlaceRow, { marginTop: 6 }]}>
-                <Text style={styles.paperCustomerLabel}>Place: </Text>
-                <View style={[styles.paperDottedLine, { minWidth: 100 }]}>
-                  <Text style={styles.paperCustomerVal}>{deliveryLoc}</Text>
+
+              <View style={[styles.canvasDateRow, { marginTop: 6 }]}>
+                <Text style={[styles.canvasPartyLabel, { fontFamily: fontFamilyStyle }]}>Place:</Text>
+                <View style={[styles.canvasSolidUnderlineShort, { borderBottomColor: primaryThemeColor }]}>
+                  <Text style={[styles.canvasPlaceholderVal, { fontFamily: fontFamilyStyle, fontWeight: 'bold', color: '#000' }]}>
+                    {deliveryLoc || <Text style={styles.canvasMissingFieldPlaceholder}>&lt;DeliveryLoc&gt;</Text>}
+                  </Text>
                 </View>
               </View>
             </View>
@@ -574,7 +642,7 @@ export default function BillFormScreen() {
 
           {/* Custom Header Fields Grid */}
           {customHeaderFields.length > 0 && (
-            <View style={styles.paperCustomFieldsGrid}>
+            <View style={[styles.paperCustomFieldsGrid, { borderColor: primaryThemeColor }]}>
               {customHeaderFields.map(f => {
                 let val = headerData[f.name] || '';
                 if (f.type === 'date' || f.type === 'datetime') {
@@ -587,32 +655,26 @@ export default function BillFormScreen() {
                 }
                 return (
                   <View key={f.name} style={styles.paperCustomFieldItem}>
-                    <Text style={styles.paperCustomFieldLabel}>{f.label}:</Text>
-                    <Text style={styles.paperCustomFieldValue}>{val}</Text>
+                    <Text style={[styles.paperCustomFieldLabel, { fontFamily: fontFamilyStyle }]}>{f.label}:</Text>
+                    <Text style={[styles.paperCustomFieldValue, { fontFamily: fontFamilyStyle }]}>{val}</Text>
                   </View>
                 );
               })}
             </View>
           )}
 
-          {/* Data Table (Wrapped in a horizontally scrollable container on mobile to prevent squishing) */}
+          {/* Data Table */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ width: '100%' }}>
             <View style={{ minWidth: 550 }}>
-              <View style={styles.paperTable}>
+              <View style={[styles.paperTable, tableBorder]}>
                 {/* Table Header */}
-                <View style={styles.paperTableHeader}>
+                <View style={[styles.paperTableHeader, { borderBottomColor: selectedBorderStyle === 'none' ? 'transparent' : primaryThemeColor, borderBottomWidth: 1, backgroundColor: tableHeaderBg }]}>
                   {activeTableFields.map(f => {
-                    let label = f.label;
                     const norm = normalizeKey(f.name);
-                    if (norm.startsWith('cal') || norm.includes('total') || norm.includes('amount')) label = 'Each Value ₹';
-                    if (['materialtype', 'materialstype', 'material', 'materials'].includes(norm)) label = 'Materials Type';
-                    if (norm === 'sno' || norm === 'slno') label = 'S/No';
-                    if (norm.includes('date')) label = 'DATE';
-                    
                     const isNumeric = f.type === 'numeric' || norm.startsWith('cal') || norm.includes('total') || norm.includes('amount') || f.isVirtual;
                     return (
-                      <View key={f.name} style={[styles.paperTableHeaderCell, isNumeric && { alignItems: 'flex-end', justifyContent: 'center' }]}>
-                        <Text style={styles.paperTableHeaderText}>{label}</Text>
+                      <View key={f.name} style={[styles.paperTableHeaderCell, { borderRightColor: selectedBorderStyle === 'none' ? 'transparent' : primaryThemeColor, borderRightWidth: selectedBorderStyle === 'none' ? 0 : 1 }, isNumeric && { alignItems: 'flex-end', justifyContent: 'center' }]}>
+                        <Text style={[styles.paperTableHeaderText, { color: primaryThemeColor, fontFamily: fontFamilyStyle }]}>{f.label || f.name}</Text>
                       </View>
                     );
                   })}
@@ -620,7 +682,7 @@ export default function BillFormScreen() {
 
                 {/* Table Rows */}
                 {displayRows.map((row, idx) => (
-                  <View key={idx} style={styles.paperTableRow}>
+                  <View key={idx} style={[styles.paperTableRow, { borderBottomColor: selectedBorderStyle === 'none' ? '#EEEEEE' : primaryThemeColor }]}>
                     {activeTableFields.map(field => {
                       const val = row[field.name] || '';
                       const norm = normalizeKey(field.name);
@@ -663,8 +725,8 @@ export default function BillFormScreen() {
                       }
 
                       return (
-                        <View key={field.name} style={[styles.paperTableCell, isNumeric && { alignItems: 'flex-end' }]}>
-                          <Text style={styles.paperTableCellText}>{displayVal}</Text>
+                        <View key={field.name} style={[styles.paperTableCell, { borderRightColor: selectedBorderStyle === 'none' ? 'transparent' : primaryThemeColor, borderRightWidth: selectedBorderStyle === 'none' ? 0 : 1 }, isNumeric && { alignItems: 'flex-end' }]}>
+                          <Text style={[styles.paperTableCellText, { fontFamily: fontFamilyStyle }]}>{displayVal}</Text>
                         </View>
                       );
                     })}
@@ -675,43 +737,43 @@ export default function BillFormScreen() {
           </ScrollView>
 
           {/* Footer Totals */}
-          <View style={styles.paperTotalsContainer}>
+          <View style={[styles.paperTotalsContainer, { borderColor: primaryThemeColor }]}>
             {calcSettings.includeTax && (
               <View style={styles.paperTotalRow}>
-                <Text style={styles.paperTotalLabel}>Subtotal:</Text>
-                <Text style={styles.paperTotalValue}>₹ {formatIndianNumber(subTotal)}</Text>
+                <Text style={[styles.paperTotalLabel, { fontFamily: fontFamilyStyle }]}>Subtotal:</Text>
+                <Text style={[styles.paperTotalValue, { fontFamily: fontFamilyStyle }]}>₹ {formatIndianNumber(subTotal)}</Text>
               </View>
             )}
             {calcSettings.includeTax && (
               <View style={styles.paperTotalRow}>
-                <Text style={styles.paperTotalLabel}>GST ({calcSettings.taxRate}%):</Text>
-                <Text style={styles.paperTotalValue}>₹ {formatIndianNumber(taxAmount)}</Text>
+                <Text style={[styles.paperTotalLabel, { fontFamily: fontFamilyStyle }]}>GST ({calcSettings.taxRate}%):</Text>
+                <Text style={[styles.paperTotalValue, { fontFamily: fontFamilyStyle }]}>₹ {formatIndianNumber(taxAmount)}</Text>
               </View>
             )}
             {balanceAmount > 0 && (
               <>
                 {!calcSettings.includeTax && (
                   <View style={styles.paperTotalRow}>
-                    <Text style={styles.paperTotalLabel}>Subtotal:</Text>
-                    <Text style={styles.paperTotalValue}>₹ {formatIndianNumber(subTotal)}</Text>
+                    <Text style={[styles.paperTotalLabel, { fontFamily: fontFamilyStyle }]}>Subtotal:</Text>
+                    <Text style={[styles.paperTotalValue, { fontFamily: fontFamilyStyle }]}>₹ {formatIndianNumber(subTotal)}</Text>
                   </View>
                 )}
                 <View style={styles.paperTotalRow}>
-                  <Text style={styles.paperTotalLabel}>Uncleared Balance:</Text>
-                  <Text style={styles.paperTotalValue}>₹ {formatIndianNumber(balanceAmount)}</Text>
+                  <Text style={[styles.paperTotalLabel, { fontFamily: fontFamilyStyle }]}>Uncleared Balance:</Text>
+                  <Text style={[styles.paperTotalValue, { fontFamily: fontFamilyStyle }]}>₹ {formatIndianNumber(balanceAmount)}</Text>
                 </View>
               </>
             )}
-            <View style={[styles.paperTotalRow, { borderTopWidth: (balanceAmount > 0 || calcSettings.includeTax) ? 1 : 0, borderTopColor: '#000', paddingTop: 4 }]}>
-              <Text style={[styles.paperTotalLabel, { fontSize: 15, fontWeight: '900' }]}>Total:</Text>
-              <Text style={[styles.paperTotalValue, { fontSize: 16, fontWeight: '900' }]}>₹ {formatIndianNumber(grandTotal)}</Text>
+            <View style={[styles.paperTotalRow, { borderTopWidth: (balanceAmount > 0 || calcSettings.includeTax) ? 1 : 0, borderTopColor: primaryThemeColor, paddingTop: 4 }]}>
+              <Text style={[styles.paperTotalLabel, { fontSize: 15, fontWeight: '900', fontFamily: fontFamilyStyle }]}>Total:</Text>
+              <Text style={[styles.paperTotalValue, { fontSize: 16, fontWeight: '900', fontFamily: fontFamilyStyle }]}>₹ {formatIndianNumber(grandTotal)}</Text>
             </View>
           </View>
 
           {/* Signature Block */}
           <View style={styles.paperSignatureRow}>
-            <Text style={styles.paperSignatureText}>{"Receiver's Signature:"}</Text>
-            <View style={styles.paperSignatureLine} />
+            <Text style={[styles.paperSignatureText, { fontFamily: fontFamilyStyle }]}>{"Receiver's Signature:"}</Text>
+            <View style={[styles.paperSignatureLine, { borderBottomColor: primaryThemeColor }]} />
           </View>
         </View>
       </Card>
@@ -778,6 +840,9 @@ export default function BillFormScreen() {
         templateName: template.name,
         totalAmount,
         printWindow,
+        themeColor: template?.theme_color,
+        fontFamily: template?.font_family,
+        borderStyle: template?.border_style,
       });
 
       if (result.success) {
@@ -862,6 +927,9 @@ export default function BillFormScreen() {
         templateName: template.name,
         totalAmount,
         printWindow,
+        themeColor: template?.theme_color,
+        fontFamily: template?.font_family,
+        borderStyle: template?.border_style,
       });
 
       let pdfUri = '';
@@ -1025,6 +1093,9 @@ export default function BillFormScreen() {
         templateName: template.name,
         totalAmount,
         printWindow, // pass the print window to draw the PDF
+        themeColor: template?.theme_color,
+        fontFamily: template?.font_family,
+        borderStyle: template?.border_style,
       });
 
       let pdfUri = '';
@@ -2295,5 +2366,104 @@ const styles = StyleSheet.create({
     marginTop: -Spacing.xs,
     marginBottom: Spacing.sm,
     paddingLeft: Spacing.xs,
+  },
+  canvasShopHeader: {
+    marginBottom: 10,
+  },
+  canvasShopHeaderTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    width: '100%',
+  },
+  canvasBnContainer: {
+    width: '20%',
+  },
+  canvasBnText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  canvasShopNameContainer: {
+    width: '60%',
+    alignItems: 'center',
+  },
+  canvasShopNameText: {
+    fontSize: 22,
+    fontWeight: '900',
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
+  canvasShopNumContainer: {
+    width: '20%',
+    alignItems: 'flex-end',
+  },
+  canvasShopNumText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  canvasShopLocContainer: {
+    alignItems: 'center',
+    marginTop: 4,
+    width: '100%',
+  },
+  canvasShopLocText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    color: '#000',
+  },
+  canvasMissingFieldPlaceholder: {
+    fontSize: 11,
+    color: '#94A3B8',
+    fontStyle: 'italic',
+  },
+  canvasDividerLine: {
+    height: 1.5,
+    width: '100%',
+    marginVertical: 12,
+  },
+  canvasCustomerDetailsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 20,
+  },
+  canvasPartyNameContainer: {
+    width: '60%',
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  canvasPartyLabel: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  canvasSolidUnderline: {
+    flex: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+    paddingBottom: 2,
+    marginLeft: 6,
+  },
+  canvasDatePlaceContainer: {
+    width: '35%',
+  },
+  canvasDateRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  canvasSolidUnderlineShort: {
+    flex: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+    paddingBottom: 2,
+    marginLeft: 6,
+  },
+  canvasPlaceholderVal: {
+    fontSize: 11,
+    color: '#777',
+    fontStyle: 'italic',
   },
 });
