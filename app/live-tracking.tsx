@@ -11,7 +11,7 @@ import { WebView } from 'react-native-webview';
 import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
 import { Card, EmptyState } from '../src/components';
 import { getDatabase, getConsignments, getDrivers } from '../src/database/db';
-import { socketService } from '../src/services/socketService';
+import { realtimeService } from '../src/services/pusherRealtime';
 import WalkieTalkieModal from '../src/components/WalkieTalkieModal';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -45,15 +45,16 @@ export default function LiveTrackingScreen() {
 
   useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
-  // Real-time WebSocket connection for zero-latency GPS updates
+  // Production Real-Time subscription: moves map markers instantly when driver GPS changes
   useEffect(() => {
-    socketService.connect('quarry_owner', 'admin');
+    realtimeService.init();
 
-    socketService.onLocationUpdate((data) => {
-      setDrivers(prevDrivers => {
-        return prevDrivers.map(d => {
-          if (d.id === data.driverId || d.name === data.driverName) {
-            return { ...d, lat: data.lat, lng: data.lng, status: data.status || d.status };
+    realtimeService.on('driver-location-changed', (data) => {
+      if (!data || !data.driverId) return;
+      setDrivers(prev => {
+        return prev.map(d => {
+          if (String(d.id) === String(data.driverId) || d.name === data.driverName) {
+            return { ...d, lat: data.lat, lng: data.lng };
           }
           return d;
         });
@@ -61,7 +62,7 @@ export default function LiveTrackingScreen() {
     });
 
     return () => {
-      // Keep connection active
+      realtimeService.off('driver-location-changed');
     };
   }, []);
 
@@ -110,7 +111,7 @@ export default function LiveTrackingScreen() {
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Live Driver GPS Tracking 📡</Text>
-          <Text style={styles.headerSub}>Real-Time WebSockets & Free OpenStreetMap</Text>
+          <Text style={styles.headerSub}>Production Real-Time & Free OpenStreetMap</Text>
         </View>
         <TouchableOpacity
           style={styles.walkieTopBtn}

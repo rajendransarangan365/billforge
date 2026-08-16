@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../theme';
-import { socketService } from '../services/socketService';
+import { realtimeService } from '../services/pusherRealtime';
 
 export default function WalkieTalkieModal({ visible, onClose, peerName = 'Driver Ramesh', peerRole = 'driver', peerId = '1' }) {
   const [isTalking, setIsTalking] = useState(false);
@@ -14,31 +14,42 @@ export default function WalkieTalkieModal({ visible, onClose, peerName = 'Driver
   const [channel, setChannel] = useState('Ch-1 (Quarry Direct)');
   const [callActive, setCallActive] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const mediaRecorderRef = useRef(null);
 
-  // Listen to incoming Walkie-Talkie (PTT) events
+  // Listen to incoming real-time Push-to-Talk (PTT) events
   useEffect(() => {
     if (visible) {
-      socketService.connect(peerRole === 'driver' ? 'quarry_owner' : 'driver', 'active_user');
+      realtimeService.init();
 
-      socketService.onPttStart((data) => {
+      realtimeService.on('ptt-active-start', (data) => {
         setIsReceiving(true);
         startPulse();
       });
 
-      socketService.onPttStop((data) => {
+      realtimeService.on('ptt-active-stop', (data) => {
         setIsReceiving(false);
         stopPulse();
       });
 
-      socketService.onPttAudioChunk((data) => {
-        // Audio chunk received via websocket
-        playIncomingAudioChunk(data.chunk);
+      realtimeService.on('ptt-incoming-audio', (data) => {
+        if (data && data.chunk) {
+          playIncomingAudioChunk(data.chunk);
+        }
+      });
+
+      realtimeService.on('call-signal-received', (data) => {
+        if (data.type === 'start-call') {
+          setCallActive(true);
+          Alert.alert('📞 Incoming Voice Call', `${peerName} is calling...`);
+        } else if (data.type === 'end-call') {
+          setCallActive(false);
+        }
       });
     }
     return () => {
       stopPulse();
     };
-  }, [visible, peerRole]);
+  }, [visible, peerName]);
 
   const startPulse = () => {
     Animated.loop(
@@ -54,13 +65,27 @@ export default function WalkieTalkieModal({ visible, onClose, peerName = 'Driver
     pulseAnim.setValue(1);
   };
 
+  const sendWalkieEvent = async (eventType, payload = {}) => {
+    try {
+      const baseUrl = process.env.EXPO_PUBLIC_API_URL || '';
+      await fetch(`${baseUrl}/api/walkie`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventType, payload }),
+      });
+    } catch (e) {
+      // Trigger client fallback
+      realtimeService.triggerClientEvent(eventType, payload);
+    }
+  };
+
   // Push to Talk (PTT) Press & Release
-  const handlePttPressIn = () => {
+  const handlePttPressIn = async () => {
     setIsTalking(true);
     startPulse();
-    socketService.emitPttStart({ peerId, channel });
+    sendWalkieEvent('ptt-start', { peerId, peerName, channel });
 
-    // Web MediaRecorder / Audio stream fallback
+    // Web MediaRecorder / Audio stream mic capture
     if (typeof window !== 'undefined' && window.navigator?.mediaDevices) {
       startWebAudioRecording();
     }
@@ -69,12 +94,9 @@ export default function WalkieTalkieModal({ visible, onClose, peerName = 'Driver
   const handlePttPressOut = () => {
     setIsTalking(false);
     stopPulse();
-    socketService.emitPttStop({ peerId, channel });
+    sendWalkieEvent('ptt-stop', { peerId, channel });
     stopWebAudioRecording();
   };
-
-  // Web Audio Stream Helpers
-  let mediaRecorderRef = useRef(null);
 
   const startWebAudioRecording = async () => {
     try {
@@ -86,7 +108,7 @@ export default function WalkieTalkieModal({ visible, onClose, peerName = 'Driver
         if (e.data.size > 0) {
           const reader = new FileReader();
           reader.onloadend = () => {
-            socketService.emitPttAudioChunk({ peerId, chunk: reader.result });
+            sendWalkieEvent('ptt-audio-chunk', { peerId, chunk: reader.result });
           };
           reader.readAsDataURL(e.data);
         }
@@ -106,20 +128,22 @@ export default function WalkieTalkieModal({ visible, onClose, peerName = 'Driver
 
   const playIncomingAudioChunk = (base64Data) => {
     if (typeof window !== 'undefined' && base64Data) {
-      const audio = new Audio(base64Data);
-      audio.play().catch(() => {});
+      try {
+        const audio = new Audio(base64Data);
+        audio.play().catch(() => {});
+      } catch (e) {}
     }
   };
 
   const toggleVoiceCall = () => {
     if (callActive) {
       setCallActive(false);
-      socketService.emitCallSignal({ type: 'end-call', peerId });
+      sendWalkieEvent('call-signal', { type: 'end-call', peerId });
       Alert.alert('Call Ended', `Voice call with ${peerName} ended.`);
     } else {
       setCallActive(true);
-      socketService.emitCallSignal({ type: 'start-call', peerId });
-      Alert.alert('Calling...', `Connecting voice call to ${peerName}...`);
+      sendWalkieEvent('call-signal', { type: 'start-call', peerId });
+      Alert.alert('Calling...', `Connecting live voice call to ${peerName}...`);
     }
   };
 

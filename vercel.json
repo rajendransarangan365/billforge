@@ -10,6 +10,7 @@
     { "source": "/api/enquiries", "destination": "/api/enquiries.js" },
     { "source": "/api/consignments", "destination": "/api/consignments.js" },
     { "source": "/api/location", "destination": "/api/location.js" },
+    { "source": "/api/walkie", "destination": "/api/walkie.js" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
