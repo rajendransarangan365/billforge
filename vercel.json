@@ -5,9 +5,11 @@
   "outputDirectory": "dist",
   "framework": null,
   "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
+    { "source": "/api/auth", "destination": "/api/auth.js" },
+    { "source": "/api/drivers", "destination": "/api/drivers.js" },
+    { "source": "/api/enquiries", "destination": "/api/enquiries.js" },
+    { "source": "/api/consignments", "destination": "/api/consignments.js" },
+    { "source": "/api/location", "destination": "/api/location.js" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
