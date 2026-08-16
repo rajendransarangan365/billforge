@@ -187,7 +187,7 @@ function findTableFields(xml, allFieldNames) {
   });
   
   // Specific header fields that should NEVER be table fields
-  const headerOnly = ['bn', 'shopname', 'shoplocation', 'shopnumber', 'partyname', 'billdate', 'deliveryloc', 'total', 'balance', 'balanceamount', 'unclearedbalance'];
+  const headerOnly = ['bn', 'shopname', 'shoplocation', 'shopnumber', 'partyname', 'billdate', 'deliveryloc', 'total', 'balance', 'balanceamount', 'unclearedbalance', 'paid', 'paidamount', 'amountpaid', 'paiddate', 'datepaid'];
   const normalizeKeyStr = (name) => name ? name.toLowerCase().replace(/[\s_-]/g, '') : '';
   
   for (const field of tableFields) {
@@ -208,7 +208,7 @@ function detectFieldType(fieldName) {
   if (lower.includes('datetime') || (lower.includes('date') && lower.includes('time'))) {
     return 'datetime';
   }
-  if (lower.includes('date') || lower === 'billdate' || lower === 'invoicedate') {
+  if (lower.includes('date') || lower === 'billdate' || lower === 'invoicedate' || lower === 'paiddate') {
     return 'date';
   }
   if (lower.includes('time')) {
@@ -223,7 +223,7 @@ function detectFieldType(fieldName) {
   }
   if (lower.includes('qty') || lower.includes('quantity') || lower.includes('units') ||
       lower.includes('trip') || lower.includes('amount') || lower.includes('price') ||
-      lower.includes('rate') || lower.includes('value') || lower.includes('total')) {
+      lower.includes('rate') || lower.includes('value') || lower.includes('total') || lower.includes('paid')) {
     return 'numeric';
   }
   if (lower.includes('email')) {
@@ -241,6 +241,12 @@ function formatFieldLabel(fieldName) {
   if (norm === 'balance' || norm === 'balanceamount' || norm === 'unclearedbalance') {
     return 'Uncleared Balance';
   }
+  if (norm === 'paid' || norm === 'paidamount' || norm === 'amountpaid') {
+    return 'Paid Amount';
+  }
+  if (norm === 'paiddate' || norm === 'datepaid' || norm === 'paymentdate') {
+    return 'Paid Date';
+  }
   // Insert space before uppercase letters
   let label = fieldName.replace(/([A-Z])/g, ' $1').trim();
   // Capitalize first letter
@@ -254,8 +260,9 @@ function formatFieldLabel(fieldName) {
 export function getKeyboardTypeForField(fieldType) {
   switch (fieldType) {
     case 'number':
+      return 'number-pad';
     case 'numeric':
-      return 'numeric';
+      return 'decimal-pad';
     case 'phone':
       return 'phone-pad';
     case 'email':

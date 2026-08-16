@@ -97,18 +97,48 @@ export async function sharePDF(uri) {
 /**
  * Save PDF to a persistent location.
  */
-export async function savePDFPermanently(tempUri, billNumber) {
+export async function savePDFPermanently(tempUri, billNumber, customerName = '') {
   try {
-    if (Platform.OS === 'web') return tempUri; // Not applicable on web
-    const dir = `${documentDirectory}bills/`;
+    const cleanCustomer = customerName ? customerName.trim().replace(/[^A-Za-z0-9]/g, '_') : 'Customer';
+    const cleanBillNo = billNumber ? billNumber.trim().replace(/[^A-Za-z0-9_-]/g, '_') : 'BF';
+    
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = monthNames[now.getMonth()];
+    const year = now.getFullYear();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const mins = String(now.getMinutes()).padStart(2, '0');
+    const secs = String(now.getSeconds()).padStart(2, '0');
+    
+    const timestamp = `${day}${month}${year}_${hours}${mins}${secs}`;
+    const fileName = `${cleanCustomer}_${cleanBillNo}_${timestamp}.pdf`;
+
+    if (Platform.OS === 'web') {
+      try {
+        if (tempUri && (tempUri.startsWith('blob:') || tempUri.startsWith('data:'))) {
+          const a = document.createElement('a');
+          a.href = tempUri;
+          a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }
+      } catch (e) {
+        console.error('Web PDF download trigger error:', e);
+      }
+      return tempUri;
+    }
+
+    const dir = `${documentDirectory}BillForge_Invoices/`;
     const dirInfo = await FileSystem.getInfoAsync(dir);
     if (!dirInfo.exists) {
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
     }
     
-    const fileName = `bill_${billNumber}_${Date.now()}.pdf`;
     const destUri = `${dir}${fileName}`;
     await FileSystem.copyAsync({ from: tempUri, to: destUri });
+    console.log(`[PDF Saved] File saved permanently to ${destUri}`);
     return destUri;
   } catch (error) {
     console.error('Error saving PDF:', error);
@@ -154,8 +184,14 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
   const billDate = formatDisplayValue(getFieldVal(headerData, ['billdate', 'date']), 'date') || '';
   const deliveryLoc = getFieldVal(headerData, ['deliveryloc', 'place', 'location']) || '';
 
-  // Extract Balance Amount if present
+  // Extract Balance Amount and Paid Amount if present
   const balanceAmount = parseFloat(getFieldVal(headerData, ['balance', 'balanceamount', 'unclearedbalance']) || '0') || 0;
+  const paidAmount = parseFloat(getFieldVal(headerData, ['paid', 'paidamount', 'amountpaid']) || '0') || 0;
+  const rawPaidDate = getFieldVal(headerData, ['paiddate', 'datepaid', 'paymentdate']);
+  let paidDateFormatted = '';
+  if (rawPaidDate) {
+    paidDateFormatted = formatDisplayValue(rawPaidDate, 'date');
+  }
 
   const activeTableFields = tableFields.filter(f => {
     const norm = normalize(f.name);
@@ -205,10 +241,10 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
     return norm.startsWith('cal') || norm.includes('total') || norm.includes('amount');
   })?.name;
   
-  const subTotal = (calFieldName && colTotals[calFieldName]) ? colTotals[calFieldName] : (totalAmount - balanceAmount);
+  const subTotal = (calFieldName && colTotals[calFieldName]) ? colTotals[calFieldName] : (totalAmount - balanceAmount + paidAmount);
 
   // Custom calculations settings from headerData
-  const calcMultiplyTrip = headerData.calc_multiply_trip !== 'false';
+  const calcMultiplyTrip = headerData.calc_multiply_trip === 'true';
   const calcIncludeTax = headerData.calc_include_tax === 'true';
   const calcTaxRate = parseFloat(headerData.calc_tax_rate || '18');
   const calcShowTimeInTable = headerData.calc_show_time_in_table === 'true';
@@ -217,10 +253,10 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
   if (calcIncludeTax) {
     taxAmount = subTotal * (calcTaxRate / 100);
   }
-  const grandTotal = subTotal + balanceAmount + taxAmount;
+  const grandTotal = subTotal + balanceAmount + taxAmount - paidAmount;
 
   // Extract dynamic custom fields
-  const normalizedStandardFields = ['bn', 'shopname', 'shoplocation', 'shopnumber', 'partyname', 'billdate', 'deliveryloc', 'total', 'balance', 'balanceamount', 'unclearedbalance'];
+  const normalizedStandardFields = ['bn', 'shopname', 'shoplocation', 'shopnumber', 'partyname', 'billdate', 'deliveryloc', 'total', 'balance', 'balanceamount', 'unclearedbalance', 'paid', 'paidamount', 'amountpaid', 'paiddate', 'datepaid', 'paymentdate'];
   const customHeaderFields = headerFields.filter(f => !normalizedStandardFields.includes(normalize(f.name)));
   
   let customFieldsHTML = '';
@@ -299,51 +335,46 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
     // Page-specific table footer rows
     let footerRowsHTML = '';
     if (isLastPage) {
-      if (calcIncludeTax) {
+      const hasSecondaryRows = calcIncludeTax || balanceAmount > 0 || paidAmount > 0;
+      if (hasSecondaryRows) {
         footerRowsHTML += `
           <tr>
             <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Subtotal</td>
             <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(subTotal)}</td>
           </tr>
+        `;
+      }
+      if (calcIncludeTax) {
+        footerRowsHTML += `
           <tr>
             <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">GST (${calcTaxRate}%)</td>
             <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(taxAmount)}</td>
           </tr>
         `;
-        if (balanceAmount > 0) {
-          footerRowsHTML += `
-            <tr>
-              <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
-              <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(balanceAmount)}</td>
-            </tr>
-          `;
-        }
+      }
+      if (balanceAmount > 0) {
         footerRowsHTML += `
           <tr>
-            <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>
-            <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 16px;">${formatIndianNumber(grandTotal)}</td>
-          </tr>
-        `;
-      } else {
-        if (balanceAmount > 0) {
-          footerRowsHTML += `
-            <tr>
-              <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Subtotal</td>
-              <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(subTotal)}</td>
-            </tr>
-            <tr>
-              <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
-              <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(balanceAmount)}</td>
-            </tr>
-          `;
-        }
-        footerRowsHTML += `
-          <tr>
-            <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>
-            <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 16px;">${formatIndianNumber(subTotal + balanceAmount)}</td>
+            <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
+            <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(balanceAmount)}</td>
           </tr>
         `;
       }
+      if (paidAmount > 0) {
+        const paidLabel = paidDateFormatted ? `Paid (${paidDateFormatted})` : 'Paid';
+        footerRowsHTML += `
+          <tr>
+            <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">${paidLabel}</td>
+            <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 14px;">${formatIndianNumber(paidAmount)}</td>
+          </tr>
+        `;
+      }
+      footerRowsHTML += `
+        <tr>
+          <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>
+          <td style="border: ${borderStyleCss}; padding: 10px 6px; font-weight: bold; text-align: right; font-size: 16px;">${formatIndianNumber(grandTotal)}</td>
+        </tr>
+      `;
     } else {
       // Multi-page subtotal indicator at the bottom of intermediate tables
       footerRowsHTML += `
@@ -465,19 +496,31 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
  * Format a number in Indian numbering system (e.g., 5,12,600).
  */
 function formatIndianNumber(num) {
-  if (isNaN(num)) return '0';
-  const str = Math.round(num).toString();
+  if (num === null || num === undefined || isNaN(num)) return '0';
+  const n = Number(num);
+  if (isNaN(n)) return '0';
+
+  const numStr = Number.isInteger(n) ? n.toString() : parseFloat(n.toFixed(2)).toString();
+  const parts = numStr.split('.');
+  const isNegative = parts[0].startsWith('-');
+  const intStr = isNegative ? parts[0].slice(1) : parts[0];
+
   let result = '';
   let count = 0;
-  
-  for (let i = str.length - 1; i >= 0; i--) {
+  for (let i = intStr.length - 1; i >= 0; i--) {
     if (count === 3 || (count > 3 && (count - 3) % 2 === 0)) {
       result = ',' + result;
     }
-    result = str[i] + result;
+    result = intStr[i] + result;
     count++;
   }
-  
+
+  if (isNegative) result = '-' + result;
+
+  if (parts.length > 1 && parts[1]) {
+    result = `${result}.${parts[1]}`;
+  }
+
   return result;
 }
 

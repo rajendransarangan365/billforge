@@ -11,8 +11,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card, Button, Input, DateTimePickerInput } from '../../src/components';
 import { 
-  getDatabase, getTemplateById, getCompanyProfile, saveBill, 
-  updateBillPdfUri, getNextBillNumber, getMaterials, getCustomers, saveCustomer
+  getDatabase, getTemplateById, saveBill, getCompanyProfile, 
+  updateBillPdfUri, getNextBillNumber, getMaterials, getCustomers, saveCustomer,
+  getBillById, saveDraft, getDraft, clearDraft
 } from '../../src/database/db';
 import { getKeyboardTypeForField } from '../../src/services/templateParser';
 import { generatePDF, sharePDF, savePDFPermanently } from '../../src/services/pdfGenerator';
@@ -28,7 +29,7 @@ const getRowValue = (row: any, targetNames: string[]) => {
 export default function BillFormScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { templateId } = useLocalSearchParams();
+  const { templateId, editBillId } = useLocalSearchParams();
   const [template, setTemplate] = useState(null);
   const [headerFields, setHeaderFields] = useState([]);
   const [tableFields, setTableFields] = useState([]);
@@ -37,12 +38,15 @@ export default function BillFormScreen() {
   const [companyProfile, setCompanyProfile] = useState({});
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftModalVisible, setDraftModalVisible] = useState(false);
+  const [savedDraftData, setSavedDraftData] = useState(null);
   const [whatsappModalVisible, setWhatsappModalVisible] = useState(false);
   const [whatsappPhone, setWhatsappPhone] = useState('');
   const [sharingWhatsApp, setSharingWhatsApp] = useState(false);
 
   const [calcSettings, setCalcSettings] = useState({
-    multiplyTrip: true,
+    multiplyTrip: false,
     includeTax: false,
     taxRate: 18,
     showTimeInTable: false,
@@ -54,40 +58,43 @@ export default function BillFormScreen() {
         const updatedRow = { ...row };
         const tripVal = parseFloat(getRowValue(updatedRow, ['trip', 'trips']) || '0');
         const qtyVal = parseFloat(getRowValue(updatedRow, ['unit', 'units', 'qty', 'quantity']) || '0');
-        
-        let unitVal = 0;
-        if (settings.multiplyTrip) {
-          if (!isNaN(tripVal) && tripVal > 0 && !isNaN(qtyVal) && qtyVal > 0) {
-            unitVal = tripVal * qtyVal;
-          } else if (!isNaN(qtyVal) && qtyVal > 0) {
-            unitVal = qtyVal;
-          } else if (!isNaN(tripVal) && tripVal > 0) {
-            unitVal = tripVal;
-          }
-        } else {
-          if (!isNaN(qtyVal) && qtyVal > 0) {
-            unitVal = qtyVal;
-          }
-        }
 
         const costFieldName = Object.keys(updatedRow).find(k => {
           const norm = normalizeKey(k);
-          return norm.includes('cost') || norm.includes('value') || norm.includes('price') || norm.includes('rate');
+          return (norm.includes('cost') || norm.includes('price') || norm.includes('rate')) && !norm.includes('eachvalue') && !norm.includes('total') && !norm.includes('amount');
         }) || 'MaterialTypeCost';
-        
+
         let costVal = parseFloat(updatedRow[costFieldName] || '0');
-        
+        if (isNaN(costVal)) costVal = 0;
+
         const calFieldName = Object.keys(updatedRow).find(k => {
           const norm = normalizeKey(k);
-          return norm.startsWith('cal') || norm.includes('total') || norm.includes('amount');
+          return norm.includes('eachvalue') || norm.startsWith('cal') || norm.includes('total') || norm.includes('amount') || norm.includes('calculatedvalue');
         });
 
         if (calFieldName) {
-          if (!isNaN(unitVal) && !isNaN(costVal)) {
-            updatedRow[calFieldName] = String(unitVal * costVal);
+          let calculatedVal = 0;
+          if (settings.multiplyTrip) {
+            if (!isNaN(tripVal) && tripVal > 0 && !isNaN(qtyVal) && qtyVal > 0) {
+              calculatedVal = costVal * tripVal * qtyVal;
+            } else if (!isNaN(qtyVal) && qtyVal > 0) {
+              calculatedVal = costVal * qtyVal;
+            } else if (!isNaN(tripVal) && tripVal > 0) {
+              calculatedVal = costVal * tripVal;
+            }
+          } else {
+            if (!isNaN(qtyVal) && qtyVal > 0) {
+              calculatedVal = costVal * qtyVal;
+            } else if (!isNaN(tripVal) && tripVal > 0) {
+              calculatedVal = costVal * tripVal;
+            }
+          }
+
+          if (calculatedVal > 0) {
+            updatedRow[calFieldName] = String(Number.isInteger(calculatedVal) ? calculatedVal : parseFloat(calculatedVal.toFixed(2)));
           }
         }
-        
+
         return updatedRow;
       });
     });
@@ -194,6 +201,37 @@ export default function BillFormScreen() {
         if (profile) {
           setCompanyProfile(profile);
         }
+        
+        // 1. If editing an existing bill (editBillId)
+        if (editBillId) {
+          setIsEditing(true);
+          const existingBill = await getBillById(db, parseInt(editBillId));
+          if (existingBill) {
+            const hData = JSON.parse(existingBill.header_data_json || '{}');
+            const rData = JSON.parse(existingBill.row_data_json || '[]');
+            
+            setHeaderData(hData);
+            setRowData(rData);
+            if (hData.customer_phone) setCustomerPhone(hData.customer_phone);
+            if (hData.customer_address) setCustomerAddress(hData.customer_address);
+            
+            setCalcSettings({
+              multiplyTrip: hData.calc_multiply_trip === 'true',
+              includeTax: hData.calc_include_tax === 'true',
+              taxRate: parseFloat(hData.calc_tax_rate || '18'),
+              showTimeInTable: hData.calc_show_time_in_table === 'true',
+            });
+            return;
+          }
+        }
+
+        // 2. Check for an unfinished left-over draft for this template
+        const draft = await getDraft(templateId);
+        if (draft && draft.headerData && (Object.keys(draft.headerData).length > 0 || (draft.rowData && draft.rowData.length > 0))) {
+          setSavedDraftData(draft);
+          setDraftModalVisible(true);
+        }
+
         const nextBn = await getNextBillNumber(db);
 
         // Initialize header data with current date for date/datetime fields and prefilled values
@@ -242,6 +280,19 @@ export default function BillFormScreen() {
     }
   };
 
+  // Auto-save draft when fields change (when not editing an existing bill)
+  useEffect(() => {
+    if (!isEditing && template && headerData && Object.keys(headerData).length > 0) {
+      saveDraft(templateId, {
+        headerData,
+        rowData,
+        calcSettings,
+        customerPhone,
+        customerAddress,
+      });
+    }
+  }, [headerData, rowData, calcSettings, customerPhone, customerAddress, isEditing, template]);
+
   // Auto-sync serial numbers when rows change
   useEffect(() => {
     const snoField = tableFields.find(f => {
@@ -275,18 +326,17 @@ export default function BillFormScreen() {
     setRowData(prev => {
       const updated = [...prev];
       const row = { ...updated[rowIndex], [fieldName]: value };
-      
-      const normalizedFieldName = normalizeKey(fieldName);
 
-      // Material auto-fill logic (matches materialtype, materialstype, material, materials)
+      const normalizedFieldName = normalizeKey(fieldName);
       const isMaterialField = ['materialtype', 'materialstype', 'material', 'materials'].includes(normalizedFieldName);
-      
-      // Find cost/price/rate field
+
+      // Cost / Price per Unit field name
       const costFieldName = Object.keys(row).find(k => {
         const norm = normalizeKey(k);
-        return norm.includes('cost') || norm.includes('value') || norm.includes('price') || norm.includes('rate');
+        return (norm.includes('cost') || norm.includes('price') || norm.includes('rate')) && !norm.includes('eachvalue') && !norm.includes('total') && !norm.includes('amount');
       }) || 'MaterialTypeCost';
 
+      // Auto-fill material price when material is picked
       if (isMaterialField) {
         const material = materials.find(m => normalizeKey(m.name) === normalizeKey(value));
         if (material) {
@@ -294,38 +344,45 @@ export default function BillFormScreen() {
         }
       }
 
-      // Calculate unit value adaptively based on Trip and Units/Qty
-      let unitVal = 0;
-      const tripVal = parseFloat(getRowValue(row, ['trip', 'trips']) || '0');
-      const qtyVal = parseFloat(getRowValue(row, ['unit', 'units', 'qty', 'quantity']) || '0');
-      
-      if (calcSettings.multiplyTrip) {
-        if (!isNaN(tripVal) && tripVal > 0 && !isNaN(qtyVal) && qtyVal > 0) {
-          // If both Trip and Units are present and non-zero, total quantity is Trip * Units
-          unitVal = tripVal * qtyVal;
-        } else if (!isNaN(qtyVal) && qtyVal > 0) {
-          unitVal = qtyVal;
-        } else if (!isNaN(tripVal) && tripVal > 0) {
-          unitVal = tripVal;
-        }
-      } else {
-        if (!isNaN(qtyVal) && qtyVal > 0) {
-          unitVal = qtyVal;
-        }
-      }
-
-      let costVal = parseFloat(row[costFieldName] || '0');
-      if (isNaN(costVal)) costVal = 0;
-      
-      // Find calculation / total field in the row case-insensitively
+      // Calculation / Total field name (e.g. Each Value ₹)
       const calFieldName = Object.keys(row).find(k => {
         const norm = normalizeKey(k);
-        return norm.startsWith('cal') || norm.includes('total') || norm.includes('amount');
+        return norm.includes('eachvalue') || norm.startsWith('cal') || norm.includes('total') || norm.includes('amount') || norm.includes('calculatedvalue');
       });
-      
-      if (calFieldName) {
-        if (!isNaN(unitVal) && !isNaN(costVal)) {
-          row[calFieldName] = String(unitVal * costVal);
+
+      // ONLY auto-calculate if user edited price, units, trip, or material (NOT if they manually edited Each Value itself)
+      const isCalFieldEdited = calFieldName && normalizedFieldName === normalizeKey(calFieldName);
+
+      if (!isCalFieldEdited && calFieldName) {
+        let costVal = parseFloat(row[costFieldName] || '0');
+        if (isNaN(costVal)) costVal = 0;
+
+        const tripVal = parseFloat(getRowValue(row, ['trip', 'trips']) || '0');
+        const qtyVal = parseFloat(getRowValue(row, ['unit', 'units', 'qty', 'quantity']) || '0');
+
+        let calculatedVal = 0;
+        if (calcSettings.multiplyTrip) {
+          if (!isNaN(tripVal) && tripVal > 0 && !isNaN(qtyVal) && qtyVal > 0) {
+            calculatedVal = costVal * tripVal * qtyVal;
+          } else if (!isNaN(qtyVal) && qtyVal > 0) {
+            calculatedVal = costVal * qtyVal;
+          } else if (!isNaN(tripVal) && tripVal > 0) {
+            calculatedVal = costVal * tripVal;
+          } else {
+            calculatedVal = costVal;
+          }
+        } else {
+          if (!isNaN(qtyVal) && qtyVal > 0) {
+            calculatedVal = costVal * qtyVal;
+          } else if (!isNaN(tripVal) && tripVal > 0) {
+            calculatedVal = costVal * tripVal;
+          } else {
+            calculatedVal = costVal;
+          }
+        }
+
+        if (calculatedVal > 0 || (costVal > 0 && (qtyVal > 0 || tripVal > 0))) {
+          row[calFieldName] = String(Number.isInteger(calculatedVal) ? calculatedVal : parseFloat(calculatedVal.toFixed(2)));
         }
       }
 
@@ -367,10 +424,10 @@ export default function BillFormScreen() {
   const calculateTotal = () => {
     let subTotal = 0;
     
-    // Check if we have Cal fields first (most accurate for this user)
+    // Check if we have Each Value / Cal fields first
     const calFieldName = tableFields.find(f => {
       const norm = normalizeKey(f.name);
-      return norm.startsWith('cal') || norm.includes('total') || norm.includes('amount');
+      return norm.includes('eachvalue') || norm.startsWith('cal') || norm.includes('total') || norm.includes('amount') || norm.includes('calculatedvalue');
     })?.name;
     
     if (calFieldName) {
@@ -393,6 +450,7 @@ export default function BillFormScreen() {
 
     // Add balance amount
     const balance = parseFloat(getRowValue(headerData, ['balance', 'balanceamount', 'unclearedbalance']) || '0');
+    const paidAmount = parseFloat(getRowValue(headerData, ['paid', 'paidamount', 'amountpaid']) || '0');
     let total = subTotal;
     if (!isNaN(balance)) {
       total += balance;
@@ -407,18 +465,24 @@ export default function BillFormScreen() {
       }
     }
     
+    // Subtract paid amount
+    if (!isNaN(paidAmount)) {
+      total -= paidAmount;
+    }
+    
     return total;
   };
 
   // Sync the grand total to the <Total> header field safely without render side-effects
   const balanceVal = getRowValue(headerData, ['balance', 'balanceamount', 'unclearedbalance']);
+  const paidVal = getRowValue(headerData, ['paid', 'paidamount', 'amountpaid']);
   useEffect(() => {
     const total = calculateTotal();
     const totalHeaderField = headerFields.find(f => normalizeKey(f.name) === 'total')?.name;
     if (totalHeaderField && headerData[totalHeaderField] !== String(total)) {
       setHeaderData(prev => ({ ...prev, [totalHeaderField]: String(total) }));
     }
-  }, [rowData, balanceVal, headerFields]);
+  }, [rowData, balanceVal, paidVal, headerFields]);
 
   const renderLivePreview = () => {
     const primaryThemeColor = template?.theme_color || '#0F2050';
@@ -486,6 +550,17 @@ export default function BillFormScreen() {
     
     const deliveryLoc = getRowValue(headerData, ['deliveryloc', 'place', 'location']) || '';
     const balanceAmount = parseFloat(getRowValue(headerData, ['balance', 'balanceamount', 'unclearedbalance']) || '0') || 0;
+    const paidAmount = parseFloat(getRowValue(headerData, ['paid', 'paidamount', 'amountpaid']) || '0') || 0;
+    const rawPaidDate = getRowValue(headerData, ['paiddate', 'datepaid', 'paymentdate']);
+    let paidDateFormatted = '';
+    if (rawPaidDate) {
+      try {
+        const d = new Date(rawPaidDate);
+        paidDateFormatted = !isNaN(d.getTime()) ? d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : String(rawPaidDate);
+      } catch (e) {
+        paidDateFormatted = String(rawPaidDate);
+      }
+    }
     
     // Sum of row amounts (Subtotal before taxes and balance)
     let subTotal = 0;
@@ -518,10 +593,10 @@ export default function BillFormScreen() {
       }
     }
     
-    const grandTotal = subTotal + balanceAmount + taxAmount;
+    const grandTotal = subTotal + balanceAmount + taxAmount - paidAmount;
 
     // Filter out standard fields to get custom header fields
-    const normalizedStandardFields = ['bn', 'shopname', 'shoplocation', 'shopnumber', 'partyname', 'billdate', 'deliveryloc', 'total', 'balance', 'balanceamount', 'unclearedbalance'];
+    const normalizedStandardFields = ['bn', 'shopname', 'shoplocation', 'shopnumber', 'partyname', 'billdate', 'deliveryloc', 'total', 'balance', 'balanceamount', 'unclearedbalance', 'paid', 'paidamount', 'amountpaid', 'paiddate', 'datepaid', 'paymentdate'];
     const customHeaderFields = headerFields.filter(f => !normalizedStandardFields.includes(normalizeKey(f.name)));
 
     // Filter out price/rate field from the table columns in the preview
@@ -729,7 +804,7 @@ export default function BillFormScreen() {
 
           {/* Footer Totals */}
           <View style={[styles.paperTotalsContainer, { borderColor: primaryThemeColor }]}>
-            {calcSettings.includeTax && (
+            {(calcSettings.includeTax || balanceAmount > 0 || paidAmount > 0) && (
               <View style={styles.paperTotalRow}>
                 <Text style={[styles.paperTotalLabel, { fontFamily: fontFamilyStyle }]}>Subtotal:</Text>
                 <Text style={[styles.paperTotalValue, { fontFamily: fontFamilyStyle }]}>₹ {formatIndianNumber(subTotal)}</Text>
@@ -742,20 +817,20 @@ export default function BillFormScreen() {
               </View>
             )}
             {balanceAmount > 0 && (
-              <>
-                {!calcSettings.includeTax && (
-                  <View style={styles.paperTotalRow}>
-                    <Text style={[styles.paperTotalLabel, { fontFamily: fontFamilyStyle }]}>Subtotal:</Text>
-                    <Text style={[styles.paperTotalValue, { fontFamily: fontFamilyStyle }]}>₹ {formatIndianNumber(subTotal)}</Text>
-                  </View>
-                )}
-                <View style={styles.paperTotalRow}>
-                  <Text style={[styles.paperTotalLabel, { fontFamily: fontFamilyStyle }]}>Uncleared Balance:</Text>
-                  <Text style={[styles.paperTotalValue, { fontFamily: fontFamilyStyle }]}>₹ {formatIndianNumber(balanceAmount)}</Text>
-                </View>
-              </>
+              <View style={styles.paperTotalRow}>
+                <Text style={[styles.paperTotalLabel, { fontFamily: fontFamilyStyle }]}>Uncleared Balance:</Text>
+                <Text style={[styles.paperTotalValue, { fontFamily: fontFamilyStyle }]}>₹ {formatIndianNumber(balanceAmount)}</Text>
+              </View>
             )}
-            <View style={[styles.paperTotalRow, { borderTopWidth: (balanceAmount > 0 || calcSettings.includeTax) ? 1 : 0, borderTopColor: primaryThemeColor, paddingTop: 4 }]}>
+            {paidAmount > 0 && (
+              <View style={styles.paperTotalRow}>
+                <Text style={[styles.paperTotalLabel, { fontFamily: fontFamilyStyle }]}>
+                  {paidDateFormatted ? `Paid (${paidDateFormatted}):` : 'Paid:'}
+                </Text>
+                <Text style={[styles.paperTotalValue, { fontFamily: fontFamilyStyle }]}>₹ {formatIndianNumber(paidAmount)}</Text>
+              </View>
+            )}
+            <View style={[styles.paperTotalRow, { borderTopWidth: (balanceAmount > 0 || calcSettings.includeTax || paidAmount > 0) ? 1 : 0, borderTopColor: primaryThemeColor, paddingTop: 4 }]}>
               <Text style={[styles.paperTotalLabel, { fontSize: 15, fontWeight: '900', fontFamily: fontFamilyStyle }]}>Total:</Text>
               <Text style={[styles.paperTotalValue, { fontSize: 16, fontWeight: '900', fontFamily: fontFamilyStyle }]}>₹ {formatIndianNumber(grandTotal)}</Text>
             </View>
@@ -841,7 +916,8 @@ export default function BillFormScreen() {
         
         // Save PDF permanently
         const billNumber = headerData.BN || `BF-${Date.now().toString(36).toUpperCase()}`;
-        const permanentUri = await savePDFPermanently(result.uri, billNumber);
+        const customerName = getRowValue(headerData, ['partyname', 'customername', 'clientname', 'name']) || '';
+        const permanentUri = await savePDFPermanently(result.uri, billNumber, customerName);
         
         // Share the PDF
         await sharePDF(permanentUri);
@@ -924,8 +1000,8 @@ export default function BillFormScreen() {
       });
 
       let pdfUri = '';
-      if (pdfResult.success && Platform.OS !== 'web') {
-        pdfUri = await savePDFPermanently(pdfResult.uri, billNumber);
+      if (pdfResult.success) {
+        pdfUri = await savePDFPermanently(pdfResult.uri, billNumber, customerName);
       }
 
       const billId = await saveBill(db, {
@@ -1090,12 +1166,13 @@ export default function BillFormScreen() {
       });
 
       let pdfUri = '';
-      if (pdfResult.success && Platform.OS !== 'web') {
-        pdfUri = await savePDFPermanently(pdfResult.uri, billNumber);
+      if (pdfResult.success) {
+        pdfUri = await savePDFPermanently(pdfResult.uri, billNumber, customerName);
       }
 
-      // Save bill record in DB
-      await saveBill(db, {
+      // Save or Update bill record in DB
+      const savedId = await saveBill(db, {
+        id: editBillId ? parseInt(editBillId) : undefined,
         template_id: parseInt(templateId),
         company_id: 1,
         bill_number: billNumber,
@@ -1105,6 +1182,9 @@ export default function BillFormScreen() {
         total_amount: totalAmount,
         pdf_uri: pdfUri,
       });
+
+      // Clear left-over draft once bill is saved
+      await clearDraft(templateId);
 
       const shopNameStr = getRowValue(headerData, ['shopname', 'companyname']) || companyProfile.name || template.name;
       const messageText = `Dear Customer, here is your invoice (No: ${billNumber}) from ${shopNameStr}. Total Amount: Rs. ${formatIndianNumber(totalAmount)}. Thank you for your business!`;
@@ -1315,7 +1395,7 @@ export default function BillFormScreen() {
           <Ionicons name="arrow-back" size={22} color={Colors.text} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle} numberOfLines={1}>New Bill</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>{isEditing ? 'Edit Bill' : 'New Bill'}</Text>
           <Text style={styles.headerSub}>{template.name}</Text>
         </View>
       </View>
@@ -1361,75 +1441,130 @@ export default function BillFormScreen() {
                 <Text style={styles.rowCount}>{rowData.length} row(s)</Text>
               </View>
 
-              {rowData.map((row, rowIndex) => (
-                <View key={rowIndex} style={styles.rowCard}>
-                  <View style={styles.rowHeader}>
-                    <Text style={styles.rowLabel}>Row {rowIndex + 1}</Text>
-                    {rowData.length > 1 && (
-                      <TouchableOpacity
-                        onPress={() => removeRow(rowIndex)}
-                        style={styles.removeRowBtn}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Ionicons name="close-circle" size={20} color={Colors.danger} />
-                      </TouchableOpacity>
-                    )}
-                  </View>
+              {rowData.map((row, rowIndex) => {
+                const itemMaterialName = getRowValue(row, ['materialtype', 'materialstype', 'material', 'materials']) || '';
+                const rowTotalVal = getRowValue(row, ['eachvalue', 'amount', 'total', 'calculatedvalue']) || 0;
 
-                  {/* Compact row fields */}
-                  <View style={styles.rowFields}>
-                    {tableFields.map(field => {
-                      const isMaterialTypeField = ['materialtype', 'materialstype', 'material', 'materials'].includes(normalizeKey(field.name));
-                      
-                      return (
-                        <View
-                          key={field.name}
-                          style={[
-                            styles.rowFieldWrap,
-                            tableFields.length <= 3 && styles.rowFieldHalf,
-                            tableFields.length > 3 && styles.rowFieldThird,
-                          ]}
-                        >
-                          {isMaterialTypeField ? (
-                            <View style={styles.dropdownWrap}>
-                              <Text style={styles.dropdownLabel}>{field.label}</Text>
-                              <TouchableOpacity
-                                style={styles.dropdownButton}
-                                onPress={() => openMaterialPicker(rowIndex, field.name)}
-                                activeOpacity={0.7}
-                              >
-                                <Text
-                                  style={[styles.dropdownText, !row[field.name] && styles.placeholder]}
-                                  numberOfLines={1}
-                                  ellipsizeMode="tail"
-                                >
-                                  {row[field.name] || 'Select...'}
-                                </Text>
-                                <Ionicons name="chevron-down" size={14} color={Colors.textTertiary} style={{ marginLeft: 4 }} />
-                              </TouchableOpacity>
-                            </View>
-                          ) : (field.type === 'date' || field.type === 'time' || field.type === 'datetime') ? (
-                            <DateTimePickerInput
-                              label={field.label}
-                              value={row[field.name] ? new Date(row[field.name]) : null}
-                              onChange={(date) => updateRowField(rowIndex, field.name, date.toISOString())}
-                              mode={field.type}
-                            />
-                          ) : (
-                            <Input
-                              label={field.label}
-                              value={row[field.name] || ''}
-                              onChangeText={(val) => updateRowField(rowIndex, field.name, val)}
-                              placeholder={field.label}
-                              keyboardType={getKeyboardTypeForField(field.type)}
-                            />
-                          )}
+                return (
+                  <View key={rowIndex} style={styles.rowCard}>
+                    <View style={styles.rowHeader}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <View style={styles.rowBadge}>
+                          <Text style={styles.rowBadgeText}>#{rowIndex + 1}</Text>
                         </View>
-                      );
-                    })}
+                        <Text style={styles.rowItemTitle} numberOfLines={1}>
+                          {itemMaterialName ? itemMaterialName : `Item ${rowIndex + 1}`}
+                        </Text>
+                      </View>
+
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        {Number(rowTotalVal) > 0 && (
+                          <View style={styles.rowTotalBadge}>
+                            <Text style={styles.rowTotalBadgeText}>
+                              ₹{formatIndianNumber(rowTotalVal)}
+                            </Text>
+                          </View>
+                        )}
+
+                        {rowData.length > 1 && (
+                          <TouchableOpacity
+                            onPress={() => removeRow(rowIndex)}
+                            style={styles.removeRowBtn}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          >
+                            <Ionicons name="trash-outline" size={18} color={Colors.danger} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+
+                    {/* Quick Material Selection Chips for fast mobile entry */}
+                    {materials && materials.length > 0 && (
+                      <View style={styles.quickChipsContainer}>
+                        <Text style={styles.quickChipsLabel}>Quick Select:</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                          {materials.slice(0, 5).map((m) => (
+                            <TouchableOpacity
+                              key={m.id}
+                              style={[
+                                styles.chipBtn,
+                                itemMaterialName === m.name && styles.chipBtnActive
+                              ]}
+                              onPress={() => {
+                                const matField = tableFields.find(f => ['materialtype', 'materialstype', 'material', 'materials'].includes(normalizeKey(f.name)));
+                                if (matField) {
+                                  openMaterialPicker(rowIndex, matField.name);
+                                  selectMaterial(m.name);
+                                }
+                              }}
+                            >
+                              <Ionicons name="cube-outline" size={12} color={itemMaterialName === m.name ? Colors.primary : Colors.textSecondary} />
+                              <Text style={[styles.chipText, itemMaterialName === m.name && styles.chipTextActive]}>
+                                {m.name}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+
+                    {/* Smart Responsive Row Fields */}
+                    <View style={styles.rowFields}>
+                      {tableFields.map(field => {
+                        const normName = normalizeKey(field.name);
+                        const isMaterialTypeField = ['materialtype', 'materialstype', 'material', 'materials'].includes(normName);
+                        const isFullWidth = isMaterialTypeField || normName.includes('eachvalue') || normName.includes('amount') || normName.includes('total') || normName.includes('desc');
+
+                        return (
+                          <View
+                            key={field.name}
+                            style={[
+                              styles.rowFieldWrap,
+                              isFullWidth ? styles.fieldFullWidth : styles.fieldHalfWidth
+                            ]}
+                          >
+                            {isMaterialTypeField ? (
+                              <View style={styles.dropdownWrap}>
+                                <Text style={styles.dropdownLabel}>{field.label}</Text>
+                                <TouchableOpacity
+                                  style={styles.dropdownButton}
+                                  onPress={() => openMaterialPicker(rowIndex, field.name)}
+                                  activeOpacity={0.7}
+                                >
+                                  <Ionicons name="cube-outline" size={16} color={Colors.primary} style={{ marginRight: 6 }} />
+                                  <Text
+                                    style={[styles.dropdownText, !row[field.name] && styles.placeholder]}
+                                    numberOfLines={1}
+                                    ellipsizeMode="tail"
+                                  >
+                                    {row[field.name] || 'Select Material...'}
+                                  </Text>
+                                  <Ionicons name="chevron-down" size={16} color={Colors.textTertiary} style={{ marginLeft: 'auto' }} />
+                                </TouchableOpacity>
+                              </View>
+                            ) : (field.type === 'date' || field.type === 'time' || field.type === 'datetime') ? (
+                              <DateTimePickerInput
+                                label={field.label}
+                                value={row[field.name] ? new Date(row[field.name]) : null}
+                                onChange={(date) => updateRowField(rowIndex, field.name, date.toISOString())}
+                                mode={field.type}
+                              />
+                            ) : (
+                              <Input
+                                label={field.label}
+                                value={row[field.name] !== undefined && row[field.name] !== null ? String(row[field.name]) : ''}
+                                onChangeText={(val) => updateRowField(rowIndex, field.name, val)}
+                                placeholder={field.label}
+                                keyboardType={getKeyboardTypeForField(field.type)}
+                              />
+                            )}
+                          </View>
+                        );
+                      })}
+                    </View>
                   </View>
-                </View>
-              ))}
+                );
+              })}
 
               <TouchableOpacity onPress={addRow} style={styles.addRowBtn}>
                 <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
@@ -1438,22 +1573,45 @@ export default function BillFormScreen() {
             </Card>
           )}
 
-          {/* Balance Amount Section */}
+          {/* Balance & Payment Settings Section */}
           <Card style={styles.sectionCard}>
             <View style={styles.sectionHeader}>
               <View style={[styles.sectionIconCircle, { backgroundColor: '#E8F5E9' }]}>
                 <Ionicons name="cash-outline" size={18} color={Colors.success} />
               </View>
-              <Text style={styles.sectionTitle}>Additional Settings</Text>
+              <Text style={styles.sectionTitle}>Balance & Payment Settings</Text>
             </View>
 
             <Input
               label="Balance Amount (Rs.)"
-              value={headerData.Balance || ''}
+              value={headerData.Balance || headerData.UnclearedBalance || ''}
               onChangeText={(val) => updateHeaderField('Balance', val)}
-              placeholder="Enter balance amount if any"
-              keyboardType="numeric"
+              placeholder="Enter uncleared balance amount if any"
+              keyboardType="decimal-pad"
             />
+
+            <View style={{ height: 12 }} />
+
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Input
+                  label="Paid Amount (Rs.)"
+                  value={headerData.Paid || headerData.PaidAmount || ''}
+                  onChangeText={(val) => updateHeaderField('Paid', val)}
+                  placeholder="e.g. 1,00,000"
+                  keyboardType="decimal-pad"
+                  icon="checkmark-circle-outline"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <DateTimePickerInput
+                  label="Paid Date"
+                  value={headerData.PaidDate ? new Date(headerData.PaidDate) : null}
+                  onChange={(date) => updateHeaderField('PaidDate', date.toISOString())}
+                  mode="date"
+                />
+              </View>
+            </View>
           </Card>
 
           {/* Calculation & Display Settings Section */}
@@ -1515,7 +1673,7 @@ export default function BillFormScreen() {
                     setCalcSettings(prev => ({ ...prev, taxRate: isNaN(parsed) ? 0 : parsed }));
                   }}
                   placeholder="e.g. 18"
-                  keyboardType="numeric"
+                  keyboardType="decimal-pad"
                   icon="percent-outline"
                 />
               </View>
@@ -1789,20 +1947,90 @@ export default function BillFormScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Draft Resume Modal */}
+      <Modal
+        visible={draftModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setDraftModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxWidth: 440 }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="time-outline" size={24} color={Colors.accent} />
+                <Text style={styles.modalTitle}>Unfinished Draft Found</Text>
+              </View>
+              <TouchableOpacity onPress={() => setDraftModalVisible(false)} style={styles.closeBtn}>
+                <Ionicons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ paddingHorizontal: 24, paddingVertical: 20 }}>
+              <Text style={{ ...Typography.bodyMedium, color: Colors.textSecondary, marginBottom: 16, lineHeight: 22 }}>
+                You have an unfinished bill draft saved for this template. Would you like to resume where you left off or start fresh?
+              </Text>
+
+              <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+                <Button
+                  title="Start Fresh"
+                  onPress={async () => {
+                    await clearDraft(templateId);
+                    setDraftModalVisible(false);
+                  }}
+                  variant="outline"
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  title="Resume Draft"
+                  onPress={() => {
+                    if (savedDraftData) {
+                      if (savedDraftData.headerData) setHeaderData(savedDraftData.headerData);
+                      if (savedDraftData.rowData) setRowData(savedDraftData.rowData);
+                      if (savedDraftData.calcSettings) setCalcSettings(savedDraftData.calcSettings);
+                      if (savedDraftData.customerPhone) setCustomerPhone(savedDraftData.customerPhone);
+                      if (savedDraftData.customerAddress) setCustomerAddress(savedDraftData.customerAddress);
+                    }
+                    setDraftModalVisible(false);
+                  }}
+                  variant="primary"
+                  style={{ flex: 1 }}
+                  icon="play-outline"
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 function formatIndianNumber(num) {
-  if (isNaN(num)) return '0';
-  const str = Math.round(num).toString();
+  if (num === null || num === undefined || isNaN(num)) return '0';
+  const n = Number(num);
+  if (isNaN(n)) return '0';
+
+  const numStr = Number.isInteger(n) ? n.toString() : parseFloat(n.toFixed(2)).toString();
+  const parts = numStr.split('.');
+  const isNegative = parts[0].startsWith('-');
+  const intStr = isNegative ? parts[0].slice(1) : parts[0];
+
   let result = '';
   let count = 0;
-  for (let i = str.length - 1; i >= 0; i--) {
+  for (let i = intStr.length - 1; i >= 0; i--) {
     if (count === 3 || (count > 3 && (count - 3) % 2 === 0)) result = ',' + result;
-    result = str[i] + result;
+    result = intStr[i] + result;
     count++;
   }
+
+  if (isNegative) result = '-' + result;
+
+  if (parts.length > 1 && parts[1]) {
+    result = `${result}.${parts[1]}`;
+  }
+
   return result;
 }
 
@@ -1922,44 +2150,103 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
   },
   rowCard: {
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: '#F8FAFC',
     borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
+    padding: Spacing.md,
     marginBottom: Spacing.md,
-    borderWidth: 1,
-    borderColor: '#EDF1F7',
-    shadowColor: 'rgba(15, 32, 80, 0.02)',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    shadowColor: 'rgba(15, 32, 80, 0.04)',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 1,
     shadowRadius: 8,
-    elevation: 1,
+    elevation: 2,
   },
   rowHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.sm,
+    paddingBottom: Spacing.xs,
+    marginBottom: Spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
   },
-  rowLabel: {
-    ...Typography.captionMedium,
+  rowBadge: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.xs,
+  },
+  rowBadgeText: {
+    ...Typography.captionBold,
+    color: '#FFF',
+    fontSize: 12,
+  },
+  rowItemTitle: {
+    ...Typography.bodyLargeBold,
+    color: Colors.text,
+  },
+  rowTotalBadge: {
+    backgroundColor: '#E8F8F5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.xs,
+    borderWidth: 1,
+    borderColor: '#A3E4D7',
+  },
+  rowTotalBadgeText: {
+    ...Typography.captionBold,
+    color: Colors.success,
+  },
+  quickChipsContainer: {
+    marginBottom: Spacing.xs,
+    marginTop: 2,
+  },
+  quickChipsLabel: {
+    ...Typography.small,
+    color: Colors.textTertiary,
+    marginBottom: 4,
+  },
+  chipBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  chipBtnActive: {
+    backgroundColor: 'rgba(79, 106, 245, 0.1)',
+    borderColor: Colors.primary,
+  },
+  chipText: {
+    ...Typography.caption,
     color: Colors.textSecondary,
   },
+  chipTextActive: {
+    color: Colors.primary,
+    fontWeight: 'bold',
+  },
   removeRowBtn: {
-    padding: 2,
+    padding: 4,
   },
   rowFields: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.sm,
+    gap: 8,
+    justifyContent: 'space-between',
   },
   rowFieldWrap: {
-    flex: 1,
+    marginBottom: 2,
   },
-  rowFieldHalf: {
-    minWidth: '45%',
+  fieldFullWidth: {
+    width: '100%',
   },
-  rowFieldThird: {
-    minWidth: '30%',
+  fieldHalfWidth: {
+    width: '48%',
   },
   addRowBtn: {
     flexDirection: 'row',

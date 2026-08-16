@@ -185,7 +185,7 @@ export default function MaterialsScreen() {
               value={formData.price_per_unit}
               onChangeText={(val) => setFormData(prev => ({ ...prev, price_per_unit: val }))}
               placeholder="0.00"
-              keyboardType="numeric"
+              keyboardType="decimal-pad"
               icon="cash-outline"
             />
             <Input

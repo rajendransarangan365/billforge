@@ -121,6 +121,12 @@ function webInitializeSchema() {
   if (!customers) {
     webSetItems('billforge_customers', []);
   }
+
+  // 6. Payments
+  let payments = webGetItems('billforge_payments');
+  if (!payments) {
+    webSetItems('billforge_payments', []);
+  }
 }
 
 // === SQLite initialization ===
@@ -192,6 +198,16 @@ async function initializeSchema(db) {
       phone TEXT DEFAULT '',
       address TEXT DEFAULT '',
       created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bill_id INTEGER,
+      customer_name TEXT DEFAULT '',
+      amount REAL DEFAULT 0,
+      note TEXT DEFAULT '',
+      paid_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE
     );
   `);
 
@@ -528,6 +544,25 @@ export async function getBillById(db, id) {
 export async function saveBill(db, bill) {
   if (IS_WEB) {
     const list = webGetItems('billforge_bills') || [];
+    if (bill.id) {
+      const idx = list.findIndex(b => b.id === parseInt(bill.id));
+      if (idx !== -1) {
+        list[idx] = {
+          ...list[idx],
+          template_id: parseInt(bill.template_id),
+          company_id: bill.company_id || 1,
+          bill_number: bill.bill_number || '',
+          customer_name: bill.customer_name || '',
+          header_data_json: JSON.stringify(bill.headerData || {}),
+          row_data_json: JSON.stringify(bill.rowData || []),
+          total_amount: bill.total_amount || 0,
+          pdf_uri: bill.pdf_uri || '',
+          updated_at: new Date().toISOString()
+        };
+        webSetItems('billforge_bills', list);
+        return bill.id;
+      }
+    }
     const nextId = list.reduce((max, b) => b.id > max ? b.id : max, 0) + 1;
     const newBill = {
       id: nextId,
@@ -544,6 +579,24 @@ export async function saveBill(db, bill) {
     list.push(newBill);
     webSetItems('billforge_bills', list);
     return nextId;
+  }
+
+  if (bill.id) {
+    await db.runAsync(
+      `UPDATE bills SET template_id = ?, company_id = ?, bill_number = ?, customer_name = ?, header_data_json = ?, row_data_json = ?, total_amount = ?, pdf_uri = ? WHERE id = ?`,
+      [
+        bill.template_id,
+        bill.company_id || 1,
+        bill.bill_number || '',
+        bill.customer_name || '',
+        JSON.stringify(bill.headerData || {}),
+        JSON.stringify(bill.rowData || []),
+        bill.total_amount || 0,
+        bill.pdf_uri || '',
+        bill.id,
+      ]
+    );
+    return bill.id;
   }
 
   const result = await db.runAsync(
@@ -574,6 +627,56 @@ export async function updateBillPdfUri(db, billId, pdfUri) {
     return;
   }
   await db.runAsync('UPDATE bills SET pdf_uri = ? WHERE id = ?', [pdfUri, billId]);
+}
+
+// === Unfinished Draft Management (Resume Left Over Work) ===
+export async function saveDraft(templateId, draftData) {
+  try {
+    const key = `billforge_draft_${templateId}`;
+    webSetItems(key, { ...draftData, updated_at: new Date().toISOString() });
+  } catch (e) {
+    console.error('Error saving draft:', e);
+  }
+}
+
+export async function getDraft(templateId) {
+  try {
+    const key = `billforge_draft_${templateId}`;
+    return webGetItems(key);
+  } catch (e) {
+    console.error('Error getting draft:', e);
+    return null;
+  }
+}
+
+export async function clearDraft(templateId) {
+  try {
+    const key = `billforge_draft_${templateId}`;
+    webSetItems(key, null);
+  } catch (e) {
+    console.error('Error clearing draft:', e);
+  }
+}
+
+export async function getAllDrafts() {
+  try {
+    const drafts = [];
+    if (typeof localStorage !== 'undefined') {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('billforge_draft_')) {
+          const templateId = k.replace('billforge_draft_', '');
+          const d = webGetItems(k);
+          if (d && d.headerData) {
+            drafts.push({ templateId, ...d });
+          }
+        }
+      }
+    }
+    return drafts;
+  } catch (e) {
+    return [];
+  }
 }
 
 export async function deleteBill(db, id) {
@@ -620,6 +723,40 @@ export async function getCustomers(db) {
     return list.sort((a, b) => a.name.localeCompare(b.name));
   }
   return await db.getAllAsync('SELECT * FROM customers ORDER BY name ASC');
+}
+
+export async function getCustomersWithSummary(db) {
+  const customers = await getCustomers(db);
+  const bills = await getBills(db);
+
+  return customers.map(c => {
+    const normCustomer = (c.name || '').toLowerCase().replace(/[\s_-]/g, '');
+    const customerBills = bills.filter(b => {
+      const bCustomer = (b.customer_name || '').toLowerCase().replace(/[\s_-]/g, '');
+      return bCustomer === normCustomer && bCustomer.length > 0;
+    });
+
+    const totalBilled = customerBills.reduce((sum, b) => sum + (b.total_amount || 0), 0);
+    const billCount = customerBills.length;
+    const lastBill = customerBills.length > 0 ? customerBills[0] : null;
+
+    let unclearedBalance = 0;
+    if (lastBill) {
+      try {
+        const header = JSON.parse(lastBill.header_data_json || '{}');
+        unclearedBalance = parseFloat(header.Balance || header.UnclearedBalance || '0') || 0;
+      } catch (e) {}
+    }
+
+    return {
+      ...c,
+      billCount,
+      totalBilled,
+      unclearedBalance,
+      lastBillDate: lastBill ? lastBill.created_at : null,
+      bills: customerBills,
+    };
+  });
 }
 
 export async function saveCustomer(db, customer) {
@@ -675,4 +812,135 @@ export async function deleteCustomer(db, id) {
     return;
   }
   await db.runAsync('DELETE FROM customers WHERE id = ?', [id]);
+}
+
+// === Payments ===
+export async function savePayment(db, payment) {
+  if (IS_WEB) {
+    const list = webGetItems('billforge_payments') || [];
+    const nextId = list.reduce((max, p) => p.id > max ? p.id : max, 0) + 1;
+    const newPayment = {
+      id: nextId,
+      bill_id: payment.bill_id,
+      customer_name: payment.customer_name || '',
+      amount: parseFloat(payment.amount) || 0,
+      note: payment.note || '',
+      paid_at: new Date().toISOString(),
+    };
+    list.push(newPayment);
+    webSetItems('billforge_payments', list);
+    return nextId;
+  }
+  const result = await db.runAsync(
+    'INSERT INTO payments (bill_id, customer_name, amount, note, paid_at) VALUES (?, ?, ?, ?, datetime("now"))',
+    [payment.bill_id, payment.customer_name || '', parseFloat(payment.amount) || 0, payment.note || '']
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getPaymentsForBill(db, billId) {
+  if (IS_WEB) {
+    const list = webGetItems('billforge_payments') || [];
+    return list.filter(p => p.bill_id === parseInt(billId))
+               .sort((a, b) => new Date(b.paid_at) - new Date(a.paid_at));
+  }
+  return await db.getAllAsync(
+    'SELECT * FROM payments WHERE bill_id = ? ORDER BY paid_at DESC', [billId]
+  );
+}
+
+export async function deletePayment(db, id) {
+  if (IS_WEB) {
+    const list = webGetItems('billforge_payments') || [];
+    webSetItems('billforge_payments', list.filter(p => p.id !== parseInt(id)));
+    return;
+  }
+  await db.runAsync('DELETE FROM payments WHERE id = ?', [id]);
+}
+
+export async function getAllPayments(db) {
+  if (IS_WEB) {
+    return webGetItems('billforge_payments') || [];
+  }
+  return await db.getAllAsync('SELECT * FROM payments ORDER BY paid_at DESC');
+}
+
+// === Ledger Queries ===
+// Customer Ledger: per customer — total billed, total paid, balance, bill list
+export async function getCustomerLedger(db) {
+  const bills = await getBills(db);
+  const payments = await getAllPayments(db);
+
+  // Group bills by normalized customer name
+  const customerMap = {};
+  for (const bill of bills) {
+    const name = (bill.customer_name || 'Unknown').trim();
+    const key = name.toLowerCase().replace(/[\s_-]/g, '');
+    if (!customerMap[key]) {
+      customerMap[key] = { customerName: name, bills: [], totalBilled: 0, totalPaid: 0 };
+    }
+    const billPayments = payments.filter(p => p.bill_id === bill.id);
+    const paidForBill = billPayments.reduce((s, p) => s + (p.amount || 0), 0);
+    customerMap[key].bills.push({ ...bill, paidAmount: paidForBill, balanceDue: (bill.total_amount || 0) - paidForBill });
+    customerMap[key].totalBilled += bill.total_amount || 0;
+    customerMap[key].totalPaid += paidForBill;
+  }
+
+  return Object.values(customerMap)
+    .map(c => ({ ...c, balanceDue: c.totalBilled - c.totalPaid }))
+    .sort((a, b) => b.balanceDue - a.balanceDue);
+}
+
+// Material Ledger: per material — total trips, units, revenue
+export async function getMaterialLedger(db) {
+  const bills = await getBills(db);
+  const materialMap = {};
+
+  for (const bill of bills) {
+    let rowData = [];
+    try { rowData = JSON.parse(bill.row_data_json || '[]'); } catch (e) {}
+
+    for (const row of rowData) {
+      // Find material name in row
+      const materialName = Object.entries(row).find(([k]) => {
+        const n = k.toLowerCase().replace(/[\s_-]/g, '');
+        return n === 'materialtype' || n === 'materialstype' || n === 'material' || n === 'materials';
+      })?.[1];
+
+      if (!materialName || !String(materialName).trim()) continue;
+      const key = String(materialName).trim();
+
+      // Find numeric values
+      const findVal = (keys) => {
+        const entry = Object.entries(row).find(([k]) => {
+          const n = k.toLowerCase().replace(/[\s_-]/g, '');
+          return keys.some(kk => n.includes(kk));
+        });
+        return parseFloat(entry?.[1] || '0') || 0;
+      };
+
+      const units = findVal(['unit', 'units', 'qty', 'quantity']);
+      const trips = findVal(['trip', 'trips']);
+      const amount = findVal(['eachvalue', 'cal', 'total', 'amount']);
+      const price = findVal(['price', 'cost', 'rate']);
+
+      if (!materialMap[key]) {
+        materialMap[key] = { materialName: key, totalTrips: 0, totalUnits: 0, totalRevenue: 0, billCount: 0, prices: [] };
+      }
+      materialMap[key].totalTrips += trips;
+      materialMap[key].totalUnits += units;
+      materialMap[key].totalRevenue += amount;
+      materialMap[key].billCount += 1;
+      if (price > 0) materialMap[key].prices.push(price);
+    }
+  }
+
+  return Object.values(materialMap)
+    .map(m => ({
+      ...m,
+      avgPrice: m.prices.length > 0
+        ? m.prices.reduce((s, p) => s + p, 0) / m.prices.length
+        : 0
+    }))
+    .sort((a, b) => b.totalRevenue - a.totalRevenue);
 }

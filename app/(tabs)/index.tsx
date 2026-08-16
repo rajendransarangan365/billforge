@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card } from '../../src/components';
-import { getDatabase, getBillCount, getBillsThisMonth, getTemplates, getBills } from '../../src/database/db';
+import { getDatabase, getBillCount, getBillsThisMonth, getTemplates, getBills, getAllDrafts } from '../../src/database/db';
 
 // Stat card widget
 function StatCard({ icon, value, label, gradientColors, valueSize }) {
@@ -51,6 +51,7 @@ export default function DashboardScreen() {
   const { width } = useWindowDimensions();
   const [stats, setStats] = useState({ totalBills: 0, monthlyBills: 0, monthlyRevenue: 0, templateCount: 0 });
   const [recentBills, setRecentBills] = useState([]);
+  const [pendingDraft, setPendingDraft] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -60,8 +61,11 @@ export default function DashboardScreen() {
       const monthly = await getBillsThisMonth(db);
       const templates = await getTemplates(db);
       const bills = await getBills(db);
+      const drafts = await getAllDrafts();
+      
       setStats({ totalBills, monthlyBills: monthly.count, monthlyRevenue: monthly.total, templateCount: templates.length });
       setRecentBills(bills.slice(0, 5));
+      setPendingDraft(drafts.length > 0 ? drafts[0] : null);
     } catch (error) {
       console.error('Error loading dashboard:', error);
     }
@@ -72,13 +76,26 @@ export default function DashboardScreen() {
   const onRefresh = async () => { setRefreshing(true); await loadData(); setRefreshing(false); };
 
   const formatCurrency = (amount) => {
-    if (!amount) return 'Rs. 0';
-    const str = Math.round(amount).toString();
+    if (amount === null || amount === undefined || isNaN(amount)) return 'Rs. 0';
+    const n = Number(amount);
+    if (isNaN(n)) return 'Rs. 0';
+
+    const numStr = Number.isInteger(n) ? n.toString() : parseFloat(n.toFixed(2)).toString();
+    const parts = numStr.split('.');
+    const isNegative = parts[0].startsWith('-');
+    const intStr = isNegative ? parts[0].slice(1) : parts[0];
+
     let result = ''; let count = 0;
-    for (let i = str.length - 1; i >= 0; i--) {
+    for (let i = intStr.length - 1; i >= 0; i--) {
       if (count === 3 || (count > 3 && (count - 3) % 2 === 0)) result = ',' + result;
-      result = str[i] + result; count++;
+      result = intStr[i] + result; count++;
     }
+
+    if (isNegative) result = '-' + result;
+    if (parts.length > 1 && parts[1]) {
+      result = `${result}.${parts[1]}`;
+    }
+
     return `Rs.\u00A0${result}`;
   };
 
@@ -144,6 +161,24 @@ export default function DashboardScreen() {
           />
         </View>
 
+        {/* Resume Draft Banner */}
+        {pendingDraft && (
+          <TouchableOpacity
+            style={styles.draftBanner}
+            onPress={() => router.push(`/bill-form/${pendingDraft.templateId}`)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.draftBannerIconCircle}>
+              <Ionicons name="play" size={18} color="#FFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.draftBannerTitle}>Resume Unfinished Bill</Text>
+              <Text style={styles.draftBannerSub}>You have left-over progress on a bill draft. Tap to resume!</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.primary} />
+          </TouchableOpacity>
+        )}
+
         {/* Quick Actions */}
         <View style={styles.sectionRow}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
@@ -174,12 +209,28 @@ export default function DashboardScreen() {
             onPress={() => router.push('/(tabs)/templates')}
           />
           <ActionBtn
-            icon="time-outline"
-            label="History"
-            sublabel="Past bills"
+            icon="receipt-outline"
+            label="Bills"
+            sublabel="Manage & pay"
             iconBg={Colors.successLight}
             iconColor={Colors.success}
             onPress={() => router.push('/(tabs)/history')}
+          />
+          <ActionBtn
+            icon="book-outline"
+            label="Ledger"
+            sublabel="Customer & material"
+            iconBg="#F5F3FF"
+            iconColor="#7C3AED"
+            onPress={() => router.push('/ledger')}
+          />
+          <ActionBtn
+            icon="logo-whatsapp"
+            label="WhatsApp"
+            sublabel="Share bills"
+            iconBg="#E8F8F5"
+            iconColor="#25D366"
+            onPress={() => router.push('/whatsapp-settings')}
           />
         </View>
 
@@ -419,5 +470,34 @@ const styles = StyleSheet.create({
   billAmount: {
     ...Typography.captionSemibold,
     color: Colors.success,
+  },
+  draftBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EBF5FB',
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.lg,
+    gap: 12,
+  },
+  draftBannerIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  draftBannerTitle: {
+    ...Typography.bodyMedium,
+    fontWeight: 'bold',
+    color: Colors.primary,
+  },
+  draftBannerSub: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
   },
 });

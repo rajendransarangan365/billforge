@@ -204,6 +204,22 @@ export default function TemplatesScreen() {
           </View>
         )}
 
+        {/* WhatsApp Gateway Sync Banner */}
+        <TouchableOpacity
+          style={styles.whatsappSyncCard}
+          onPress={() => router.push('/whatsapp-settings')}
+          activeOpacity={0.8}
+        >
+          <View style={styles.whatsappSyncIcon}>
+            <Ionicons name="logo-whatsapp" size={20} color="#FFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.whatsappSyncTitle}>WhatsApp Gateway Sync</Text>
+            <Text style={styles.whatsappSyncSub}>Pair phone via 8-digit Pairing Code for automated PDF delivery</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#166534" />
+        </TouchableOpacity>
+
         {/* Collapsible Template Creation Guide Card */}
         <Card style={styles.guideCard}>
           <TouchableOpacity
@@ -261,13 +277,16 @@ export default function TemplatesScreen() {
                 </View>
               </View>
 
-              <Text style={styles.guideSectionTitle}>Header Information Tags</Text>
+              <Text style={styles.guideSectionTitle}>Header & Payment Information Tags</Text>
               <View style={styles.tagGrid}>
                 {[
                   { tag: '<BN>', desc: 'Bill Number / Invoice No' },
                   { tag: '<PartyName>', desc: 'Customer / Party / Client' },
                   { tag: '<BillDate>', desc: 'Billing Date / Date' },
                   { tag: '<DeliveryLoc>', desc: 'Delivery Place / Location' },
+                  { tag: '<Balance>', desc: 'Uncleared Previous Balance' },
+                  { tag: '<Paid>', desc: 'Paid Amount (e.g. 1,00,000)' },
+                  { tag: '<PaidDate>', desc: 'Date of Payment (e.g. 15/08/2026)' },
                 ].map((item, idx) => (
                   <View key={idx} style={styles.guideItem}>
                     <Text style={styles.guideCode}>{item.tag}</Text>
@@ -690,5 +709,34 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     lineHeight: 16,
     flex: 1,
+  },
+  whatsappSyncCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F9F4',
+    borderWidth: 1.5,
+    borderColor: '#25D366',
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    gap: 12,
+  },
+  whatsappSyncIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#25D366',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  whatsappSyncTitle: {
+    ...Typography.bodyMedium,
+    fontWeight: 'bold',
+    color: '#166534',
+  },
+  whatsappSyncSub: {
+    ...Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
   },
 });

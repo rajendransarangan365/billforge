@@ -175,15 +175,29 @@ export default function BillPreviewScreen() {
   };
 
   const formatCurrency = (amount) => {
-    if (!amount) return 'Rs. 0';
-    const str = Math.round(amount).toString();
+    if (amount === null || amount === undefined || isNaN(amount)) return 'Rs. 0';
+    const n = Number(amount);
+    if (isNaN(n)) return 'Rs. 0';
+
+    const numStr = Number.isInteger(n) ? n.toString() : parseFloat(n.toFixed(2)).toString();
+    const parts = numStr.split('.');
+    const isNegative = parts[0].startsWith('-');
+    const intStr = isNegative ? parts[0].slice(1) : parts[0];
+
     let result = '';
     let count = 0;
-    for (let i = str.length - 1; i >= 0; i--) {
+    for (let i = intStr.length - 1; i >= 0; i--) {
       if (count === 3 || (count > 3 && (count - 3) % 2 === 0)) result = ',' + result;
-      result = str[i] + result;
+      result = intStr[i] + result;
       count++;
     }
+
+    if (isNegative) result = '-' + result;
+
+    if (parts.length > 1 && parts[1]) {
+      result = `${result}.${parts[1]}`;
+    }
+
     return `Rs. ${result}`;
   };
 
@@ -350,6 +364,15 @@ export default function BillPreviewScreen() {
 
         {/* Action Buttons */}
         <View style={styles.actions}>
+          <Button
+            title="Edit Bill"
+            onPress={() => router.push(`/bill-form/${bill.template_id}?editBillId=${bill.id}`)}
+            variant="secondary"
+            fullWidth
+            size="lg"
+            icon="create-outline"
+            style={styles.actionBtn}
+          />
           <Button
             title="Share PDF"
             onPress={handleShare}
