@@ -15,9 +15,20 @@ const Bill = require('./models/Bill');
 const Payment = require('./models/Payment');
 const Reminder = require('./models/Reminder');
 
+const http = require('http');
+const { Server } = require('socket.io');
+
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+  },
+});
 
 const PORT = process.env.PORT || 3000;
 let isMongoConnected = false;
@@ -276,12 +287,53 @@ app.get('/api/location/active', async (req, res) => {
   res.json({ success: true, activeConsignments: [], drivers: [] });
 });
 
+// ── Socket.io Real-Time WebSockets Engine ─────────────────────────────────────
+io.on('connection', (socket) => {
+  console.log(`⚡ Socket client connected: ${socket.id}`);
+
+  socket.on('join-room', (data) => {
+    const room = data.role === 'quarry_owner' ? 'quarry-owner' : `driver-${data.userId}`;
+    socket.join(room);
+    socket.join('quarry-channel');
+    console.log(`⚡ Socket ${socket.id} joined room: ${room}`);
+  });
+
+  // Real-time GPS location update event
+  socket.on('location-update', (data) => {
+    // Broadcast instantly to quarry owner live map
+    io.to('quarry-owner').emit('driver-location-changed', data);
+  });
+
+  // Walkie-Talkie (PTT) Audio Stream Events
+  socket.on('ptt-start', (data) => {
+    socket.to('quarry-channel').emit('ptt-active-start', { ...data, senderId: socket.id });
+  });
+
+  socket.on('ptt-audio-chunk', (data) => {
+    socket.to('quarry-channel').emit('ptt-incoming-audio', { ...data, senderId: socket.id });
+  });
+
+  socket.on('ptt-stop', (data) => {
+    socket.to('quarry-channel').emit('ptt-active-stop', { ...data, senderId: socket.id });
+  });
+
+  // Voice Call Signaling Events
+  socket.on('call-signal', (data) => {
+    socket.to('quarry-channel').emit('call-signal-received', { ...data, senderId: socket.id });
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`⚡ Socket client disconnected: ${socket.id}`);
+  });
+});
+
 app.get('/health', (req, res) => res.json({
   status: 'ok',
-  server: 'BillForge Render Service',
+  server: 'BillForge Render Service with WebSockets',
   database: isMongoConnected ? 'MongoDB Atlas (Connected)' : 'Fallback Local/Memory'
 }));
 
-app.listen(PORT, () => {
-  console.log(`🚀 BillForge Server running on port ${PORT}`);
+server.listen(PORT, () => {
+  console.log(`🚀 BillForge Express & WebSockets Server running on port ${PORT}`);
 });
+

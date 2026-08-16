@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Linking, Alert, ActivityIndicator,
+  Linking, Alert, ActivityIndicator, Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,6 +11,8 @@ import * as Location from 'expo-location';
 import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
 import { Button, Card, EmptyState } from '../src/components';
 import { getDatabase, getConsignments, saveConsignment } from '../src/database/db';
+import { socketService } from '../src/services/socketService';
+import WalkieTalkieModal from '../src/components/WalkieTalkieModal';
 
 export default function DriverPortalScreen() {
   const router = useRouter();
@@ -23,6 +25,7 @@ export default function DriverPortalScreen() {
   const [loading, setLoading] = useState(true);
   const [currentLocation, setCurrentLocation] = useState(null);
   const [gpsActive, setGpsActive] = useState(false);
+  const [walkieVisible, setWalkieVisible] = useState(false);
 
   // Load assigned consignments
   const loadData = useCallback(async () => {
@@ -30,7 +33,6 @@ export default function DriverPortalScreen() {
     try {
       const db = await getDatabase();
       const list = await getConsignments(db);
-      // Filter for active driver consignments
       const activeList = list.filter(c => c.driver_id === driverId || c.driver_name === driverName);
       setConsignments(activeList);
     } catch (e) {
@@ -42,9 +44,10 @@ export default function DriverPortalScreen() {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    socketService.connect('driver', driverId);
+  }, [loadData, driverId]);
 
-  // Request & Start GPS Location Pinging
+  // Request & Start GPS Location Stream over WebSockets
   useEffect(() => {
     let intervalId;
     async function startGpsTracking() {
@@ -59,13 +62,32 @@ export default function DriverPortalScreen() {
         const loc = await Location.getCurrentPositionAsync({});
         setCurrentLocation(loc.coords);
 
-        // Ping position every 10 seconds to update DB
+        // Emit initial socket location update
+        socketService.emitLocationUpdate({
+          driverId,
+          driverName,
+          lat: loc.coords.latitude,
+          lng: loc.coords.longitude,
+          status: 'On Duty',
+        });
+
+        // Ping position every 5 seconds over WebSocket
         intervalId = setInterval(async () => {
           try {
             const current = await Location.getCurrentPositionAsync({});
             setCurrentLocation(current.coords);
+
+            // Emit live location stream via WebSocket
+            socketService.emitLocationUpdate({
+              driverId,
+              driverName,
+              lat: current.coords.latitude,
+              lng: current.coords.longitude,
+              status: 'On Duty',
+            });
+
+            // Sync with DB
             const db = await getDatabase();
-            // Update active consignments location
             const list = await getConsignments(db);
             for (const c of list) {
               if ((c.driver_id === driverId || c.driver_name === driverName) && c.status !== 'delivered') {
@@ -79,7 +101,7 @@ export default function DriverPortalScreen() {
           } catch (err) {
             console.warn('GPS update ping error:', err);
           }
-        }, 10000);
+        }, 5000);
       } catch (e) {
         console.warn('Location initialization error:', e);
       }
@@ -94,7 +116,6 @@ export default function DriverPortalScreen() {
   // Navigate to location via Google Maps App
   const openGoogleMapsNav = (lat, lng, addressLabel) => {
     if (!lat || !lng) {
-      // Fallback address search in Google Maps
       const encoded = encodeURIComponent(addressLabel || 'Tamil Nadu');
       Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encoded}`);
       return;
@@ -104,7 +125,6 @@ export default function DriverPortalScreen() {
       : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
     
     Linking.openURL(url).catch(() => {
-      // Fallback web URL
       Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
     });
   };
@@ -125,10 +145,10 @@ export default function DriverPortalScreen() {
 
       if (newStatus === 'reached_pickup') {
         alertTitle = '📍 Reached Pickup Location';
-        alertMsg = 'Admin has been notified: "Driver Ramesh reached Pickup Location!"';
+        alertMsg = 'Owner has been notified: "Driver Ramesh reached Pickup Location!"';
       } else if (newStatus === 'reached_customer') {
         alertTitle = '🏁 Reached Customer Location';
-        alertMsg = 'Admin has been notified: "Driver Ramesh reached Customer Location!"';
+        alertMsg = 'Owner has been notified: "Driver Ramesh reached Customer Location!"';
       }
 
       Alert.alert(alertTitle, alertMsg);
@@ -146,9 +166,15 @@ export default function DriverPortalScreen() {
           <Text style={styles.headerTitle}>Driver Portal 🚚</Text>
           <Text style={styles.headerSub}>Welcome, {driverName}</Text>
         </View>
+        <TouchableOpacity
+          style={styles.walkieBtn}
+          onPress={() => setWalkieVisible(true)}
+        >
+          <Ionicons name="radio" size={16} color="#FFF" />
+          <Text style={styles.walkieBtnText}>Walkie-Talkie</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.logoutBtn} onPress={() => router.replace('/')}>
           <Ionicons name="log-out-outline" size={18} color="#DC2626" />
-          <Text style={styles.logoutText}>Exit</Text>
         </TouchableOpacity>
       </View>
 
@@ -157,7 +183,7 @@ export default function DriverPortalScreen() {
         <Ionicons name={gpsActive ? 'navigate-circle' : 'warning-outline'} size={18} color={gpsActive ? '#16A34A' : '#D97706'} />
         <Text style={[styles.gpsText, { color: gpsActive ? '#16A34A' : '#D97706' }]}>
           {gpsActive
-            ? `Live GPS Active (${currentLocation ? `${currentLocation.latitude.toFixed(4)}, ${currentLocation.longitude.toFixed(4)}` : 'Locating…'})`
+            ? `Live WebSockets GPS Active (${currentLocation ? `${currentLocation.latitude.toFixed(4)}, ${currentLocation.longitude.toFixed(4)}` : 'Locating…'})`
             : 'Acquiring GPS Signal…'}
         </Text>
       </View>
@@ -269,6 +295,15 @@ export default function DriverPortalScreen() {
           })}
         </ScrollView>
       )}
+
+      {/* Push-to-Talk Walkie Talkie Modal */}
+      <WalkieTalkieModal
+        visible={walkieVisible}
+        onClose={() => setWalkieVisible(false)}
+        peerName="Quarry Owner (Admin)"
+        peerRole="quarry_owner"
+        peerId="admin"
+      />
     </View>
   );
 }
@@ -276,14 +311,15 @@ export default function DriverPortalScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   header: {
-    flexDirection: 'row', alignItems: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingHorizontal: Spacing.xl, paddingTop: Spacing.lg, paddingBottom: Spacing.md,
     backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
   },
   headerTitle: { ...Typography.h2, color: Colors.text },
   headerSub: { ...Typography.caption, color: Colors.textSecondary },
-  logoutBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: BorderRadius.sm, backgroundColor: '#FEE2E2' },
-  logoutText: { fontSize: 12, color: '#DC2626', fontWeight: '700' },
+  walkieBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.primary, paddingHorizontal: 10, paddingVertical: 6, borderRadius: BorderRadius.sm },
+  walkieBtnText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
+  logoutBtn: { padding: 6, backgroundColor: '#FEE2E2', borderRadius: BorderRadius.sm },
   gpsBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.lg, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
   gpsText: { fontSize: 11, fontWeight: '700' },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },

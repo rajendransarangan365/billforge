@@ -11,6 +11,8 @@ import { WebView } from 'react-native-webview';
 import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
 import { Card, EmptyState } from '../src/components';
 import { getDatabase, getConsignments, getDrivers } from '../src/database/db';
+import { socketService } from '../src/services/socketService';
+import WalkieTalkieModal from '../src/components/WalkieTalkieModal';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -21,6 +23,8 @@ export default function LiveTrackingScreen() {
   const [consignments, setConsignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedDriver, setSelectedDriver] = useState(null);
+  const [walkieModalVisible, setWalkieModalVisible] = useState(false);
+  const [activeWalkieDriver, setActiveWalkieDriver] = useState(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -41,13 +45,25 @@ export default function LiveTrackingScreen() {
 
   useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
-  // Auto-refresh map markers every 5 seconds
+  // Real-time WebSocket connection for zero-latency GPS updates
   useEffect(() => {
-    const timer = setInterval(() => {
-      loadData();
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [loadData]);
+    socketService.connect('quarry_owner', 'admin');
+
+    socketService.onLocationUpdate((data) => {
+      setDrivers(prevDrivers => {
+        return prevDrivers.map(d => {
+          if (d.id === data.driverId || d.name === data.driverName) {
+            return { ...d, lat: data.lat, lng: data.lng, status: data.status || d.status };
+          }
+          return d;
+        });
+      });
+    });
+
+    return () => {
+      // Keep connection active
+    };
+  }, []);
 
   // Leaflet HTML code for free OpenStreetMap live tracking
   const centerLat = selectedDriver?.lat || 11.0168;
@@ -94,10 +110,17 @@ export default function LiveTrackingScreen() {
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Live Driver GPS Tracking 📡</Text>
-          <Text style={styles.headerSub}>Free OpenStreetMap Live Monitoring</Text>
+          <Text style={styles.headerSub}>Real-Time WebSockets & Free OpenStreetMap</Text>
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={loadData}>
-          <Ionicons name="refresh" size={18} color={Colors.primary} />
+        <TouchableOpacity
+          style={styles.walkieTopBtn}
+          onPress={() => {
+            setActiveWalkieDriver(drivers[0] || { name: 'Driver Ramesh', id: '1' });
+            setWalkieModalVisible(true);
+          }}
+        >
+          <Ionicons name="radio" size={16} color="#FFF" />
+          <Text style={styles.walkieTopText}>Walkie-Talkie</Text>
         </TouchableOpacity>
       </View>
 
@@ -118,7 +141,7 @@ export default function LiveTrackingScreen() {
         )}
       </View>
 
-      {/* Active Consignments & Arrival Alerts Panel */}
+      {/* Active Consignments & Walkie Talkie Panel */}
       <View style={styles.panel}>
         <Text style={styles.panelTitle}>Active Delivery Consignments ({consignments.length})</Text>
 
@@ -131,40 +154,61 @@ export default function LiveTrackingScreen() {
             {consignments.map(c => {
               const isAlert = c.status === 'reached_pickup' || c.status === 'reached_customer';
               return (
-                <TouchableOpacity
-                  key={c.id}
-                  style={[styles.cCard, isAlert && styles.cCardAlert]}
-                  onPress={() => {
-                    const matchedDriver = drivers.find(d => d.id === c.driver_id);
-                    if (matchedDriver) setSelectedDriver(matchedDriver);
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                    <Ionicons name={isAlert ? 'warning' : 'navigate-circle'} size={14} color={isAlert ? '#DC2626' : Colors.primary} />
-                    <Text style={[styles.cStatus, { color: isAlert ? '#DC2626' : Colors.primary }]}>
-                      {c.status.toUpperCase().replace('_', ' ')}
-                    </Text>
-                  </View>
-                  <Text style={styles.cDriver}>🚚 {c.driver_name}</Text>
-                  <Text style={styles.cCustomer}>Customer: {c.customer_name}</Text>
-                  <Text style={styles.cCargo}>{c.quantity} {c.unit_type} {c.material_name}</Text>
+                <View key={c.id} style={[styles.cCard, isAlert && styles.cCardAlert]}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const matchedDriver = drivers.find(d => d.id === c.driver_id);
+                      if (matchedDriver) setSelectedDriver(matchedDriver);
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <Ionicons name={isAlert ? 'warning' : 'navigate-circle'} size={14} color={isAlert ? '#DC2626' : Colors.primary} />
+                      <Text style={[styles.cStatus, { color: isAlert ? '#DC2626' : Colors.primary }]}>
+                        {c.status.toUpperCase().replace('_', ' ')}
+                      </Text>
+                    </View>
+                    <Text style={styles.cDriver}>🚚 {c.driver_name}</Text>
+                    <Text style={styles.cCustomer}>Customer: {c.customer_name}</Text>
+                    <Text style={styles.cCargo}>{c.quantity} {c.unit_type} {c.material_name}</Text>
 
-                  {c.status === 'reached_pickup' && (
-                    <View style={styles.alertPill}>
-                      <Text style={styles.alertText}>📍 Reached Pickup Yard!</Text>
-                    </View>
-                  )}
-                  {c.status === 'reached_customer' && (
-                    <View style={styles.alertPill}>
-                      <Text style={styles.alertText}>🏁 Reached Customer Site!</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
+                    {c.status === 'reached_pickup' && (
+                      <View style={styles.alertPill}>
+                        <Text style={styles.alertText}>📍 Reached Pickup Yard!</Text>
+                      </View>
+                    )}
+                    {c.status === 'reached_customer' && (
+                      <View style={styles.alertPill}>
+                        <Text style={styles.alertText}>🏁 Reached Customer Site!</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+
+                  {/* Walkie-Talkie Button on Card */}
+                  <TouchableOpacity
+                    style={styles.cardWalkieBtn}
+                    onPress={() => {
+                      setActiveWalkieDriver({ name: c.driver_name, id: c.driver_id });
+                      setWalkieModalVisible(true);
+                    }}
+                  >
+                    <Ionicons name="radio-outline" size={14} color={Colors.primary} />
+                    <Text style={styles.cardWalkieText}>Walkie-Talkie</Text>
+                  </TouchableOpacity>
+                </View>
               );
             })}
           </ScrollView>
         )}
       </View>
+
+      {/* Push To Talk Walkie-Talkie Modal */}
+      <WalkieTalkieModal
+        visible={walkieModalVisible}
+        onClose={() => setWalkieModalVisible(false)}
+        peerName={activeWalkieDriver?.name || 'Driver Ramesh'}
+        peerRole="driver"
+        peerId={activeWalkieDriver?.id || '1'}
+      />
     </View>
   );
 }
@@ -179,13 +223,18 @@ const styles = StyleSheet.create({
   backBtn: { padding: 4 },
   headerTitle: { ...Typography.h2, color: Colors.text },
   headerSub: { ...Typography.caption, color: Colors.textSecondary },
-  refreshBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
+  walkieTopBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: Colors.primary, borderRadius: BorderRadius.md,
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
+  walkieTopText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
   mapContainer: { flex: 1, backgroundColor: '#E5E7EB' },
   panel: { backgroundColor: Colors.surface, borderTopWidth: 1, borderTopColor: Colors.borderLight, padding: Spacing.lg },
   panelTitle: { ...Typography.h3, color: Colors.text, marginBottom: 10 },
   emptyText: { ...Typography.caption, color: Colors.textSecondary },
   cCard: {
-    width: 200, backgroundColor: Colors.backgroundSecondary, borderRadius: BorderRadius.md,
+    width: 210, backgroundColor: Colors.backgroundSecondary, borderRadius: BorderRadius.md,
     padding: Spacing.md, marginRight: 10, borderWidth: 1, borderColor: Colors.borderLight,
   },
   cCardAlert: { backgroundColor: '#FEF2F2', borderColor: '#FCA5A5', borderWidth: 1.5 },
@@ -195,4 +244,10 @@ const styles = StyleSheet.create({
   cCargo: { ...Typography.captionSemibold, color: Colors.primary, marginTop: 2 },
   alertPill: { backgroundColor: '#DC2626', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2, marginTop: 6, alignSelf: 'flex-start' },
   alertText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
+  cardWalkieBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
+    backgroundColor: Colors.primarySurface, borderRadius: BorderRadius.sm,
+    paddingVertical: 6, marginTop: 8, borderWidth: 1, borderColor: Colors.primary + '40',
+  },
+  cardWalkieText: { color: Colors.primary, fontSize: 11, fontWeight: '700' },
 });
