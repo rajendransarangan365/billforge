@@ -19,55 +19,55 @@ export default function SelectRoleScreen() {
         <View style={styles.logoCircle}>
           <Ionicons name="business" size={32} color={Colors.primary} />
         </View>
-        <Text style={styles.title}>BillForge Quarry & Lorry Marketplace</Text>
-        <Text style={styles.subtitle}>Select your portal role to access your dispatch workspace</Text>
+        <Text style={styles.title}>BillForge Quarry Portal</Text>
+        <Text style={styles.subtitle}>Select your dedicated login portal to access your workspace</Text>
       </View>
 
       {/* Role Selection Cards */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.cardsWrap}>
-        {/* Customer Portal */}
+        {/* Quarry Owner Login Portal */}
         <TouchableOpacity
           style={styles.roleCard}
-          onPress={() => router.push('/customer-marketplace')}
-          activeOpacity={0.82}
-        >
-          <View style={[styles.iconCircle, { backgroundColor: '#DCFCE7' }]}>
-            <Ionicons name="cart" size={32} color="#16A34A" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>👷 Customer Portal</Text>
-            <Text style={styles.cardSub}>Post material requirements, track lorry live, Walkie-Talkie & share documents</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#16A34A" />
-        </TouchableOpacity>
-
-        {/* Quarry Owner Login Card */}
-        <TouchableOpacity
-          style={styles.roleCard}
-          onPress={() => router.push('/quarry-marketplace')}
+          onPress={() => router.push('/owner-login')}
           activeOpacity={0.82}
         >
           <View style={[styles.iconCircle, { backgroundColor: Colors.primarySurface }]}>
-            <Ionicons name="business" size={32} color={Colors.primary} />
+            <Ionicons name="business" size={30} color={Colors.primary} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>🏢 Quarry Owner Portal</Text>
-            <Text style={styles.cardSub}>Quote material rates, review lorry transport bids, assign pickup & settle driver fares</Text>
+            <Text style={styles.cardTitle}>🏢 Quarry Owner Login</Text>
+            <Text style={styles.cardSub}>Quote rates, review lorry transport bids, assign pickup & settle driver fares</Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color={Colors.primary} />
         </TouchableOpacity>
 
-        {/* Driver App Login Card */}
+        {/* Customer Login Portal */}
         <TouchableOpacity
           style={styles.roleCard}
-          onPress={() => router.push('/driver-marketplace')}
+          onPress={() => router.push('/customer-login')}
+          activeOpacity={0.82}
+        >
+          <View style={[styles.iconCircle, { backgroundColor: '#DCFCE7' }]}>
+            <Ionicons name="cart" size={30} color="#16A34A" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle}>👷 Customer Login</Text>
+            <Text style={styles.cardSub}>Post material requirements, track lorry live, Walkie-Talkie & share trip documents</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#16A34A" />
+        </TouchableOpacity>
+
+        {/* Lorry Driver Login Portal */}
+        <TouchableOpacity
+          style={styles.roleCard}
+          onPress={() => router.push('/driver-login')}
           activeOpacity={0.82}
         >
           <View style={[styles.iconCircle, { backgroundColor: '#EFF6FF' }]}>
-            <Ionicons name="car-sport" size={32} color="#2563EB" />
+            <Ionicons name="car-sport" size={30} color="#2563EB" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>🚚 Lorry Driver Transport Desk</Text>
+            <Text style={styles.cardTitle}>🚚 Lorry Driver Login</Text>
             <Text style={styles.cardSub}>Submit transport price quotes, Google Maps navigation, mark loaded/delivered & Walkie-Talkie</Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color="#2563EB" />

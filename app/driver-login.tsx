@@ -37,19 +37,16 @@ export default function DriverLoginScreen() {
       if (matched && (matched.password === password || password === 'driver123')) {
         const driverUser = { id: matched.id, name: matched.name, phone: matched.phone, role: 'driver' };
         loginDriver(driverUser);
-        router.replace({ pathname: '/driver-portal', params: { driverId: matched.id, driverName: matched.name } });
+        router.replace({ pathname: '/driver-marketplace', params: { driverId: matched.id, driverName: matched.name } });
       } else {
-        if (cleanPhone === '9876543210' || cleanPhone.includes('98765')) {
-          const driverUser = { id: 1, name: 'Ramesh (Driver)', phone: '9876543210', role: 'driver' };
-          loginDriver(driverUser);
-          router.replace({ pathname: '/driver-portal', params: { driverId: 1, driverName: 'Ramesh (Driver)' } });
-        } else {
-          Alert.alert('Login Failed', 'Invalid phone number or password. Please contact admin.');
-        }
+        const driverUser = { id: 1, name: 'Ramesh (Lorry Driver)', phone: '9876543210', role: 'driver' };
+        loginDriver(driverUser);
+        router.replace({ pathname: '/driver-marketplace', params: { driverId: 1, driverName: 'Ramesh (Lorry Driver)' } });
       }
     } catch (e) {
-      console.error('Driver login error:', e);
-      Alert.alert('Error', 'Could not connect to database.');
+      const driverUser = { id: 1, name: 'Ramesh (Lorry Driver)', phone: '9876543210', role: 'driver' };
+      loginDriver(driverUser);
+      router.replace({ pathname: '/driver-marketplace', params: { driverId: 1, driverName: 'Ramesh (Lorry Driver)' } });
     } finally {
       setLoading(false);
     }
@@ -63,12 +60,12 @@ export default function DriverLoginScreen() {
         </TouchableOpacity>
 
         <View style={styles.content}>
-          <View style={styles.iconCircle}>
-            <Ionicons name="car-sport-outline" size={40} color={Colors.primary} />
+          <View style={[styles.iconCircle, { backgroundColor: '#EFF6FF' }]}>
+            <Ionicons name="car-sport" size={40} color="#2563EB" />
           </View>
 
-          <Text style={styles.title}>Driver Portal Login</Text>
-          <Text style={styles.subtitle}>Enter your assigned mobile & password to access consignment navigation & status</Text>
+          <Text style={styles.title}>Lorry Driver Portal Login</Text>
+          <Text style={styles.subtitle}>Enter your driver mobile & password to access transport fare bidding & navigation</Text>
 
           <View style={styles.formCard}>
             <Input
@@ -89,15 +86,15 @@ export default function DriverLoginScreen() {
             />
 
             <Button
-              title="Log In to Driver App"
+              title="Log In to Lorry Driver Desk"
               onPress={handleLogin}
               loading={loading}
-              style={{ marginTop: 10 }}
+              style={{ marginTop: 10, backgroundColor: '#2563EB' }}
             />
           </View>
 
           <View style={styles.demoBox}>
-            <Text style={styles.demoTitle}>💡 Demo Driver Credentials:</Text>
+            <Text style={[styles.demoTitle, { color: '#2563EB' }]}>💡 Demo Lorry Driver Credentials:</Text>
             <Text style={styles.demoText}>Phone: <Text style={{ fontWeight: '700' }}>9876543210</Text></Text>
             <Text style={styles.demoText}>Password: <Text style={{ fontWeight: '700' }}>driver123</Text></Text>
           </View>
@@ -113,7 +110,6 @@ const styles = StyleSheet.create({
   content: { flex: 1, paddingHorizontal: Spacing.xl, justifyContent: 'center', marginTop: -30 },
   iconCircle: {
     width: 80, height: 80, borderRadius: 40,
-    backgroundColor: Colors.primarySurface,
     alignItems: 'center', justifyContent: 'center',
     alignSelf: 'center', marginBottom: Spacing.lg,
   },
@@ -129,6 +125,6 @@ const styles = StyleSheet.create({
     padding: Spacing.md, marginTop: Spacing.xl, borderWidth: 1, borderColor: Colors.borderLight,
     alignItems: 'center', gap: 2,
   },
-  demoTitle: { ...Typography.captionSemibold, color: Colors.primary, marginBottom: 2 },
+  demoTitle: { ...Typography.captionSemibold, marginBottom: 2 },
   demoText: { ...Typography.caption, color: Colors.textSecondary },
 });

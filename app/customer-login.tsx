@@ -11,41 +11,32 @@ import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
 import { Button, Input } from '../src/components';
 import { useAuth } from '../src/context/AuthContext';
 
-export default function OwnerLoginScreen() {
+export default function CustomerLoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { loginOwner } = useAuth();
-  const [phone, setPhone] = useState('9999999999');
-  const [password, setPassword] = useState('admin123');
+  const { loginOwner } = useAuth(); // Logged in user session
+  const [phone, setPhone] = useState('9876500000');
+  const [password, setPassword] = useState('customer123');
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
     if (!phone.trim() || !password.trim()) {
-      Alert.alert('Required', 'Please enter your registered mobile number and password.');
+      Alert.alert('Required', 'Please enter your mobile number and password.');
       return;
     }
 
     setLoading(true);
     try {
-      const baseUrl = process.env.EXPO_PUBLIC_API_URL || '';
-      const response = await fetch(`${baseUrl}/api/auth`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phone.trim(), password: password.trim() }),
-      });
-      const data = await response.json();
-
-      if (data.success && (data.user?.role === 'admin' || data.user?.role === 'owner')) {
-        loginOwner(data.user);
-        router.replace('/quarry-marketplace');
-      } else {
-        const ownerUser = { id: 'owner-1', name: 'Quarry Owner', phone: '9999999999', role: 'owner' };
-        loginOwner(ownerUser);
-        router.replace('/quarry-marketplace');
-      }
+      const customerUser = {
+        id: 'cust-1',
+        name: 'Anand Construction',
+        phone: phone.trim(),
+        role: 'customer',
+      };
+      loginOwner(customerUser);
+      router.replace('/customer-marketplace');
     } catch (e) {
-      loginOwner({ id: 'owner-1', name: 'Quarry Owner', phone: '9999999999', role: 'owner' });
-      router.replace('/quarry-marketplace');
+      Alert.alert('Error', 'Login failed.');
     } finally {
       setLoading(false);
     }
@@ -59,12 +50,12 @@ export default function OwnerLoginScreen() {
         </TouchableOpacity>
 
         <View style={styles.content}>
-          <View style={styles.iconCircle}>
-            <Ionicons name="business" size={40} color={Colors.primary} />
+          <View style={[styles.iconCircle, { backgroundColor: '#DCFCE7' }]}>
+            <Ionicons name="cart" size={40} color="#16A34A" />
           </View>
 
-          <Text style={styles.title}>Quarry Owner Login</Text>
-          <Text style={styles.subtitle}>Enter your administrative mobile & password to access your Quarry Portal</Text>
+          <Text style={styles.title}>Customer Portal Login</Text>
+          <Text style={styles.subtitle}>Enter your mobile & password to post material requirements & track lorries live</Text>
 
           <View style={styles.formCard}>
             <Input
@@ -72,7 +63,7 @@ export default function OwnerLoginScreen() {
               value={phone}
               onChangeText={setPhone}
               keyboardType="phone-pad"
-              placeholder="e.g. 9999999999"
+              placeholder="e.g. 9876500000"
               icon="call-outline"
             />
             <Input
@@ -85,17 +76,17 @@ export default function OwnerLoginScreen() {
             />
 
             <Button
-              title="Log In to Quarry Owner Portal"
+              title="Log In to Customer Portal"
               onPress={handleLogin}
               loading={loading}
-              style={{ marginTop: 10 }}
+              style={{ marginTop: 10, backgroundColor: '#16A34A' }}
             />
           </View>
 
           <View style={styles.demoBox}>
-            <Text style={styles.demoTitle}>💡 Demo Owner Credentials:</Text>
-            <Text style={styles.demoText}>Phone: <Text style={{ fontWeight: '700' }}>9999999999</Text></Text>
-            <Text style={styles.demoText}>Password: <Text style={{ fontWeight: '700' }}>admin123</Text></Text>
+            <Text style={[styles.demoTitle, { color: '#16A34A' }]}>💡 Demo Customer Credentials:</Text>
+            <Text style={styles.demoText}>Phone: <Text style={{ fontWeight: '700' }}>9876500000</Text></Text>
+            <Text style={styles.demoText}>Password: <Text style={{ fontWeight: '700' }}>customer123</Text></Text>
           </View>
         </View>
       </View>
@@ -109,7 +100,6 @@ const styles = StyleSheet.create({
   content: { flex: 1, paddingHorizontal: Spacing.xl, justifyContent: 'center', marginTop: -30 },
   iconCircle: {
     width: 80, height: 80, borderRadius: 40,
-    backgroundColor: Colors.primarySurface,
     alignItems: 'center', justifyContent: 'center',
     alignSelf: 'center', marginBottom: Spacing.lg,
   },
@@ -125,6 +115,6 @@ const styles = StyleSheet.create({
     padding: Spacing.md, marginTop: Spacing.xl, borderWidth: 1, borderColor: Colors.borderLight,
     alignItems: 'center', gap: 2,
   },
-  demoTitle: { ...Typography.captionSemibold, color: Colors.primary, marginBottom: 2 },
+  demoTitle: { ...Typography.captionSemibold, marginBottom: 2 },
   demoText: { ...Typography.caption, color: Colors.textSecondary },
 });

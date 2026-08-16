@@ -19,11 +19,12 @@ export default function RootLayout() {
           >
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="select-role" options={{ headerShown: false }} />
+            <Stack.Screen name="owner-login" options={{ headerShown: false }} />
+            <Stack.Screen name="customer-login" options={{ headerShown: false }} />
+            <Stack.Screen name="driver-login" options={{ headerShown: false }} />
             <Stack.Screen name="customer-marketplace" options={{ headerShown: false }} />
             <Stack.Screen name="quarry-marketplace" options={{ headerShown: false }} />
             <Stack.Screen name="driver-marketplace" options={{ headerShown: false }} />
-            <Stack.Screen name="owner-login" options={{ headerShown: false }} />
-            <Stack.Screen name="driver-login" options={{ headerShown: false }} />
             <Stack.Screen name="driver-portal" options={{ headerShown: false }} />
             <Stack.Screen name="enquiries" options={{ headerShown: false }} />
             <Stack.Screen name="drivers" options={{ headerShown: false }} />
