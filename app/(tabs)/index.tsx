@@ -13,6 +13,7 @@ import {
   getBills, getAllDrafts, getAllPayments, getActiveReminders, getOverdueReminders,
 } from '../../src/database/db';
 import { setupAndroidChannel, requestNotificationPermissions, addNotificationTapListener } from '../../src/services/notificationService';
+import { useAuth } from '../../src/context/AuthContext';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -274,16 +275,30 @@ export default function DashboardScreen() {
     { icon: 'logo-whatsapp', label: 'Share', color: '#16A34A', bg: '#DCFCE7', route: '/whatsapp-settings' },
   ];
 
+  const { user, logout } = useAuth();
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* ── Compact Header ── */}
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.greeting}>{getGreeting()} 👋</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={styles.greeting}>{getGreeting()}, {user?.name || 'Quarry Owner'}</Text>
+            <View style={styles.ownerBadge}>
+              <Text style={styles.ownerBadgeText}>🏢 Owner</Text>
+            </View>
+          </View>
           <Text style={styles.date}>{todayStr()}</Text>
         </View>
-        <TouchableOpacity style={styles.profileBtn} onPress={() => router.push('/(tabs)/profile')}>
-          <Ionicons name="business-outline" size={20} color={Colors.primary} />
+        <TouchableOpacity
+          style={styles.switchPortalBtn}
+          onPress={() => {
+            logout();
+            router.push('/select-role');
+          }}
+        >
+          <Ionicons name="swap-horizontal" size={16} color={Colors.primary} />
+          <Text style={styles.switchPortalText}>Portal</Text>
         </TouchableOpacity>
       </View>
 
@@ -524,4 +539,13 @@ const styles = StyleSheet.create({
   emptyText: { ...Typography.body, color: Colors.textSecondary },
   emptyBtn: { backgroundColor: Colors.primary, borderRadius: BorderRadius.md, paddingHorizontal: 20, paddingVertical: 8 },
   emptyBtnText: { color: '#FFF', fontWeight: '700', fontSize: 13 },
+  ownerBadge: { backgroundColor: Colors.primarySurface, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2 },
+  ownerBadgeText: { fontSize: 10, color: Colors.primary, fontWeight: '700' },
+  switchPortalBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: Colors.primarySurface, borderRadius: BorderRadius.md,
+    paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: Colors.primary + '40',
+  },
+  switchPortalText: { fontSize: 11, color: Colors.primary, fontWeight: '700' },
 });
+
