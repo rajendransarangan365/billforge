@@ -104,13 +104,71 @@ const consignmentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+const marketplaceOrderSchema = new mongoose.Schema(
+  {
+    customerName: { type: String, required: true },
+    customerPhone: { type: String, default: '' },
+    customerAddress: { type: String, default: '' },
+    customerLat: { type: Number, default: 11.0168 },
+    customerLng: { type: Number, default: 76.9558 },
+    quarryName: { type: String, default: 'Coimbatore Sand Quarry' },
+    quarryAddress: { type: String, default: 'Karur Quarry Yard 1' },
+    quarryLat: { type: Number, default: 10.9601 },
+    quarryLng: { type: Number, default: 78.0766 },
+    materialName: { type: String, required: true },
+    quantity: { type: Number, default: 1 },
+    unitType: { type: String, default: 'ton' },
+    materialPrice: { type: Number, default: 0 },
+    transportPrice: { type: Number, default: 0 },
+    totalPrice: { type: Number, default: 0 },
+    driverId: { type: String, default: '' },
+    driverName: { type: String, default: '' },
+    driverPhone: { type: String, default: '' },
+    vehicleNo: { type: String, default: '' },
+    status: {
+      type: String,
+      enum: ['requirement_posted', 'rate_quoted', 'rate_agreed', 'bidding_active', 'driver_assigned', 'loaded', 'in_transit', 'delivered', 'settled'],
+      default: 'requirement_posted',
+    },
+    driverLat: { type: Number, default: 11.0168 },
+    driverLng: { type: Number, default: 76.9558 },
+    documents: [
+      {
+        name: { type: String },
+        uri: { type: String },
+        uploadedBy: { type: String },
+        createdAt: { type: Date, default: Date.now }
+      }
+    ]
+  },
+  { timestamps: true }
+);
+
+const transportBidSchema = new mongoose.Schema(
+  {
+    orderId: { type: String, required: true },
+    driverId: { type: String, required: true },
+    driverName: { type: String, required: true },
+    vehicleNo: { type: String, default: '' },
+    fareQuote: { type: Number, required: true },
+    distanceKm: { type: Number, default: 10 },
+    status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' }
+  },
+  { timestamps: true }
+);
+
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 const Enquiry = mongoose.models.Enquiry || mongoose.model('Enquiry', enquirySchema);
 const Consignment = mongoose.models.Consignment || mongoose.model('Consignment', consignmentSchema);
+const MarketplaceOrder = mongoose.models.MarketplaceOrder || mongoose.model('MarketplaceOrder', marketplaceOrderSchema);
+const TransportBid = mongoose.models.TransportBid || mongoose.model('TransportBid', transportBidSchema);
 
 module.exports = {
   connectToDatabase,
   User,
   Enquiry,
   Consignment,
+  MarketplaceOrder,
+  TransportBid,
 };
+

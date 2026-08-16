@@ -11,6 +11,7 @@
     { "source": "/api/consignments", "destination": "/api/consignments.js" },
     { "source": "/api/location", "destination": "/api/location.js" },
     { "source": "/api/walkie", "destination": "/api/walkie.js" },
+    { "source": "/api/marketplace", "destination": "/api/marketplace.js" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

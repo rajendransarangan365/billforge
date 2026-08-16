@@ -263,17 +263,18 @@ export default function DashboardScreen() {
 
   const QUICK_ACTIONS = [
     { icon: 'add-circle', label: 'New Bill', color: Colors.primary, bg: Colors.primarySurface, route: '/(tabs)/create-bill' },
+    { icon: 'storefront', label: 'Customer Portal', color: '#16A34A', bg: '#DCFCE7', route: '/customer-marketplace' },
+    { icon: 'business', label: 'Quarry Portal', color: Colors.primary, bg: Colors.primarySurface, route: '/quarry-marketplace' },
+    { icon: 'car-sport', label: 'Lorry Portal', color: '#2563EB', bg: '#EFF6FF', route: '/driver-marketplace' },
     { icon: 'cart', label: 'Enquiries', color: '#059669', bg: '#ECFDF5', route: '/enquiries' },
-    { icon: 'car-sport', label: 'Drivers', color: '#7C3AED', bg: '#F5F3FF', route: '/drivers' },
     { icon: 'navigate-circle', label: 'Live GPS', color: '#2563EB', bg: '#EFF6FF', route: '/live-tracking' },
     { icon: 'people', label: 'Customers', color: '#9333EA', bg: '#F3E8FF', route: '/customers' },
     { icon: 'receipt', label: 'Bills', color: '#0284C7', bg: '#E0F2FE', route: '/(tabs)/history' },
     { icon: 'book', label: 'Ledger', color: '#D97706', bg: '#FFFBEB', route: '/ledger' },
     { icon: 'alarm', label: 'Reminders', color: '#DC2626', bg: '#FEF2F2', route: '/reminders', badge: overdueCount },
-    { icon: 'document-text', label: 'Templates', color: '#4F46E5', bg: '#EEF2FF', route: '/(tabs)/templates' },
-    { icon: 'cube', label: 'Materials', color: '#D97706', bg: '#FEF3C7', route: '/(tabs)/materials' },
     { icon: 'logo-whatsapp', label: 'Share', color: '#16A34A', bg: '#DCFCE7', route: '/whatsapp-settings' },
   ];
+
 
   const { user, logout } = useAuth();
 
