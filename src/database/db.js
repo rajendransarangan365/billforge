@@ -127,6 +127,32 @@ function webInitializeSchema() {
   if (!payments) {
     webSetItems('billforge_payments', []);
   }
+
+  // 7. Reminders
+  let reminders = webGetItems('billforge_reminders');
+  if (!reminders) {
+    webSetItems('billforge_reminders', []);
+  }
+
+  // 8. Enquiries
+  let enquiries = webGetItems('billforge_enquiries');
+  if (!enquiries) {
+    webSetItems('billforge_enquiries', []);
+  }
+
+  // 9. Drivers
+  let drivers = webGetItems('billforge_drivers');
+  if (!drivers) {
+    webSetItems('billforge_drivers', [
+      { id: 1, name: 'Ramesh (Driver)', phone: '9876543210', vehicleNo: 'TN 38 AB 1234', status: 'Available', lat: 11.0168, lng: 76.9558, updatedAt: new Date().toISOString() }
+    ]);
+  }
+
+  // 10. Consignments
+  let consignments = webGetItems('billforge_consignments');
+  if (!consignments) {
+    webSetItems('billforge_consignments', []);
+  }
 }
 
 // === SQLite initialization ===
@@ -208,6 +234,76 @@ async function initializeSchema(db) {
       note TEXT DEFAULT '',
       paid_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS reminders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bill_id INTEGER,
+      customer_name TEXT DEFAULT '',
+      customer_phone TEXT DEFAULT '',
+      promised_amount REAL DEFAULT 0,
+      discount_amount REAL DEFAULT 0,
+      promised_date TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      paid_amount REAL DEFAULT 0,
+      note TEXT DEFAULT '',
+      notification_id TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS enquiries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_name TEXT NOT NULL,
+      customer_phone TEXT DEFAULT '',
+      material_name TEXT NOT NULL,
+      quantity REAL DEFAULT 1,
+      unit_type TEXT DEFAULT 'ton',
+      quoted_rate REAL DEFAULT 0,
+      agreed_rate REAL DEFAULT 0,
+      status TEXT DEFAULT 'pending',
+      pickup_address TEXT DEFAULT '',
+      pickup_lat REAL DEFAULT 10.9601,
+      pickup_lng REAL DEFAULT 78.0766,
+      customer_address TEXT DEFAULT '',
+      customer_lat REAL DEFAULT 11.0168,
+      customer_lng REAL DEFAULT 76.9558,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS drivers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      vehicle_no TEXT DEFAULT '',
+      password TEXT DEFAULT 'driver123',
+      status TEXT DEFAULT 'Available',
+      lat REAL DEFAULT 11.0168,
+      lng REAL DEFAULT 76.9558,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS consignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      enquiry_id INTEGER,
+      driver_id INTEGER,
+      driver_name TEXT,
+      customer_name TEXT,
+      customer_phone TEXT,
+      material_name TEXT,
+      quantity REAL,
+      unit_type TEXT,
+      agreed_rate REAL,
+      pickup_address TEXT,
+      pickup_lat REAL,
+      pickup_lng REAL,
+      customer_address TEXT,
+      customer_lat REAL,
+      customer_lng REAL,
+      status TEXT DEFAULT 'assigned',
+      driver_lat REAL,
+      driver_lng REAL,
+      last_updated TEXT DEFAULT (datetime('now'))
     );
   `);
 
@@ -943,4 +1039,266 @@ export async function getMaterialLedger(db) {
         : 0
     }))
     .sort((a, b) => b.totalRevenue - a.totalRevenue);
+}
+
+// === Reminders ===
+export async function saveReminder(db, reminder) {
+  if (IS_WEB) {
+    const list = webGetItems('billforge_reminders') || [];
+    if (reminder.id) {
+      const idx = list.findIndex(r => r.id === parseInt(reminder.id));
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], ...reminder };
+        webSetItems('billforge_reminders', list);
+        return reminder.id;
+      }
+    }
+    const nextId = list.reduce((max, r) => r.id > max ? r.id : max, 0) + 1;
+    const newR = {
+      id: nextId,
+      bill_id: reminder.bill_id || null,
+      customer_name: reminder.customer_name || '',
+      customer_phone: reminder.customer_phone || '',
+      promised_amount: parseFloat(reminder.promised_amount) || 0,
+      discount_amount: parseFloat(reminder.discount_amount) || 0,
+      promised_date: reminder.promised_date,
+      status: reminder.status || 'pending',
+      paid_amount: parseFloat(reminder.paid_amount) || 0,
+      note: reminder.note || '',
+      notification_id: reminder.notification_id || '',
+      created_at: new Date().toISOString(),
+    };
+    list.push(newR);
+    webSetItems('billforge_reminders', list);
+    return nextId;
+  }
+
+  if (reminder.id) {
+    await db.runAsync(
+      `UPDATE reminders SET bill_id=?, customer_name=?, customer_phone=?, promised_amount=?,
+       discount_amount=?, promised_date=?, status=?, paid_amount=?, note=?, notification_id=? WHERE id=?`,
+      [
+        reminder.bill_id || null,
+        reminder.customer_name || '',
+        reminder.customer_phone || '',
+        parseFloat(reminder.promised_amount) || 0,
+        parseFloat(reminder.discount_amount) || 0,
+        reminder.promised_date,
+        reminder.status || 'pending',
+        parseFloat(reminder.paid_amount) || 0,
+        reminder.note || '',
+        reminder.notification_id || '',
+        reminder.id,
+      ]
+    );
+    return reminder.id;
+  }
+
+  const result = await db.runAsync(
+    `INSERT INTO reminders (bill_id, customer_name, customer_phone, promised_amount,
+     discount_amount, promised_date, status, paid_amount, note, notification_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      reminder.bill_id || null,
+      reminder.customer_name || '',
+      reminder.customer_phone || '',
+      parseFloat(reminder.promised_amount) || 0,
+      parseFloat(reminder.discount_amount) || 0,
+      reminder.promised_date,
+      reminder.status || 'pending',
+      parseFloat(reminder.paid_amount) || 0,
+      reminder.note || '',
+      reminder.notification_id || '',
+    ]
+  );
+  return result.lastInsertRowId;
+}
+
+export async function getReminders(db) {
+  if (IS_WEB) {
+    const list = webGetItems('billforge_reminders') || [];
+    return list.sort((a, b) => new Date(a.promised_date) - new Date(b.promised_date));
+  }
+  return await db.getAllAsync('SELECT * FROM reminders ORDER BY promised_date ASC');
+}
+
+export async function getActiveReminders(db) {
+  const all = await getReminders(db);
+  return all.filter(r => r.status === 'pending');
+}
+
+export async function getOverdueReminders(db) {
+  const now = new Date().toISOString();
+  const all = await getReminders(db);
+  return all.filter(r => r.status === 'pending' && r.promised_date < now);
+}
+
+export async function deleteReminder(db, id) {
+  if (IS_WEB) {
+    const list = webGetItems('billforge_reminders') || [];
+    webSetItems('billforge_reminders', list.filter(r => r.id !== parseInt(id)));
+    return;
+  }
+  await db.runAsync('DELETE FROM reminders WHERE id = ?', [id]);
+}
+
+// === Enquiries ===
+export async function getEnquiries(db) {
+  if (IS_WEB) {
+    return webGetItems('billforge_enquiries') || [];
+  }
+  return await db.getAllAsync('SELECT * FROM enquiries ORDER BY id DESC');
+}
+
+export async function saveEnquiry(db, enquiry) {
+  if (IS_WEB) {
+    const list = webGetItems('billforge_enquiries') || [];
+    if (enquiry.id) {
+      const idx = list.findIndex(e => e.id === parseInt(enquiry.id));
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], ...enquiry };
+        webSetItems('billforge_enquiries', list);
+        return enquiry.id;
+      }
+    }
+    const nextId = list.reduce((max, e) => e.id > max ? e.id : max, 0) + 1;
+    const newE = {
+      id: nextId,
+      customer_name: enquiry.customer_name || '',
+      customer_phone: enquiry.customer_phone || '',
+      material_name: enquiry.material_name || '',
+      quantity: parseFloat(enquiry.quantity) || 1,
+      unit_type: enquiry.unit_type || 'ton',
+      quoted_rate: parseFloat(enquiry.quoted_rate) || 0,
+      agreed_rate: parseFloat(enquiry.agreed_rate || enquiry.quoted_rate) || 0,
+      status: enquiry.status || 'pending',
+      pickup_address: enquiry.pickup_address || 'Quarry Location',
+      pickup_lat: parseFloat(enquiry.pickup_lat) || 10.9601,
+      pickup_lng: parseFloat(enquiry.pickup_lng) || 78.0766,
+      customer_address: enquiry.customer_address || 'Customer Delivery Site',
+      customer_lat: parseFloat(enquiry.customer_lat) || 11.0168,
+      customer_lng: parseFloat(enquiry.customer_lng) || 76.9558,
+      created_at: new Date().toISOString(),
+    };
+    list.unshift(newE);
+    webSetItems('billforge_enquiries', list);
+    return nextId;
+  }
+
+  if (enquiry.id) {
+    await db.runAsync(
+      `UPDATE enquiries SET customer_name=?, customer_phone=?, material_name=?, quantity=?, unit_type=?,
+       quoted_rate=?, agreed_rate=?, status=?, pickup_address=?, pickup_lat=?, pickup_lng=?,
+       customer_address=?, customer_lat=?, customer_lng=? WHERE id=?`,
+      [
+        enquiry.customer_name, enquiry.customer_phone, enquiry.material_name, enquiry.quantity, enquiry.unit_type,
+        enquiry.quoted_rate, enquiry.agreed_rate, enquiry.status, enquiry.pickup_address, enquiry.pickup_lat, enquiry.pickup_lng,
+        enquiry.customer_address, enquiry.customer_lat, enquiry.customer_lng, enquiry.id
+      ]
+    );
+    return enquiry.id;
+  }
+
+  const result = await db.runAsync(
+    `INSERT INTO enquiries (customer_name, customer_phone, material_name, quantity, unit_type, quoted_rate, agreed_rate, status, pickup_address, pickup_lat, pickup_lng, customer_address, customer_lat, customer_lng)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      enquiry.customer_name, enquiry.customer_phone, enquiry.material_name, enquiry.quantity || 1, enquiry.unit_type || 'ton',
+      enquiry.quoted_rate || 0, enquiry.agreed_rate || enquiry.quoted_rate || 0, enquiry.status || 'pending',
+      enquiry.pickup_address || '', enquiry.pickup_lat || 10.9601, enquiry.pickup_lng || 78.0766,
+      enquiry.customer_address || '', enquiry.customer_lat || 11.0168, enquiry.customer_lng || 76.9558
+    ]
+  );
+  return result.lastInsertRowId;
+}
+
+// === Drivers ===
+export async function getDrivers(db) {
+  if (IS_WEB) {
+    return webGetItems('billforge_drivers') || [];
+  }
+  return await db.getAllAsync('SELECT * FROM drivers ORDER BY name ASC');
+}
+
+export async function saveDriver(db, driver) {
+  if (IS_WEB) {
+    const list = webGetItems('billforge_drivers') || [];
+    if (driver.id) {
+      const idx = list.findIndex(d => d.id === parseInt(driver.id));
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], ...driver };
+        webSetItems('billforge_drivers', list);
+        return driver.id;
+      }
+    }
+    const nextId = list.reduce((max, d) => d.id > max ? d.id : max, 0) + 1;
+    const newD = {
+      id: nextId,
+      name: driver.name,
+      phone: driver.phone,
+      vehicle_no: driver.vehicle_no || '',
+      password: driver.password || 'driver123',
+      status: 'Available',
+      lat: 11.0168,
+      lng: 76.9558,
+      updated_at: new Date().toISOString()
+    };
+    list.push(newD);
+    webSetItems('billforge_drivers', list);
+    return nextId;
+  }
+
+  const result = await db.runAsync(
+    'INSERT INTO drivers (name, phone, vehicle_no, password, status) VALUES (?, ?, ?, ?, ?)',
+    [driver.name, driver.phone, driver.vehicle_no || '', driver.password || 'driver123', 'Available']
+  );
+  return result.lastInsertRowId;
+}
+
+// === Consignments ===
+export async function getConsignments(db) {
+  if (IS_WEB) {
+    return webGetItems('billforge_consignments') || [];
+  }
+  return await db.getAllAsync('SELECT * FROM consignments ORDER BY id DESC');
+}
+
+export async function saveConsignment(db, c) {
+  if (IS_WEB) {
+    const list = webGetItems('billforge_consignments') || [];
+    if (c.id) {
+      const idx = list.findIndex(item => item.id === parseInt(c.id));
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], ...c };
+        webSetItems('billforge_consignments', list);
+        return c.id;
+      }
+    }
+    const nextId = list.reduce((max, item) => item.id > max ? item.id : max, 100) + 1;
+    const newC = { ...c, id: nextId, last_updated: new Date().toISOString() };
+    list.unshift(newC);
+    webSetItems('billforge_consignments', list);
+    return nextId;
+  }
+
+  if (c.id) {
+    await db.runAsync(
+      `UPDATE consignments SET status=?, driver_lat=?, driver_lng=?, last_updated=datetime('now') WHERE id=?`,
+      [c.status, c.driver_lat, c.driver_lng, c.id]
+    );
+    return c.id;
+  }
+
+  const result = await db.runAsync(
+    `INSERT INTO consignments (enquiry_id, driver_id, driver_name, customer_name, customer_phone, material_name, quantity, unit_type, agreed_rate, pickup_address, pickup_lat, pickup_lng, customer_address, customer_lat, customer_lng, status, driver_lat, driver_lng)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      c.enquiry_id, c.driver_id, c.driver_name, c.customer_name, c.customer_phone,
+      c.material_name, c.quantity, c.unit_type, c.agreed_rate,
+      c.pickup_address, c.pickup_lat, c.pickup_lng,
+      c.customer_address, c.customer_lat, c.customer_lng,
+      c.status || 'assigned', c.driver_lat || 11.0168, c.driver_lng || 76.9558
+    ]
+  );
+  return result.lastInsertRowId;
 }
