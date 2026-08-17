@@ -1,11 +1,10 @@
 // @ts-nocheck
 /**
- * MarketplaceStore — Shared AsyncStorage-backed data store
+ * MarketplaceStore — Shared platform-safe data store (localStorage on web, AsyncStorage on native).
  * This is the SINGLE SOURCE OF TRUTH for all marketplace orders and bids.
  * Customer, Quarry Owner, and Driver all read/write from this store.
- * No backend required — works fully offline on device.
  */
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Storage } from './PlatformStorage';
 
 const ORDERS_KEY = 'bf_marketplace_orders';
 const BIDS_KEY = 'bf_marketplace_bids';
@@ -75,20 +74,17 @@ function now(): string {
 // ─── Orders ──────────────────────────────────────────────────────
 export async function getOrders(): Promise<MarketplaceOrder[]> {
   try {
-    const raw = await AsyncStorage.getItem(ORDERS_KEY);
+    const raw = await Storage.getItem(ORDERS_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch (e) {
-    console.error('MarketplaceStore.getOrders error:', e);
     return [];
   }
 }
 
 export async function saveOrders(orders: MarketplaceOrder[]): Promise<void> {
   try {
-    await AsyncStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
-  } catch (e) {
-    console.error('MarketplaceStore.saveOrders error:', e);
-  }
+    await Storage.setItem(ORDERS_KEY, JSON.stringify(orders));
+  } catch (e) {}
 }
 
 export async function createOrder(data: Partial<MarketplaceOrder>): Promise<MarketplaceOrder> {
@@ -121,7 +117,7 @@ export async function createOrder(data: Partial<MarketplaceOrder>): Promise<Mark
     createdAt: now(),
     updatedAt: now(),
   };
-  orders.unshift(newOrder); // newest first
+  orders.unshift(newOrder);
   await saveOrders(orders);
   return newOrder;
 }
@@ -143,20 +139,17 @@ export async function getOrderById(id: string): Promise<MarketplaceOrder | null>
 // ─── Bids ─────────────────────────────────────────────────────────
 export async function getBids(): Promise<TransportBid[]> {
   try {
-    const raw = await AsyncStorage.getItem(BIDS_KEY);
+    const raw = await Storage.getItem(BIDS_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch (e) {
-    console.error('MarketplaceStore.getBids error:', e);
     return [];
   }
 }
 
 export async function saveBids(bids: TransportBid[]): Promise<void> {
   try {
-    await AsyncStorage.setItem(BIDS_KEY, JSON.stringify(bids));
-  } catch (e) {
-    console.error('MarketplaceStore.saveBids error:', e);
-  }
+    await Storage.setItem(BIDS_KEY, JSON.stringify(bids));
+  } catch (e) {}
 }
 
 export async function createBid(data: Partial<TransportBid>): Promise<TransportBid> {
@@ -192,11 +185,9 @@ export async function getBidsForOrder(orderId: string): Promise<TransportBid[]> 
 export async function acceptBid(bidId: string, orderId: string): Promise<void> {
   const bids = await getBids();
 
-  // Find accepted bid details
   const acceptedBid = bids.find(b => b.id === bidId);
   if (!acceptedBid) return;
 
-  // Update bid statuses
   const updatedBids = bids.map(b => {
     if (b.orderId === orderId) {
       return { ...b, status: b.id === bidId ? 'accepted' : 'rejected' };
@@ -205,7 +196,6 @@ export async function acceptBid(bidId: string, orderId: string): Promise<void> {
   });
   await saveBids(updatedBids);
 
-  // Assign driver to order
   await updateOrder(orderId, {
     driverId: acceptedBid.driverId,
     driverName: acceptedBid.driverName,
@@ -215,8 +205,7 @@ export async function acceptBid(bidId: string, orderId: string): Promise<void> {
   });
 }
 
-// ─── Clear (for testing) ──────────────────────────────────────────
 export async function clearAll(): Promise<void> {
-  await AsyncStorage.removeItem(ORDERS_KEY);
-  await AsyncStorage.removeItem(BIDS_KEY);
+  await Storage.removeItem(ORDERS_KEY);
+  await Storage.removeItem(BIDS_KEY);
 }
