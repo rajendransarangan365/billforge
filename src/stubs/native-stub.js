@@ -1,10 +1,12 @@
 /**
  * Native-only module stub for web platform.
  * All native packages resolve to this file during `expo export -p web`.
+ * Configured with __esModule: true to prevent Babel/Metro interop wildcard errors.
  */
-'use strict';
 
-const stub = {
+const nativeStub = {
+  __esModule: true,
+
   // AsyncStorage interface
   getItem: () => Promise.resolve(null),
   setItem: () => Promise.resolve(),
@@ -21,7 +23,7 @@ const stub = {
     getAllAsync: () => Promise.resolve([]),
     getFirstAsync: () => Promise.resolve(null),
     closeAsync: () => Promise.resolve(),
-    withTransactionAsync: (fn) => fn(),
+    withTransactionAsync: (fn) => fn ? fn() : Promise.resolve(),
   }),
   openDatabaseSync: () => ({
     execSync: () => {},
@@ -29,7 +31,7 @@ const stub = {
     getAllSync: () => [],
     getFirstSync: () => null,
     closeSync: () => {},
-    withTransactionSync: (fn) => fn(),
+    withTransactionSync: (fn) => fn ? fn() : undefined,
   }),
   useSQLiteContext: () => null,
   SQLiteProvider: ({ children }) => children,
@@ -69,9 +71,9 @@ const stub = {
   addNotificationReceivedListener: () => ({ remove: () => {} }),
   addNotificationResponseReceivedListener: () => ({ remove: () => {} }),
   AndroidImportance: { MAX: 5, HIGH: 4, DEFAULT: 3 },
-
-  // Generic fallback
-  default: null,
 };
 
-module.exports = stub;
+// Set default export to point back to the stub object itself
+nativeStub.default = nativeStub;
+
+module.exports = nativeStub;
