@@ -1,9 +1,8 @@
 // @ts-nocheck
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Modal, Alert, ActivityIndicator, TextInput,
-  RefreshControl,
+  Modal, Alert, ActivityIndicator, TextInput, RefreshControl,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,79 +12,90 @@ import * as API from '../src/services/MarketplaceAPI';
 import { useAuth } from '../src/context/AuthContext';
 
 function fmtCurrency(n: number) {
-  if (!n) return '₹0';
+  if (!n && n !== 0) return '₹0';
   return `₹${Number(n).toLocaleString('en-IN')}`;
 }
-
-const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  requirement_posted: { label: 'New Request',     color: Colors.statusNew,      bg: Colors.statusNewBg,      icon: 'alert-circle-outline' },
-  rate_quoted:        { label: 'Rate Sent',        color: Colors.statusQuoted,   bg: Colors.statusQuotedBg,   icon: 'pricetag-outline' },
-  rate_agreed:        { label: 'Rate Agreed',      color: Colors.statusAgreed,   bg: Colors.statusAgreedBg,   icon: 'checkmark-circle-outline' },
-  bidding_active:     { label: 'Bids Coming In',   color: Colors.statusBidding,  bg: Colors.statusBiddingBg,  icon: 'trending-up-outline' },
-  driver_assigned:    { label: 'Driver Assigned',  color: Colors.statusAssigned, bg: Colors.statusAssignedBg, icon: 'car-outline' },
-  loaded:             { label: 'Material Loaded',  color: Colors.statusLoaded,   bg: Colors.statusLoadedBg,   icon: 'cube-outline' },
-  in_transit:         { label: 'In Transit',       color: Colors.statusTransit,  bg: Colors.statusTransitBg,  icon: 'navigate-outline' },
-  delivered:          { label: 'Delivered',        color: Colors.statusDelivered,bg: Colors.statusDeliveredBg,icon: 'checkmark-done-circle-outline' },
-  settled:            { label: 'Settled',          color: Colors.statusSettled,  bg: Colors.statusSettledBg,  icon: 'wallet-outline' },
-};
 
 export default function QuarryMarketplaceScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
 
-  const [orders, setOrders] = useState<API.MarketplaceOrder[]>([]);
-  const [bidsMap, setBidsMap] = useState<Record<string, API.TransportBid[]>>({});
+  // Tabs: 'dashboard' | 'enquiries' | 'orders' | 'materials' | 'lorries'
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'enquiries' | 'orders' | 'materials' | 'lorries'>('dashboard');
+
+  const [enquiries, setEnquiries] = useState<API.Enquiry[]>([]);
+  const [quotesMap, setQuotesMap] = useState<Record<string, API.Quote[]>>({});
+  const [orders, setOrders] = useState<API.Order[]>([]);
+  const [tripsMap, setTripsMap] = useState<Record<string, API.Trip[]>>({});
+  const [materials, setMaterials] = useState<API.QuarryMaterial[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Quote modal
-  const [quoteVisible, setQuoteVisible] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<API.MarketplaceOrder | null>(null);
-  const [matPrice, setMatPrice] = useState('');
-  const [saving, setSaving] = useState(false);
+  // Quote Submission Modal
+  const [quoteModalVisible, setQuoteModalVisible] = useState(false);
+  const [selectedEnquiry, setSelectedEnquiry] = useState<API.Enquiry | null>(null);
+  const [materialPrice, setMaterialPrice] = useState('3000');
+  const [transportPrice, setTransportPrice] = useState('500');
+  const [estDeliveryHours, setEstDeliveryHours] = useState('4');
+  const [submittingQuote, setSubmittingQuote] = useState(false);
 
-  // Settle modal
-  const [settleVisible, setSettleVisible] = useState(false);
-  const [settleOrder, setSettleOrder] = useState<API.MarketplaceOrder | null>(null);
-
-  // Live notification
-  const [newOrderAlert, setNewOrderAlert] = useState<string | null>(null);
+  // Counter Offer Modal
+  const [counterModalVisible, setCounterModalVisible] = useState(false);
+  const [selectedQuote, setSelectedQuote] = useState<API.Quote | null>(null);
+  const [counterMaterialPrice, setCounterMaterialPrice] = useState('');
+  const [counterTransportPrice, setCounterTransportPrice] = useState('');
+  const [submittingCounter, setSubmittingCounter] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
-      const { orders: all, bids } = await API.getOrders();
-      setOrders(all);
-      const map: Record<string, API.TransportBid[]> = {};
-      bids.forEach(b => {
-        if (!map[b.orderId]) map[b.orderId] = [];
-        map[b.orderId].push(b);
+      // 1. Fetch enquiries & quotes
+      const { enquiries: enqList, quotes: qList } = await API.getEnquiries();
+      setEnquiries(enqList);
+
+      const qMap: Record<string, API.Quote[]> = {};
+      qList.forEach(q => {
+        if (!qMap[q.enquiryId]) qMap[q.enquiryId] = [];
+        qMap[q.enquiryId].push(q);
       });
-      setBidsMap(map);
+      setQuotesMap(qMap);
+
+      // 2. Fetch orders & multi-trips
+      const { orders: ordList, trips: trList } = await API.getOrders(undefined, user?.id || 'quarry-1');
+      setOrders(ordList);
+
+      const tMap: Record<string, API.Trip[]> = {};
+      trList.forEach(t => {
+        if (!tMap[t.orderId]) tMap[t.orderId] = [];
+        tMap[t.orderId].push(t);
+      });
+      setTripsMap(tMap);
+
+      // 3. Materials
+      const mats = await API.getMaterials();
+      setMaterials(mats);
+
     } catch (e) {
-      console.error('Quarry load error:', e);
+      console.error('Quarry Load Error:', e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [user]);
 
   useFocusEffect(useCallback(() => {
     loadData();
 
-    // Real-time subscriptions
+    // Subscribe to Pusher Real-Time Updates
     const unsub = API.subscribeToMarketplace({
-      onOrderCreated: (data) => {
-        setNewOrderAlert(`New order: ${data.customerName} needs ${data.quantity} ${data.unitType} ${data.materialName}`);
-        setTimeout(() => setNewOrderAlert(null), 5000);
-        loadData();
-      },
-      onBidSubmitted: (data) => {
-        loadData(); // Refresh to show new bids
-      },
+      onEnquiryCreated: () => loadData(),
+      onNegotiationCountered: () => loadData(),
+      onOrderCreated: () => loadData(),
+      onTripStateChanged: () => loadData(),
+      onPoDSubmitted: () => loadData(),
     });
 
-    // Fallback polling every 8s
     const poll = setInterval(loadData, 8000);
 
     return () => {
@@ -94,310 +104,398 @@ export default function QuarryMarketplaceScreen() {
     };
   }, [loadData]));
 
-  const handleQuoteRate = async () => {
-    if (!matPrice || !selectedOrder) { Alert.alert('Required', 'Please enter material rate.'); return; }
-    const price = parseFloat(matPrice);
-    if (isNaN(price) || price <= 0) { Alert.alert('Invalid', 'Enter a valid positive rate.'); return; }
-    setSaving(true);
+  // Submit Initial Quote
+  const handleSubmitQuote = async () => {
+    if (!selectedEnquiry) return;
+    setSubmittingQuote(true);
     try {
-      const orderId = selectedOrder._id || selectedOrder.id || '';
-      await API.quoteRate(orderId, price);
-      setQuoteVisible(false);
-      setMatPrice('');
-      setSelectedOrder(null);
-      Alert.alert('Rate Sent', `Your rate of ${fmtCurrency(price)} has been sent to the customer. They will receive it instantly.`);
+      await API.submitQuote({
+        enquiryId: selectedEnquiry._id || selectedEnquiry.id,
+        quarryId: user?.id || 'quarry-1',
+        quarryName: user?.name || 'Sri Murugan Quarry',
+        materialPrice: parseFloat(materialPrice) || 3000,
+        transportPrice: parseFloat(transportPrice) || 500,
+        estDeliveryHours: parseFloat(estDeliveryHours) || 4,
+      });
+
+      setQuoteModalVisible(false);
+      Alert.alert('Quote Submitted! 💰', 'Commercial terms sent to customer.');
       loadData();
     } catch (e) {
-      Alert.alert('Error', `Failed: ${e.message}`);
+      Alert.alert('Error', e.message);
     } finally {
-      setSaving(false);
+      setSubmittingQuote(false);
     }
   };
 
-  const handleAcceptBid = async (order: API.MarketplaceOrder, bid: API.TransportBid) => {
-    Alert.alert(
-      'Accept Transport Bid?',
-      `Assign ${bid.driverName} (${bid.vehicleNo}) at ${fmtCurrency(bid.fareQuote)}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Accept & Assign',
-          style: 'default',
-          onPress: async () => {
-            try {
-              const orderId = order._id || order.id || '';
-              await API.acceptBid(orderId, bid);
-              Alert.alert('Driver Assigned!', `${bid.driverName} has been assigned. They are notified in real-time.`);
-              loadData();
-            } catch (e) {
-              Alert.alert('Error', `Failed: ${e.message}`);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleSettle = async () => {
-    if (!settleOrder) return;
+  // Submit Counter Offer to Bargaining Customer
+  const handleCounterOffer = async () => {
+    if (!selectedQuote) return;
+    setSubmittingCounter(true);
     try {
-      const orderId = settleOrder._id || settleOrder.id || '';
-      await API.settleOrder(orderId);
-      setSettleVisible(false);
-      setSettleOrder(null);
-      Alert.alert('Settled', 'Order fully settled.');
+      await API.counterQuote({
+        quoteId: selectedQuote._id || selectedQuote.id,
+        proposedBy: 'quarry',
+        materialPrice: parseFloat(counterMaterialPrice) || selectedQuote.materialPrice,
+        transportPrice: parseFloat(counterTransportPrice) || selectedQuote.transportPrice,
+        note: 'Quarry Owner counter-offer',
+        userName: user?.name || 'Sri Murugan Quarry',
+      });
+      setCounterModalVisible(false);
+      Alert.alert('Counter-Offer Sent 🤝', 'Updated commercial terms sent to customer.');
       loadData();
     } catch (e) {
-      Alert.alert('Error', `Failed: ${e.message}`);
+      Alert.alert('Error', e.message);
+    } finally {
+      setSubmittingCounter(false);
     }
   };
 
-  const urgentOrders = orders.filter(o => o.status === 'requirement_posted');
-  const activeOrders = orders.filter(o => !['requirement_posted', 'settled'].includes(o.status));
-  const settledOrders = orders.filter(o => o.status === 'settled');
+  // Stats
+  const activeEnquiriesCount = enquiries.filter(e => e.status !== 'accepted' && e.status !== 'cancelled').length;
+  const inProgressOrdersCount = orders.filter(o => o.status === 'in_progress' || o.status === 'confirmed').length;
+  const completedOrdersCount = orders.filter(o => o.status === 'completed' || o.status === 'settled').length;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      {/* Header */}
+      {/* Top Bar */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={22} color={Colors.text} />
+          <Ionicons name="arrow-back" size={20} color={Colors.navy} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Quarry Dispatch</Text>
-          {user?.name ? <Text style={styles.headerSub}>{user.name}</Text> : null}
+          <Text style={styles.quarryTitle}>{user?.name || 'Sri Murugan Quarry Yard'}</Text>
+          <Text style={styles.quarrySub}>Karur Road · Delivery Radar Active</Text>
         </View>
         <TouchableOpacity style={styles.refreshBtn} onPress={() => { setRefreshing(true); loadData(); }}>
           <Ionicons name="refresh" size={18} color={Colors.primary} />
         </TouchableOpacity>
       </View>
 
-      {/* New order real-time alert */}
-      {newOrderAlert && (
-        <View style={styles.liveAlert}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveAlertText} numberOfLines={1}>{newOrderAlert}</Text>
+      {/* Tabs */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar}>
+        <View style={{ flexDirection: 'row', paddingHorizontal: 12 }}>
+          {[
+            { id: 'dashboard', label: 'Dashboard', icon: 'grid-outline' },
+            { id: 'enquiries', label: `Enquiries (${activeEnquiriesCount})`, icon: 'chatbubbles-outline' },
+            { id: 'orders', label: `Orders (${orders.length})`, icon: 'cube-outline' },
+            { id: 'materials', label: 'Materials', icon: 'layers-outline' },
+            { id: 'lorries', label: 'Lorries & Fleet', icon: 'car-sport-outline' },
+          ].map(t => (
+            <TouchableOpacity
+              key={t.id}
+              style={[styles.tabItem, activeTab === t.id && styles.tabActive]}
+              onPress={() => setActiveTab(t.id as any)}
+            >
+              <Ionicons name={t.icon as any} size={15} color={activeTab === t.id ? Colors.primary : Colors.textTertiary} />
+              <Text style={[styles.tabText, activeTab === t.id && styles.tabTextActive]}>{t.label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
-      )}
-
-      {/* Stats bar */}
-      <View style={styles.statsBar}>
-        {[
-          { num: urgentOrders.length, lbl: 'New', color: Colors.statusNew },
-          { num: activeOrders.length, lbl: 'Active', color: Colors.statusAssigned },
-          { num: settledOrders.length, lbl: 'Settled', color: Colors.success },
-          { num: orders.length, lbl: 'Total', color: Colors.primary },
-        ].map((s, i, arr) => (
-          <React.Fragment key={s.lbl}>
-            <View style={styles.statItem}>
-              <Text style={[styles.statNum, { color: s.color }]}>{s.num}</Text>
-              <Text style={styles.statLbl}>{s.lbl}</Text>
-            </View>
-            {i < arr.length - 1 && <View style={styles.statDivider} />}
-          </React.Fragment>
-        ))}
-      </View>
+      </ScrollView>
 
       {loading ? (
         <View style={styles.centerWrap}>
           <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingText}>Loading orders...</Text>
-        </View>
-      ) : orders.length === 0 ? (
-        <View style={styles.centerWrap}>
-          <View style={styles.emptyIcon}><Ionicons name="receipt-outline" size={40} color={Colors.textTertiary} /></View>
-          <Text style={styles.emptyTitle}>No Customer Orders Yet</Text>
-          <Text style={styles.emptySub}>When customers post material requirements, they'll appear here instantly. Share your quarry link with customers to get started.</Text>
+          <Text style={{ marginTop: 8, color: Colors.textSecondary }}>Loading quarry dispatch management...</Text>
         </View>
       ) : (
         <ScrollView
-          style={styles.scroll} contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
+          style={styles.content}
+          contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} colors={[Colors.primary]} tintColor={Colors.primary} />}
+          showsVerticalScrollIndicator={false}
         >
-          {orders.map(order => {
-            const sc = STATUS_LABELS[order.status] || STATUS_LABELS.requirement_posted;
-            const orderId = order._id || order.id || '';
-            const orderBids = bidsMap[orderId] || [];
-            const pendingBids = orderBids.filter(b => b.status === 'pending');
-            const isNew = order.status === 'requirement_posted';
-
-            return (
-              <View key={orderId} style={[styles.card, isNew && styles.newCard]}>
-                {isNew && (
-                  <View style={styles.newBadgeRow}>
-                    <View style={styles.liveDot} />
-                    <Text style={styles.newBadgeText}>New Customer Request</Text>
-                  </View>
-                )}
-
-                <View style={styles.cardTop}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cardMat}>{order.quantity} {order.unitType} {order.materialName}</Text>
-                    <View style={styles.customerRow}>
-                      <Ionicons name="person-outline" size={13} color={Colors.textTertiary} />
-                      <Text style={styles.customerName}>{order.customerName} · {order.customerPhone}</Text>
-                    </View>
-                    <View style={styles.addressRow}>
-                      <Ionicons name="location-outline" size={13} color={Colors.textTertiary} />
-                      <Text style={styles.addressText} numberOfLines={2}>{order.customerAddress}</Text>
-                    </View>
-                  </View>
-                  <View style={[styles.statusChip, { backgroundColor: sc.bg }]}>
-                    <Ionicons name={sc.icon as any} size={11} color={sc.color} />
-                    <Text style={[styles.statusText, { color: sc.color }]}>{sc.label}</Text>
-                  </View>
+          {/* TAB 1: DASHBOARD OVERVIEW */}
+          {activeTab === 'dashboard' && (
+            <View style={{ gap: 16 }}>
+              {/* Metric Cards */}
+              <View style={styles.statsRow}>
+                <View style={[styles.statCard, { backgroundColor: Colors.primarySurface }]}>
+                  <Text style={[styles.statNum, { color: Colors.primary }]}>{activeEnquiriesCount}</Text>
+                  <Text style={styles.statLbl}>Pending Enquiries</Text>
                 </View>
+                <View style={[styles.statCard, { backgroundColor: Colors.warningLight }]}>
+                  <Text style={[styles.statNum, { color: Colors.warning }]}>{inProgressOrdersCount}</Text>
+                  <Text style={styles.statLbl}>Active Orders</Text>
+                </View>
+                <View style={[styles.statCard, { backgroundColor: Colors.successLight }]}>
+                  <Text style={[styles.statNum, { color: Colors.success }]}>{completedOrdersCount}</Text>
+                  <Text style={styles.statLbl}>Completed Orders</Text>
+                </View>
+              </View>
 
-                <View style={styles.divider} />
+              {/* Quick Actions */}
+              <Text style={styles.sectionTitle}>Quarry Operations</Text>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity style={styles.quickActionCard} onPress={() => setActiveTab('enquiries')}>
+                  <Ionicons name="chatbubbles" size={20} color={Colors.primary} />
+                  <Text style={styles.quickActionTitle}>Respond to Enquiries</Text>
+                  <Text style={styles.quickActionSub}>{activeEnquiriesCount} waiting for quotes</Text>
+                </TouchableOpacity>
 
-                {/* New — Quote rate */}
-                {order.status === 'requirement_posted' && (
-                  <TouchableOpacity style={styles.primaryBtn} onPress={() => { setSelectedOrder(order); setMatPrice(''); setQuoteVisible(true); }} activeOpacity={0.82}>
-                    <Ionicons name="pricetag" size={16} color="#FFF" />
-                    <Text style={styles.primaryBtnText}>Quote Material Rate</Text>
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity style={styles.quickActionCard} onPress={() => setActiveTab('orders')}>
+                  <Ionicons name="car-sport" size={20} color={Colors.success} />
+                  <Text style={styles.quickActionTitle}>Dispatch Lorries</Text>
+                  <Text style={styles.quickActionSub}>Manage multi-trip execution</Text>
+                </TouchableOpacity>
+              </View>
 
-                {/* Rate sent — waiting for customer */}
-                {order.status === 'rate_quoted' && (
-                  <View style={styles.waitingBox}>
-                    <Ionicons name="time-outline" size={16} color={Colors.statusQuoted} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.waitingTitle}>Waiting for Customer</Text>
-                      <Text style={styles.waitingText}>Quoted {fmtCurrency(order.materialPrice)} — customer needs to agree. You'll be notified instantly.</Text>
-                    </View>
+              {/* Recent Orders List */}
+              <Text style={styles.sectionTitle}>Recent Confirmed Orders</Text>
+              {orders.slice(0, 3).map(ord => (
+                <View key={ord._id || ord.id} style={styles.miniCard}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.miniTitle}>{ord.totalQuantity} {ord.unitType} {ord.materialName}</Text>
+                    <Text style={styles.miniSub}>{ord.customerName} · {ord.totalTripsRequired} Trips ({ord.completedTrips} done)</Text>
                   </View>
-                )}
+                  <Text style={styles.miniPrice}>{fmtCurrency(ord.priceSnapshot?.totalAmount)}</Text>
+                </View>
+              ))}
+            </View>
+          )}
 
-                {/* Rate agreed — show driver bids */}
-                {(order.status === 'rate_agreed' || order.status === 'bidding_active') && (
-                  <View style={styles.bidsSection}>
-                    <View style={styles.bidsHeader}>
-                      <Ionicons name="car-sport" size={15} color={Colors.navy} />
-                      <Text style={styles.bidsSectionTitle}>
-                        Transport Bids {pendingBids.length > 0 ? `— ${pendingBids.length} driver(s) available` : '— Waiting for drivers to bid...'}
-                      </Text>
-                    </View>
+          {/* TAB 2: ENQUIRIES & BARGAINING DESK */}
+          {activeTab === 'enquiries' && (
+            <View style={{ gap: 16 }}>
+              {enquiries.length === 0 ? (
+                <View style={styles.centerWrap}>
+                  <Ionicons name="chatbubble-outline" size={48} color={Colors.textDisabled} />
+                  <Text style={styles.emptyTitle}>No Enquiries Yet</Text>
+                  <Text style={styles.emptySub}>When customers search for materials on the platform, their enquiries will land here.</Text>
+                </View>
+              ) : (
+                enquiries.map(enq => {
+                  const enqId = enq._id || enq.id;
+                  const quotes = quotesMap[enqId] || [];
+                  const myQuote = quotes.find(q => q.quarryId === (user?.id || 'quarry-1'));
 
-                    {pendingBids.length === 0 ? (
-                      <View style={styles.noBidsBox}>
-                        <ActivityIndicator size="small" color={Colors.textTertiary} />
-                        <Text style={styles.noBidsText}>Nearby lorry drivers will see this and submit bids shortly...</Text>
+                  return (
+                    <View key={enqId} style={styles.card}>
+                      <View style={styles.cardHeader}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.matTitle}>{enq.quantity} {enq.unitType} {enq.materialName}</Text>
+                          <Text style={styles.custSub}>{enq.customerName} ({enq.customerPhone})</Text>
+                        </View>
+                        <View style={styles.statusBadge}>
+                          <Text style={styles.statusText}>{enq.status.toUpperCase()}</Text>
+                        </View>
                       </View>
-                    ) : (
-                      pendingBids.map(bid => (
-                        <View key={bid._id || bid.id} style={styles.bidCard}>
-                          <View style={styles.bidLeft}>
-                            <View style={styles.bidDriverIcon}><Ionicons name="car-sport" size={16} color={Colors.info} /></View>
-                            <View>
-                              <Text style={styles.bidDriverName}>{bid.driverName}</Text>
-                              <Text style={styles.bidVehicle}>{bid.vehicleNo} · {bid.distanceKm} km</Text>
+
+                      {/* Site Details */}
+                      <View style={styles.siteInfoBox}>
+                        <Text style={styles.siteText}><Ionicons name="location-outline" size={13} /> {enq.siteLocation?.address}</Text>
+                        {enq.siteLocation?.landmark ? <Text style={styles.siteSub}>Landmark: {enq.siteLocation.landmark}</Text> : null}
+                        <Text style={styles.siteSub}>Gate Instructions: {enq.siteLocation?.deliveryInstructions || 'None'} (Max {enq.siteLocation?.maxVehicleWeightTon || 20}T Lorry)</Text>
+                      </View>
+
+                      {/* Quote Status */}
+                      {!myQuote ? (
+                        <TouchableOpacity
+                          style={styles.quoteBtn}
+                          onPress={() => {
+                            setSelectedEnquiry(enq);
+                            setMaterialPrice('3000');
+                            setTransportPrice('500');
+                            setQuoteModalVisible(true);
+                          }}
+                        >
+                          <Ionicons name="pricetag" size={16} color="#FFF" />
+                          <Text style={styles.quoteBtnText}>Submit Quote Rates</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={styles.quoteDetailCard}>
+                          <View style={styles.quoteDetailRow}>
+                            <Text style={styles.quoteDetailLbl}>Your Quote Status</Text>
+                            <Text style={[styles.quoteDetailVal, { color: Colors.primary }]}>{myQuote.status.toUpperCase()}</Text>
+                          </View>
+                          <View style={styles.quoteDetailRow}>
+                            <Text style={styles.quoteDetailLbl}>Material Price</Text>
+                            <Text style={styles.quoteDetailVal}>{fmtCurrency(myQuote.materialPrice)}</Text>
+                          </View>
+                          <View style={styles.quoteDetailRow}>
+                            <Text style={styles.quoteDetailLbl}>Transport Charge</Text>
+                            <Text style={styles.quoteDetailVal}>{fmtCurrency(myQuote.transportPrice)}</Text>
+                          </View>
+                          <View style={[styles.quoteDetailRow, { borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: 4 }]}>
+                            <Text style={[styles.quoteDetailLbl, { fontWeight: '700', color: Colors.navy }]}>Total Quote</Text>
+                            <Text style={[styles.quoteDetailVal, { fontWeight: '800', color: Colors.success }]}>{fmtCurrency(myQuote.totalPrice)}</Text>
+                          </View>
+
+                          {/* Bargaining Action */}
+                          {myQuote.status === 'countered' && (
+                            <TouchableOpacity
+                              style={styles.counterBtn}
+                              onPress={() => {
+                                setSelectedQuote(myQuote);
+                                setCounterMaterialPrice(myQuote.materialPrice.toString());
+                                setCounterTransportPrice(myQuote.transportPrice.toString());
+                                setCounterModalVisible(true);
+                              }}
+                            >
+                              <Ionicons name="options" size={14} color="#FFF" />
+                              <Text style={styles.counterBtnText}>Respond to Customer Counter-Offer</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })
+              )}
+            </View>
+          )}
+
+          {/* TAB 3: ORDERS & MULTI-TRIP DISPATCHER */}
+          {activeTab === 'orders' && (
+            <View style={{ gap: 16 }}>
+              {orders.length === 0 ? (
+                <View style={styles.centerWrap}>
+                  <Ionicons name="cube-outline" size={48} color={Colors.textDisabled} />
+                  <Text style={styles.emptyTitle}>No Confirmed Orders</Text>
+                  <Text style={styles.emptySub}>Accepted customer quotes create contract orders with multi-trip logistics dispatching.</Text>
+                </View>
+              ) : (
+                orders.map(ord => {
+                  const ordId = ord._id || ord.id;
+                  const trips = tripsMap[ordId] || [];
+
+                  return (
+                    <View key={ordId} style={styles.card}>
+                      <View style={styles.cardHeader}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.matTitle}>{ord.totalQuantity} {ord.unitType} {ord.materialName}</Text>
+                          <Text style={styles.custSub}>Customer: {ord.customerName} ({ord.customerPhone})</Text>
+                          <Text style={styles.custSub}>Site: {ord.siteLocation?.address}</Text>
+                        </View>
+                        <View style={styles.frozenTag}>
+                          <Text style={styles.frozenTagText}>Contract Frozen</Text>
+                        </View>
+                      </View>
+
+                      {/* Snapshotted Commercials */}
+                      <View style={styles.snapshotBox}>
+                        <Text style={styles.snapText}>Material: {fmtCurrency(ord.priceSnapshot?.materialPrice)} | Trans: {fmtCurrency(ord.priceSnapshot?.transportPrice)} | Total: {fmtCurrency(ord.priceSnapshot?.totalAmount)}</Text>
+                      </View>
+
+                      {/* Multi-Trip Dispatch List */}
+                      <Text style={styles.sectionSubTitle}>Multi-Trip Dispatch ({ord.completedTrips} of {ord.totalTripsRequired} Completed)</Text>
+                      <View style={{ gap: 8, marginTop: 4 }}>
+                        {trips.map(t => (
+                          <View key={t._id || t.id} style={styles.tripRow}>
+                            <View style={styles.tripBadge}><Text style={styles.tripNum}>T{t.tripNumber}</Text></View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.tripDriverName}>{t.driverName ? `${t.driverName} (${t.vehicleNo})` : 'Unassigned Lorry'}</Text>
+                              <Text style={styles.tripLoad}>{t.loadQuantityTon} Ton Load · Earnings {fmtCurrency(t.driverEarnings)}</Text>
+                            </View>
+                            <View style={[styles.stateTag, t.tripState === 'DELIVERED' ? { backgroundColor: Colors.successLight } : { backgroundColor: Colors.warningLight }]}>
+                              <Text style={[styles.stateTagText, t.tripState === 'DELIVERED' ? { color: Colors.success } : { color: Colors.warning }]}>
+                                {t.tripState}
+                              </Text>
                             </View>
                           </View>
-                          <View style={styles.bidRight}>
-                            <Text style={styles.bidFare}>{fmtCurrency(bid.fareQuote)}</Text>
-                            <TouchableOpacity style={styles.acceptBidBtn} onPress={() => handleAcceptBid(order, bid)}>
-                              <Text style={styles.acceptBidText}>Accept</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      ))
-                    )}
-                  </View>
-                )}
-
-                {/* Active trip */}
-                {['driver_assigned', 'loaded', 'in_transit'].includes(order.status) && order.driverName && (
-                  <View style={styles.tripInfoBox}>
-                    <View style={styles.tripRow}>
-                      <Ionicons name="car-sport" size={14} color={Colors.info} />
-                      <Text style={styles.tripLabel}>{order.driverName} · {order.vehicleNo}</Text>
+                        ))}
+                      </View>
                     </View>
-                    <View style={styles.tripRow}>
-                      <Ionicons name="cash-outline" size={14} color={Colors.success} />
-                      <Text style={styles.tripLabel}>
-                        Material {fmtCurrency(order.materialPrice)} + Transport {fmtCurrency(order.transportPrice)} = Total {fmtCurrency((order.materialPrice || 0) + (order.transportPrice || 0))}
-                      </Text>
+                  );
+                })
+              )}
+            </View>
+          )}
+
+          {/* TAB 4: MATERIALS CATALOG */}
+          {activeTab === 'materials' && (
+            <View style={{ gap: 12 }}>
+              <Text style={styles.sectionTitle}>Quarry Material Inventory & Rates</Text>
+              {materials.map(m => (
+                <View key={m._id || m.id || m.materialName} style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.matTitle}>{m.materialName}</Text>
+                      <Text style={styles.custSub}>Base Rate: {fmtCurrency(m.basePrice)} per {m.unitType}</Text>
+                    </View>
+                    <View style={styles.availTag}>
+                      <Text style={styles.availText}>{m.isAvailable ? 'AVAILABLE' : 'OUT OF STOCK'}</Text>
                     </View>
                   </View>
-                )}
-
-                {/* Delivered — collect and settle */}
-                {order.status === 'delivered' && (
-                  <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: Colors.success }]} onPress={() => { setSettleOrder(order); setSettleVisible(true); }} activeOpacity={0.82}>
-                    <Ionicons name="wallet" size={16} color="#FFF" />
-                    <Text style={styles.primaryBtnText}>Collect Payment & Settle Driver</Text>
-                  </TouchableOpacity>
-                )}
-
-                {order.status === 'settled' && (
-                  <View style={[styles.waitingBox, { backgroundColor: Colors.statusSettledBg }]}>
-                    <Ionicons name="checkmark-done-circle" size={16} color={Colors.statusSettled} />
-                    <Text style={[styles.waitingTitle, { color: Colors.statusSettled }]}>Fully Settled</Text>
+                  <View style={{ flexDirection: 'row', gap: 12, marginTop: 6 }}>
+                    <Text style={styles.metaText}>Stock: {m.availableQty} Ton</Text>
+                    <Text style={styles.metaText}>MOQ: {m.moq} Ton</Text>
                   </View>
-                )}
+                </View>
+              ))}
+            </View>
+          )}
 
-                <Text style={styles.orderDate}>
-                  {new Date(order.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                </Text>
+          {/* TAB 5: LORRIES & FLEET */}
+          {activeTab === 'lorries' && (
+            <View style={{ gap: 12 }}>
+              <Text style={styles.sectionTitle}>Quarry Fleet & Outsourced Lorry Radar</Text>
+              <View style={styles.card}>
+                <Text style={styles.matTitle}>Owned Fleet Lorries</Text>
+                <Text style={styles.custSub}>TN 38 AB 1234 · 10-Wheeler Tipper (10 Ton) · Active</Text>
+                <Text style={styles.custSub}>TN 38 AB 5678 · 14-Wheeler Tipper (20 Ton) · Active</Text>
               </View>
-            );
-          })}
+
+              <View style={styles.card}>
+                <Text style={styles.matTitle}>Independent Outsourced Drivers</Text>
+                <Text style={styles.custSub}>Registered independent lorry drivers in the Coimbatore network receive trip offers automatically via Delivery Radar.</Text>
+              </View>
+            </View>
+          )}
         </ScrollView>
       )}
 
-      {/* Quote Rate Modal */}
-      <Modal visible={quoteVisible} animationType="slide" transparent onRequestClose={() => setQuoteVisible(false)}>
+      {/* MODAL 1: SUBMIT QUOTE */}
+      <Modal visible={quoteModalVisible} animationType="slide" transparent onRequestClose={() => setQuoteModalVisible(false)}>
         <View style={styles.overlay}>
           <View style={styles.dialog}>
             <View style={styles.dialogHandle} />
-            <Text style={styles.dialogTitle}>Quote Material Rate</Text>
-            {selectedOrder && (
-              <View style={styles.dialogInfoBox}>
-                <Text style={styles.dialogInfoText}>{selectedOrder.quantity} {selectedOrder.unitType} {selectedOrder.materialName}</Text>
-                <Text style={styles.dialogInfoSub}>{selectedOrder.customerName} · {selectedOrder.customerAddress}</Text>
-              </View>
-            )}
+            <Text style={styles.dialogTitle}>Submit Quote</Text>
+            <Text style={styles.dialogSub}>Requirement: {selectedEnquiry?.quantity} {selectedEnquiry?.unitType} {selectedEnquiry?.materialName}</Text>
+
             <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Your Rate per {selectedOrder?.unitType || 'unit'} (₹)</Text>
-              <View style={styles.inputWrap}>
-                <Ionicons name="cash-outline" size={18} color={Colors.textTertiary} style={{ paddingLeft: 14 }} />
-                <TextInput style={styles.modalInput} value={matPrice} onChangeText={setMatPrice} placeholder="e.g. 3200" placeholderTextColor={Colors.textDisabled} keyboardType="numeric" autoFocus />
-              </View>
-              {matPrice && selectedOrder ? (
-                <Text style={styles.totalCalc}>Total = {fmtCurrency(parseFloat(matPrice) * selectedOrder.quantity)} for {selectedOrder.quantity} {selectedOrder.unitType}</Text>
-              ) : null}
+              <Text style={styles.fieldLabel}>Material Rate (₹)</Text>
+              <TextInput style={styles.textInput} value={materialPrice} onChangeText={setMaterialPrice} keyboardType="numeric" />
             </View>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Transport Freight Charge (₹)</Text>
+              <TextInput style={styles.textInput} value={transportPrice} onChangeText={setTransportPrice} keyboardType="numeric" />
+            </View>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Estimated Delivery Hours</Text>
+              <TextInput style={styles.textInput} value={estDeliveryHours} onChangeText={setEstDeliveryHours} keyboardType="numeric" />
+            </View>
+
             <View style={styles.dialogBtns}>
-              <TouchableOpacity style={styles.dialogCancelBtn} onPress={() => setQuoteVisible(false)}><Text style={styles.dialogCancelText}>Cancel</Text></TouchableOpacity>
-              <TouchableOpacity style={[styles.dialogConfirmBtn, saving && { opacity: 0.7 }]} onPress={handleQuoteRate} disabled={saving}>
-                {saving ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.dialogConfirmText}>Send Quote</Text>}
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setQuoteModalVisible(false)}><Text style={styles.cancelBtnText}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.confirmBtn, submittingQuote && { opacity: 0.7 }]} onPress={handleSubmitQuote} disabled={submittingQuote}>
+                {submittingQuote ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.confirmBtnText}>Submit Quote</Text>}
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* Settle Modal */}
-      <Modal visible={settleVisible} animationType="slide" transparent onRequestClose={() => setSettleVisible(false)}>
+      {/* MODAL 2: COUNTER OFFER */}
+      <Modal visible={counterModalVisible} animationType="slide" transparent onRequestClose={() => setCounterModalVisible(false)}>
         <View style={styles.overlay}>
           <View style={styles.dialog}>
             <View style={styles.dialogHandle} />
-            <Text style={styles.dialogTitle}>Settle Order</Text>
-            {settleOrder && (
-              <>
-                <View style={styles.settleRow}><Text style={styles.settleLabel}>Material</Text><Text style={styles.settleVal}>{fmtCurrency(settleOrder.materialPrice)}</Text></View>
-                <View style={styles.settleRow}><Text style={styles.settleLabel}>Transport</Text><Text style={styles.settleVal}>{fmtCurrency(settleOrder.transportPrice)}</Text></View>
-                <View style={[styles.settleRow, { borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: 8, marginTop: 4 }]}>
-                  <Text style={[styles.settleLabel, { fontWeight: '700', color: Colors.navy }]}>Total to Collect</Text>
-                  <Text style={[styles.settleVal, { fontWeight: '800', color: Colors.primary, fontSize: 16 }]}>{fmtCurrency((settleOrder.materialPrice || 0) + (settleOrder.transportPrice || 0))}</Text>
-                </View>
-              </>
-            )}
+            <Text style={styles.dialogTitle}>Respond to Counter-Offer</Text>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Revised Material Rate (₹)</Text>
+              <TextInput style={styles.textInput} value={counterMaterialPrice} onChangeText={setCounterMaterialPrice} keyboardType="numeric" />
+            </View>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Revised Transport Charge (₹)</Text>
+              <TextInput style={styles.textInput} value={counterTransportPrice} onChangeText={setCounterTransportPrice} keyboardType="numeric" />
+            </View>
             <View style={styles.dialogBtns}>
-              <TouchableOpacity style={styles.dialogCancelBtn} onPress={() => setSettleVisible(false)}><Text style={styles.dialogCancelText}>Cancel</Text></TouchableOpacity>
-              <TouchableOpacity style={[styles.dialogConfirmBtn, { backgroundColor: Colors.success }]} onPress={handleSettle}><Text style={styles.dialogConfirmText}>Mark Settled</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setCounterModalVisible(false)}><Text style={styles.cancelBtnText}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.confirmBtn, submittingCounter && { opacity: 0.7 }]} onPress={handleCounterOffer} disabled={submittingCounter}>
+                {submittingCounter ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.confirmBtnText}>Send Revised Terms</Text>}
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -408,80 +506,90 @@ export default function QuarryMarketplaceScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 14, backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  backBtn: { width: 38, height: 38, borderRadius: 10, backgroundColor: Colors.backgroundMuted, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: Colors.navy },
-  headerSub: { fontSize: 12, color: Colors.textSecondary, marginTop: 1 },
-  refreshBtn: { width: 38, height: 38, borderRadius: 10, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
-  liveAlert: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.primarySurface, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.primaryBorder },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary },
-  liveAlertText: { flex: 1, fontSize: 12, fontWeight: '600', color: Colors.primary },
-  statsBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  statItem: { flex: 1, alignItems: 'center', gap: 2 },
-  statNum: { fontSize: 20, fontWeight: '800' },
-  statLbl: { fontSize: 11, color: Colors.textTertiary, fontWeight: '600' },
-  statDivider: { width: 1, height: 28, backgroundColor: Colors.borderLight },
-  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
-  loadingText: { fontSize: 14, color: Colors.textSecondary, marginTop: 8 },
-  emptyIcon: { width: 80, height: 80, borderRadius: 20, backgroundColor: Colors.backgroundMuted, alignItems: 'center', justifyContent: 'center' },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
-  emptySub: { fontSize: 13, color: Colors.textSecondary, textAlign: 'center', lineHeight: 19 },
-  scroll: { flex: 1 },
-  scrollContent: { padding: 16, gap: 14 },
-  card: { backgroundColor: Colors.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: Colors.borderLight, shadowColor: Colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 10, elevation: 3 },
-  newCard: { borderColor: Colors.primary, borderWidth: 1.5 },
-  newBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
-  newBadgeText: { fontSize: 11, fontWeight: '700', color: Colors.primary },
-  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  cardMat: { fontSize: 16, fontWeight: '800', color: Colors.navy },
-  customerRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  customerName: { fontSize: 12, color: Colors.textSecondary, flex: 1 },
-  addressRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 4, marginTop: 3 },
-  addressText: { fontSize: 12, color: Colors.textTertiary, flex: 1, lineHeight: 16 },
-  statusChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5 },
-  statusText: { fontSize: 10, fontWeight: '700' },
-  divider: { height: 1, backgroundColor: Colors.borderLight, marginVertical: 12 },
-  primaryBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.primary, borderRadius: 12, paddingVertical: 14 },
-  primaryBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
-  waitingBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: Colors.statusQuotedBg, borderRadius: 10, padding: 12 },
-  waitingTitle: { fontSize: 13, fontWeight: '700', color: Colors.statusQuoted },
-  waitingText: { fontSize: 11, color: Colors.textSecondary, marginTop: 2 },
-  bidsSection: { backgroundColor: Colors.statusBiddingBg, borderRadius: 12, padding: 12, gap: 10 },
-  bidsHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  bidsSectionTitle: { fontSize: 13, fontWeight: '700', color: Colors.navy, flex: 1 },
-  noBidsBox: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
-  noBidsText: { fontSize: 12, color: Colors.textSecondary, fontStyle: 'italic', flex: 1 },
-  bidCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: Colors.borderLight },
-  bidLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  bidDriverIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: Colors.infoLight, alignItems: 'center', justifyContent: 'center' },
-  bidDriverName: { fontSize: 13, fontWeight: '700', color: Colors.navy },
-  bidVehicle: { fontSize: 11, color: Colors.textSecondary },
-  bidRight: { alignItems: 'flex-end', gap: 4 },
-  bidFare: { fontSize: 15, fontWeight: '800', color: Colors.success },
-  acceptBidBtn: { backgroundColor: Colors.success, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
-  acceptBidText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
-  tripInfoBox: { backgroundColor: Colors.infoLight, borderRadius: 10, padding: 12, gap: 6 },
-  tripRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  tripLabel: { fontSize: 12, color: Colors.navyMid, fontWeight: '500', flex: 1 },
-  orderDate: { fontSize: 11, color: Colors.textTertiary, marginTop: 10 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+  backBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: Colors.backgroundMuted, alignItems: 'center', justifyContent: 'center' },
+  quarryTitle: { fontSize: 16, fontWeight: '800', color: Colors.navy },
+  quarrySub: { fontSize: 11, color: Colors.textSecondary, marginTop: 1 },
+  refreshBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
+
+  tabBar: { backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight, maxHeight: 48 },
+  tabItem: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 12, marginRight: 8 },
+  tabActive: { borderBottomWidth: 2, borderBottomColor: Colors.primary },
+  tabText: { fontSize: 12, fontWeight: '600', color: Colors.textTertiary },
+  tabTextActive: { color: Colors.primary, fontWeight: '700' },
+
+  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: Colors.navy },
+  emptySub: { fontSize: 12, color: Colors.textSecondary, textAlign: 'center', lineHeight: 18 },
+
+  content: { flex: 1 },
+  sectionTitle: { fontSize: 15, fontWeight: '800', color: Colors.navy },
+  sectionSubTitle: { fontSize: 13, fontWeight: '700', color: Colors.navy, marginTop: 6 },
+
+  statsRow: { flexDirection: 'row', gap: 10 },
+  statCard: { flex: 1, padding: 12, borderRadius: 12, alignItems: 'center', gap: 2 },
+  statNum: { fontSize: 22, fontWeight: '800' },
+  statLbl: { fontSize: 10, fontWeight: '700', color: Colors.textSecondary, textAlign: 'center' },
+
+  quickActionCard: { flex: 1, backgroundColor: Colors.surface, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: Colors.borderLight, gap: 4 },
+  quickActionTitle: { fontSize: 13, fontWeight: '700', color: Colors.navy, marginTop: 4 },
+  quickActionSub: { fontSize: 11, color: Colors.textSecondary },
+
+  miniCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: Colors.surface, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: Colors.borderLight },
+  miniTitle: { fontSize: 13, fontWeight: '700', color: Colors.navy },
+  miniSub: { fontSize: 11, color: Colors.textSecondary, marginTop: 2 },
+  miniPrice: { fontSize: 14, fontWeight: '800', color: Colors.primary },
+
+  card: { backgroundColor: Colors.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: Colors.borderLight, gap: 10 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  matTitle: { fontSize: 15, fontWeight: '800', color: Colors.navy },
+  custSub: { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
+  statusBadge: { backgroundColor: Colors.primarySurface, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  statusText: { fontSize: 10, fontWeight: '800', color: Colors.primary },
+
+  siteInfoBox: { backgroundColor: Colors.background, padding: 10, borderRadius: 10, gap: 2 },
+  siteText: { fontSize: 12, fontWeight: '600', color: Colors.navy },
+  siteSub: { fontSize: 11, color: Colors.textSecondary },
+
+  quoteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.primary, height: 42, borderRadius: 10, marginTop: 4 },
+  quoteBtnText: { fontSize: 13, fontWeight: '700', color: '#FFF' },
+
+  quoteDetailCard: { backgroundColor: Colors.background, padding: 10, borderRadius: 10, gap: 4 },
+  quoteDetailRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  quoteDetailLbl: { fontSize: 11, color: Colors.textSecondary },
+  quoteDetailVal: { fontSize: 12, fontWeight: '600', color: Colors.navy },
+
+  counterBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: Colors.primary, height: 38, borderRadius: 8, marginTop: 6 },
+  counterBtnText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
+
+  frozenTag: { backgroundColor: Colors.primarySurface, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  frozenTagText: { fontSize: 10, fontWeight: '800', color: Colors.primary },
+  snapshotBox: { backgroundColor: Colors.background, padding: 8, borderRadius: 8 },
+  snapText: { fontSize: 11, fontWeight: '600', color: Colors.navy },
+
+  tripRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: Colors.background, padding: 10, borderRadius: 10 },
+  tripBadge: { width: 32, height: 24, borderRadius: 6, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
+  tripNum: { fontSize: 10, fontWeight: '800', color: Colors.primary },
+  tripDriverName: { fontSize: 12, fontWeight: '700', color: Colors.navy },
+  tripLoad: { fontSize: 11, color: Colors.textSecondary },
+  stateTag: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 },
+  stateTagText: { fontSize: 9, fontWeight: '800' },
+
+  availTag: { backgroundColor: Colors.successLight, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  availText: { fontSize: 10, fontWeight: '800', color: Colors.success },
+  metaText: { fontSize: 11, color: Colors.textSecondary },
+
   overlay: { flex: 1, backgroundColor: Colors.overlay, justifyContent: 'flex-end' },
-  dialog: { backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32, gap: 16 },
-  dialogHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.borderMedium, alignSelf: 'center', marginBottom: 8 },
+  dialog: { backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, gap: 12 },
+  dialogHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.borderMedium, alignSelf: 'center' },
   dialogTitle: { fontSize: 18, fontWeight: '800', color: Colors.navy },
-  dialogInfoBox: { backgroundColor: Colors.background, borderRadius: 10, padding: 12 },
-  dialogInfoText: { fontSize: 15, fontWeight: '700', color: Colors.navy },
-  dialogInfoSub: { fontSize: 12, color: Colors.textSecondary, marginTop: 3 },
-  fieldGroup: { gap: 8 },
-  fieldLabel: { fontSize: 13, fontWeight: '600', color: Colors.text },
-  inputWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.background, borderWidth: 1.5, borderColor: Colors.border, borderRadius: 12 },
-  modalInput: { flex: 1, height: 52, paddingHorizontal: 12, fontSize: 16, color: Colors.text },
-  totalCalc: { fontSize: 12, color: Colors.success, fontWeight: '600', marginTop: 4 },
-  dialogBtns: { flexDirection: 'row', gap: 10, marginTop: 8 },
-  dialogCancelBtn: { flex: 1, height: 50, borderRadius: 12, backgroundColor: Colors.backgroundMuted, alignItems: 'center', justifyContent: 'center' },
-  dialogCancelText: { fontSize: 14, fontWeight: '700', color: Colors.textSecondary },
-  dialogConfirmBtn: { flex: 1.5, height: 50, borderRadius: 12, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
-  dialogConfirmText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
-  settleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 },
-  settleLabel: { fontSize: 13, color: Colors.textSecondary },
-  settleVal: { fontSize: 14, fontWeight: '600', color: Colors.text },
+  dialogSub: { fontSize: 12, color: Colors.textSecondary },
+  fieldGroup: { gap: 6 },
+  fieldLabel: { fontSize: 12, fontWeight: '700', color: Colors.navy },
+  textInput: { height: 46, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: 10, paddingHorizontal: 12, fontSize: 13, color: Colors.navy },
+  dialogBtns: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  cancelBtn: { flex: 1, height: 46, borderRadius: 10, backgroundColor: Colors.backgroundMuted, alignItems: 'center', justifyContent: 'center' },
+  cancelBtnText: { fontSize: 13, fontWeight: '700', color: Colors.textSecondary },
+  confirmBtn: { flex: 1.5, height: 46, borderRadius: 10, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
+  confirmBtnText: { fontSize: 13, fontWeight: '700', color: '#FFF' },
 });

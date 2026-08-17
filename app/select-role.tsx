@@ -23,7 +23,7 @@ const ROLES = [
     iconBg: Colors.primarySurface,
     iconColor: Colors.primary,
     label: 'Quarry Owner',
-    sublabel: 'Manage enquiries, quote rates, assign drivers & settle payments',
+    sublabel: 'Manage catalog, enquiries, bargaining, orders, lorries & settlements',
     badgeColor: Colors.primary,
   },
   {
@@ -32,7 +32,7 @@ const ROLES = [
     iconBg: Colors.statusAgreedBg,
     iconColor: Colors.success,
     label: 'Customer',
-    sublabel: 'Post material requirements, track deliveries & share documents',
+    sublabel: 'Material catalog, site pinning, quote bargaining & multi-trip tracker',
     badgeColor: Colors.success,
   },
   {
@@ -41,8 +41,17 @@ const ROLES = [
     iconBg: Colors.infoLight,
     iconColor: Colors.info,
     label: 'Lorry Driver',
-    sublabel: 'Bid on transport trips, navigate to sites & mark delivery status',
+    sublabel: 'Online delivery radar, trip offers, map navigation & PoD submission',
     badgeColor: Colors.info,
+  },
+  {
+    route: '/admin-portal',
+    icon: 'shield-checkmark' as const,
+    iconBg: Colors.warningLight,
+    iconColor: Colors.warning,
+    label: 'Admin Control Tower',
+    sublabel: 'Live logistics map, driver verifications, audit logs & system metrics',
+    badgeColor: Colors.warning,
   },
 ];
 
@@ -60,7 +69,7 @@ export default function SelectRoleScreen() {
           <Ionicons name="layers" size={28} color={Colors.primary} />
         </View>
         <Text style={styles.appName}>BuildRoute</Text>
-        <Text style={styles.tagline}>Construction Material Supply Platform</Text>
+        <Text style={styles.tagline}>Construction Material Marketplace & Logistics Platform</Text>
       </View>
 
       <ScrollView
