@@ -1,106 +1,215 @@
 // @ts-nocheck
 import React from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Dimensions,
+  StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
+import { Colors } from '../src/theme';
+
+const { width: W } = Dimensions.get('window');
+
+const ROLES = [
+  {
+    route: '/owner-login',
+    icon: 'business' as const,
+    iconBg: Colors.primarySurface,
+    iconColor: Colors.primary,
+    label: 'Quarry Owner',
+    sublabel: 'Manage enquiries, quote rates, assign drivers & settle payments',
+    badgeColor: Colors.primary,
+  },
+  {
+    route: '/customer-login',
+    icon: 'construct' as const,
+    iconBg: Colors.statusAgreedBg,
+    iconColor: Colors.success,
+    label: 'Customer',
+    sublabel: 'Post material requirements, track deliveries & share documents',
+    badgeColor: Colors.success,
+  },
+  {
+    route: '/driver-login',
+    icon: 'car-sport' as const,
+    iconBg: Colors.infoLight,
+    iconColor: Colors.info,
+    label: 'Lorry Driver',
+    sublabel: 'Bid on transport trips, navigate to sites & mark delivery status',
+    badgeColor: Colors.info,
+  },
+];
 
 export default function SelectRoleScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Brand Header */}
+    <View style={[styles.root, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
+
+      {/* Header */}
       <View style={styles.header}>
-        <View style={styles.logoCircle}>
-          <Ionicons name="business" size={32} color={Colors.primary} />
+        <View style={styles.logoWrap}>
+          <Ionicons name="layers" size={28} color={Colors.primary} />
         </View>
-        <Text style={styles.title}>BillForge Quarry Portal</Text>
-        <Text style={styles.subtitle}>Select your dedicated login portal to access your workspace</Text>
+        <Text style={styles.appName}>BuildRoute</Text>
+        <Text style={styles.tagline}>Construction Material Supply Platform</Text>
       </View>
 
-      {/* Role Selection Cards */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.cardsWrap}>
-        {/* Quarry Owner Login Portal */}
-        <TouchableOpacity
-          style={styles.roleCard}
-          onPress={() => router.push('/owner-login')}
-          activeOpacity={0.82}
-        >
-          <View style={[styles.iconCircle, { backgroundColor: Colors.primarySurface }]}>
-            <Ionicons name="business" size={30} color={Colors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>🏢 Quarry Owner Login</Text>
-            <Text style={styles.cardSub}>Quote rates, review lorry transport bids, assign pickup & settle driver fares</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={Colors.primary} />
-        </TouchableOpacity>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.sectionLabel}>Choose your portal</Text>
 
-        {/* Customer Login Portal */}
-        <TouchableOpacity
-          style={styles.roleCard}
-          onPress={() => router.push('/customer-login')}
-          activeOpacity={0.82}
-        >
-          <View style={[styles.iconCircle, { backgroundColor: '#DCFCE7' }]}>
-            <Ionicons name="cart" size={30} color="#16A34A" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>👷 Customer Login</Text>
-            <Text style={styles.cardSub}>Post material requirements, track lorry live, Walkie-Talkie & share trip documents</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#16A34A" />
-        </TouchableOpacity>
+        {ROLES.map((role) => (
+          <TouchableOpacity
+            key={role.route}
+            style={styles.card}
+            onPress={() => router.push(role.route)}
+            activeOpacity={0.78}
+          >
+            {/* Left icon */}
+            <View style={[styles.cardIcon, { backgroundColor: role.iconBg }]}>
+              <Ionicons name={role.icon} size={26} color={role.iconColor} />
+            </View>
 
-        {/* Lorry Driver Login Portal */}
+            {/* Content */}
+            <View style={styles.cardContent}>
+              <Text style={styles.cardLabel}>{role.label}</Text>
+              <Text style={styles.cardSub}>{role.sublabel}</Text>
+            </View>
+
+            {/* Arrow */}
+            <View style={[styles.arrowWrap, { backgroundColor: role.iconBg }]}>
+              <Ionicons name="chevron-forward" size={18} color={role.iconColor} />
+            </View>
+          </TouchableOpacity>
+        ))}
+
+        {/* Skip link */}
         <TouchableOpacity
-          style={styles.roleCard}
-          onPress={() => router.push('/driver-login')}
-          activeOpacity={0.82}
+          style={styles.skipBtn}
+          onPress={() => router.replace('/(tabs)')}
         >
-          <View style={[styles.iconCircle, { backgroundColor: '#EFF6FF' }]}>
-            <Ionicons name="car-sport" size={30} color="#2563EB" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>🚚 Lorry Driver Login</Text>
-            <Text style={styles.cardSub}>Submit transport price quotes, Google Maps navigation, mark loaded/delivered & Walkie-Talkie</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#2563EB" />
+          <Ionicons name="speedometer-outline" size={14} color={Colors.textTertiary} />
+          <Text style={styles.skipText}>Skip to Billing Dashboard</Text>
         </TouchableOpacity>
       </ScrollView>
-
-      {/* Direct Guest Quick Switch */}
-      <TouchableOpacity
-        style={styles.quickGuestBtn}
-        onPress={() => router.replace('/(tabs)')}
-      >
-        <Text style={styles.quickGuestText}>Skip to Owner Billing Dashboard ➔</Text>
-      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background, paddingHorizontal: Spacing.xl },
-  header: { alignItems: 'center', marginTop: Spacing.xl, marginBottom: Spacing.lg },
-  logoCircle: { width: 64, height: 64, borderRadius: 32, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm },
-  title: { ...Typography.h1, color: Colors.text, fontSize: 24, textAlign: 'center' },
-  subtitle: { ...Typography.caption, color: Colors.textSecondary, textAlign: 'center', marginTop: 4, maxWidth: 300 },
-  cardsWrap: { gap: Spacing.md, paddingBottom: Spacing.lg },
-  roleCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.xl,
-    padding: Spacing.lg, borderWidth: 1, borderColor: Colors.borderLight,
-    elevation: 3, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 10,
+  root: {
+    flex: 1,
+    backgroundColor: Colors.background,
   },
-  iconCircle: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
-  cardTitle: { ...Typography.bodyLargeBold, color: Colors.text, fontSize: 16 },
-  cardSub: { ...Typography.caption, color: Colors.textSecondary, marginTop: 3 },
-  quickGuestBtn: { marginVertical: Spacing.lg, alignSelf: 'center', padding: Spacing.sm },
-  quickGuestText: { ...Typography.captionSemibold, color: Colors.primary },
+  header: {
+    alignItems: 'center',
+    paddingTop: 32,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+  },
+  logoWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: Colors.primarySurface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.primaryBorder,
+  },
+  appName: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: Colors.navy,
+    letterSpacing: -0.5,
+  },
+  tagline: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  scroll: { flex: 1 },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textTertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    marginBottom: 14,
+  },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 12,
+    gap: 14,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 1,
+    shadowRadius: 10,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  cardIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardContent: {
+    flex: 1,
+    gap: 4,
+  },
+  cardLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  cardSub: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 17,
+  },
+  arrowWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  skipBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 24,
+    paddingVertical: 12,
+  },
+  skipText: {
+    fontSize: 13,
+    color: Colors.textTertiary,
+    fontWeight: '500',
+  },
 });

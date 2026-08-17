@@ -1,117 +1,195 @@
 // @ts-nocheck
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Modal, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  Modal, Alert, ActivityIndicator, KeyboardAvoidingView,
+  Platform, TextInput, Dimensions, RefreshControl,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
-import { Button, Input, EmptyState } from '../src/components';
-import WalkieTalkieModal from '../src/components/WalkieTalkieModal';
-import DocumentUploadModal from '../src/components/DocumentUploadModal';
+import { Colors } from '../src/theme';
+import * as MarketplaceStore from '../src/store/MarketplaceStore';
+import { useAuth } from '../src/context/AuthContext';
 
-function fmtCurrency(n) {
-  if (!n && n !== 0) return '₹0';
+const { width: W } = Dimensions.get('window');
+
+function fmtCurrency(n: number) {
+  if (!n) return '₹0';
   return `₹${Number(n).toLocaleString('en-IN')}`;
 }
+
+const STATUS_CONFIG = {
+  requirement_posted: { label: 'Requirement Sent', icon: 'paper-plane-outline', color: Colors.statusNew, bg: Colors.statusNewBg },
+  rate_quoted:        { label: 'Rate Quoted',       icon: 'pricetag-outline',    color: Colors.statusQuoted, bg: Colors.statusQuotedBg },
+  rate_agreed:        { label: 'Rate Agreed',       icon: 'checkmark-circle-outline', color: Colors.statusAgreed, bg: Colors.statusAgreedBg },
+  bidding_active:     { label: 'Finding Driver',    icon: 'search-outline',      color: Colors.statusBidding, bg: Colors.statusBiddingBg },
+  driver_assigned:    { label: 'Driver Assigned',   icon: 'car-outline',         color: Colors.statusAssigned, bg: Colors.statusAssignedBg },
+  loaded:             { label: 'Material Loaded',   icon: 'cube-outline',        color: Colors.statusLoaded, bg: Colors.statusLoadedBg },
+  in_transit:         { label: 'On the Way',        icon: 'navigate-outline',    color: Colors.statusTransit, bg: Colors.statusTransitBg },
+  delivered:          { label: 'Delivered',         icon: 'checkmark-done-circle-outline', color: Colors.statusDelivered, bg: Colors.statusDeliveredBg },
+  settled:            { label: 'Payment Settled',   icon: 'wallet-outline',      color: Colors.statusSettled, bg: Colors.statusSettledBg },
+};
+
+const STEPS = ['requirement_posted','rate_quoted','rate_agreed','driver_assigned','loaded','in_transit','delivered'];
+
+function StepTracker({ status }: { status: string }) {
+  const currentIdx = STEPS.indexOf(status);
+  if (currentIdx === -1) return null;
+
+  const visibleSteps = [
+    { label: 'Sent', icon: 'paper-plane-outline' },
+    { label: 'Quoted', icon: 'pricetag-outline' },
+    { label: 'Agreed', icon: 'handshake-outline' },
+    { label: 'Driver', icon: 'car-outline' },
+    { label: 'Loaded', icon: 'cube-outline' },
+    { label: 'Transit', icon: 'navigate-outline' },
+    { label: 'Done', icon: 'checkmark-done-circle-outline' },
+  ];
+
+  return (
+    <View style={stepStyles.wrap}>
+      {visibleSteps.map((s, i) => {
+        const done = i <= currentIdx;
+        const active = i === currentIdx;
+        return (
+          <React.Fragment key={i}>
+            <View style={stepStyles.step}>
+              <View style={[
+                stepStyles.circle,
+                done && { backgroundColor: Colors.primary, borderColor: Colors.primary },
+                active && stepStyles.activeCircle,
+              ]}>
+                <Ionicons
+                  name={s.icon as any}
+                  size={11}
+                  color={done ? '#FFF' : Colors.textDisabled}
+                />
+              </View>
+              <Text style={[stepStyles.lbl, done && { color: Colors.primary }]} numberOfLines={1}>
+                {s.label}
+              </Text>
+            </View>
+            {i < visibleSteps.length - 1 && (
+              <View style={[stepStyles.line, i < currentIdx && { backgroundColor: Colors.primary }]} />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </View>
+  );
+}
+
+const stepStyles = StyleSheet.create({
+  wrap: { flexDirection: 'row', alignItems: 'flex-start', marginVertical: 12, paddingHorizontal: 2 },
+  step: { alignItems: 'center', width: 38 },
+  circle: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: Colors.backgroundMuted,
+    borderWidth: 1.5, borderColor: Colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  activeCircle: { borderColor: Colors.primary, backgroundColor: Colors.primarySurface },
+  line: { flex: 1, height: 1.5, backgroundColor: Colors.border, marginTop: 13, marginHorizontal: 1 },
+  lbl: { fontSize: 9, fontWeight: '600', color: Colors.textDisabled, marginTop: 4, textAlign: 'center' },
+});
 
 export default function CustomerMarketplaceScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [orders, setOrders] = useState([]);
+  const { user } = useAuth();
+
+  const [orders, setOrders] = useState<MarketplaceStore.MarketplaceOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Walkie & Doc Modals
-  const [walkieModalVisible, setWalkieModalVisible] = useState(false);
-  const [walkiePeer, setWalkiePeer] = useState({ name: 'Quarry Owner', role: 'quarry_owner', id: 'admin' });
-  const [docModalVisible, setDocModalVisible] = useState(false);
-  const [selectedOrderForDoc, setSelectedOrderForDoc] = useState(null);
-
-  // Form
-  const [customerName, setCustomerName] = useState('Anand Construction');
-  const [customerPhone, setCustomerPhone] = useState('9876543210');
-  const [materialName, setMaterialName] = useState('River Sand');
-  const [quantity, setQuantity] = useState('10');
+  // Form state
+  const [matName, setMatName] = useState('');
+  const [quantity, setQuantity] = useState('');
   const [unitType, setUnitType] = useState('ton');
-  const [customerAddress, setCustomerAddress] = useState('Coimbatore Site 4');
+  const [address, setAddress] = useState('');
 
   const loadOrders = useCallback(async () => {
-    setLoading(true);
     try {
-      const baseUrl = process.env.EXPO_PUBLIC_API_URL || '';
-      const response = await fetch(`${baseUrl}/api/marketplace`);
-      const data = await response.json();
-      setOrders(data.orders || []);
+      const all = await MarketplaceStore.getOrders();
+      // Show only this customer's orders
+      const myOrders = user?.name
+        ? all.filter(o => o.customerName === user.name || o.customerPhone === user.phone)
+        : all;
+      setOrders(myOrders);
     } catch (e) {
-      console.error('Marketplace load error:', e);
+      console.error('Load orders error:', e);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, []);
+  }, [user]);
 
-  useFocusEffect(useCallback(() => { loadOrders(); }, [loadOrders]));
+  useFocusEffect(useCallback(() => {
+    loadOrders();
+    const interval = setInterval(loadOrders, 5000); // poll every 5s for status updates
+    return () => clearInterval(interval);
+  }, [loadOrders]));
 
   const handlePostRequirement = async () => {
-    if (!materialName.trim() || !quantity) {
-      Alert.alert('Required', 'Please fill material name and quantity.');
-      return;
-    }
+    if (!matName.trim()) { Alert.alert('Required', 'Please enter material type.'); return; }
+    if (!quantity.trim()) { Alert.alert('Required', 'Please enter quantity.'); return; }
+    if (!address.trim()) { Alert.alert('Required', 'Please enter your delivery site address.'); return; }
+
     setSaving(true);
     try {
-      const baseUrl = process.env.EXPO_PUBLIC_API_URL || '';
-      await fetch(`${baseUrl}/api/marketplace`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'create_order',
-          customerName: customerName.trim(),
-          customerPhone: customerPhone.trim(),
-          customerAddress: customerAddress.trim(),
-          materialName: materialName.trim(),
-          quantity: parseFloat(quantity) || 1,
-          unitType,
-        }),
+      await MarketplaceStore.createOrder({
+        customerName: user?.name || 'Customer',
+        customerPhone: user?.phone || '',
+        customerAddress: address.trim(),
+        materialName: matName.trim(),
+        quantity: parseFloat(quantity) || 1,
+        unitType: unitType.trim() || 'ton',
       });
       setModalVisible(false);
-      Alert.alert('Posted 🎉', 'Your material requirement is live! Quarry owners will quote rates.');
+      setMatName(''); setQuantity(''); setAddress(''); setUnitType('ton');
+      Alert.alert('Requirement Posted', 'Your material requirement has been posted. Quarry owners will review and quote rates shortly.');
       loadOrders();
     } catch (e) {
-      Alert.alert('Error', 'Failed to post requirement.');
+      Alert.alert('Error', 'Failed to post requirement. Please try again.');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleAgreeRate = async (order) => {
-    try {
-      const baseUrl = process.env.EXPO_PUBLIC_API_URL || '';
-      await fetch(`${baseUrl}/api/marketplace`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'agree_rate', orderId: order._id || order.id }),
-      });
-      Alert.alert('Agreed! 🤝', 'Rate agreed! Quarry Owner is now assigning a Lorry Driver.');
-      loadOrders();
-    } catch (e) {
-      Alert.alert('Agreed!', 'Rate agreed!');
-      loadOrders();
-    }
+  const handleAgreeRate = (order: MarketplaceStore.MarketplaceOrder) => {
+    Alert.alert(
+      'Agree to Rate?',
+      `The quarry has quoted ${fmtCurrency(order.materialPrice)} for ${order.quantity} ${order.unitType} ${order.materialName}. Do you agree?`,
+      [
+        { text: 'Negotiate', style: 'cancel' },
+        {
+          text: 'Agree & Proceed',
+          style: 'default',
+          onPress: async () => {
+            await MarketplaceStore.updateOrder(order.id, { status: 'rate_agreed' });
+            Alert.alert('Agreed!', 'The quarry owner will now arrange a driver for your order.');
+            loadOrders();
+          },
+        },
+      ]
+    );
   };
 
+  const UNIT_OPTIONS = ['ton', 'unit', 'load', 'trip', 'cft'];
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.root, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={Colors.text} />
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="arrow-back" size={22} color={Colors.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Customer Marketplace 🏗️</Text>
-          <Text style={styles.headerSub}>Post requirements, track lorry live & Walkie-Talkie</Text>
+          <Text style={styles.headerTitle}>My Orders</Text>
+          {user?.name ? <Text style={styles.headerSub}>{user.name}</Text> : null}
         </View>
         <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)}>
           <Ionicons name="add" size={22} color="#FFF" />
@@ -119,105 +197,123 @@ export default function CustomerMarketplaceScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.loadingWrap}>
+        <View style={styles.centerWrap}>
           <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.loadingText}>Loading your orders...</Text>
         </View>
       ) : orders.length === 0 ? (
-        <EmptyState
-          icon="cart-outline"
-          title="No Active Material Orders"
-          description="Tap + to post a material requirement (e.g. 10 Tons Sand)"
-        />
+        <View style={styles.centerWrap}>
+          <View style={styles.emptyIcon}>
+            <Ionicons name="clipboard-outline" size={40} color={Colors.textTertiary} />
+          </View>
+          <Text style={styles.emptyTitle}>No Orders Yet</Text>
+          <Text style={styles.emptySub}>Post your first material requirement and quarry owners will quote rates for you.</Text>
+          <TouchableOpacity style={styles.emptyBtn} onPress={() => setModalVisible(true)}>
+            <Ionicons name="add-circle-outline" size={18} color="#FFF" />
+            <Text style={styles.emptyBtnText}>Post Requirement</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          {orders.map((o) => {
-            const statusConfig = {
-              requirement_posted: { label: '📝 Requirement Posted', bg: '#FEF9C3', text: '#854D0E' },
-              rate_quoted: { label: '💰 Quarry Rate Quoted', bg: '#EFF6FF', text: '#1D4ED8' },
-              rate_agreed: { label: '🤝 Rate Agreed', bg: '#DCFCE7', text: '#16A34A' },
-              bidding_active: { label: '🚚 Lorry Bidding Active', bg: '#F3E8FF', text: '#6B21A8' },
-              driver_assigned: { label: '🚚 Lorry Assigned', bg: '#E0F2FE', text: '#0369A1' },
-              loaded: { label: '📦 Material Loaded at Quarry', bg: '#FEF08A', text: '#713F12' },
-              in_transit: { label: '🛣️ Lorry In Transit to Site', bg: '#DBEAFE', text: '#1E40AF' },
-              delivered: { label: '✅ Delivered & Complete', bg: '#DCFCE7', text: '#16A34A' },
-            }[o.status] || { label: o.status, bg: '#F3F4F6', text: '#374151' };
-
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); loadOrders(); }}
+              colors={[Colors.primary]}
+              tintColor={Colors.primary}
+            />
+          }
+        >
+          {orders.map(order => {
+            const sc = STATUS_CONFIG[order.status] || STATUS_CONFIG.requirement_posted;
             return (
-              <View key={o._id || o.id} style={styles.card}>
-                <View style={styles.cardHeader}>
+              <View key={order.id} style={styles.card}>
+                {/* Card Header */}
+                <View style={styles.cardTop}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.matTitle}>{o.quantity} {o.unitType} {o.materialName}</Text>
-                    <Text style={styles.custMeta}>📍 Delivery Site: {o.customerAddress}</Text>
-                  </View>
-                  <View style={[styles.badge, { backgroundColor: statusConfig.bg }]}>
-                    <Text style={[styles.badgeText, { color: statusConfig.text }]}>{statusConfig.label}</Text>
-                  </View>
-                </View>
-
-                {/* Price Breakdown */}
-                <View style={styles.priceBox}>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Material Price:</Text>
-                    <Text style={styles.priceVal}>{o.materialPrice > 0 ? fmtCurrency(o.materialPrice) : 'Quarry Quoting…'}</Text>
-                  </View>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.priceLabel}>Transport Fare:</Text>
-                    <Text style={styles.priceVal}>{o.transportPrice > 0 ? fmtCurrency(o.transportPrice) : 'Bidding in Progress…'}</Text>
-                  </View>
-                  <View style={[styles.priceRow, { borderTopWidth: 1, borderTopColor: Colors.borderLight, paddingTop: 4 }]}>
-                    <Text style={[styles.priceLabel, { fontWeight: '800' }]}>Total Estimated:</Text>
-                    <Text style={[styles.priceVal, { fontWeight: '800', color: Colors.primary }]}>{fmtCurrency(o.totalPrice || o.materialPrice)}</Text>
-                  </View>
-                </View>
-
-                {/* Driver Info if assigned */}
-                {o.driverName ? (
-                  <View style={styles.driverPill}>
-                    <Ionicons name="car-sport" size={18} color={Colors.primary} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.driverName}>Lorry: {o.driverName} ({o.vehicleNo || 'TN 38 AB 1234'})</Text>
-                      <Text style={styles.driverPhone}>📱 {o.driverPhone || '9876543210'}</Text>
+                    <Text style={styles.cardMat}>{order.quantity} {order.unitType} {order.materialName}</Text>
+                    <View style={styles.addressRow}>
+                      <Ionicons name="location-outline" size={13} color={Colors.textTertiary} />
+                      <Text style={styles.addressText} numberOfLines={1}>{order.customerAddress}</Text>
                     </View>
-                    <TouchableOpacity style={styles.trackMapBtn} onPress={() => router.push('/live-tracking')}>
-                      <Ionicons name="map-outline" size={14} color="#FFF" />
-                      <Text style={styles.trackMapText}>Live Map</Text>
+                  </View>
+                  <View style={[styles.statusChip, { backgroundColor: sc.bg }]}>
+                    <Ionicons name={sc.icon as any} size={11} color={sc.color} />
+                    <Text style={[styles.statusText, { color: sc.color }]}>{sc.label}</Text>
+                  </View>
+                </View>
+
+                {/* Step Tracker */}
+                <StepTracker status={order.status} />
+
+                {/* Price breakdown */}
+                {order.materialPrice > 0 && (
+                  <View style={styles.priceCard}>
+                    <View style={styles.priceRow}>
+                      <View style={styles.priceRowLeft}>
+                        <Ionicons name="layers-outline" size={14} color={Colors.textSecondary} />
+                        <Text style={styles.priceLabel}>Material</Text>
+                      </View>
+                      <Text style={styles.priceVal}>{fmtCurrency(order.materialPrice)}</Text>
+                    </View>
+                    {order.transportPrice > 0 && (
+                      <View style={styles.priceRow}>
+                        <View style={styles.priceRowLeft}>
+                          <Ionicons name="car-outline" size={14} color={Colors.textSecondary} />
+                          <Text style={styles.priceLabel}>Transport</Text>
+                        </View>
+                        <Text style={styles.priceVal}>{fmtCurrency(order.transportPrice)}</Text>
+                      </View>
+                    )}
+                    <View style={[styles.priceRow, styles.priceTotalRow]}>
+                      <View style={styles.priceRowLeft}>
+                        <Ionicons name="wallet-outline" size={14} color={Colors.primary} />
+                        <Text style={[styles.priceLabel, { fontWeight: '700', color: Colors.primary }]}>Total</Text>
+                      </View>
+                      <Text style={[styles.priceVal, { fontWeight: '800', color: Colors.primary }]}>
+                        {fmtCurrency((order.materialPrice || 0) + (order.transportPrice || 0))}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Driver info */}
+                {order.driverName ? (
+                  <View style={styles.driverCard}>
+                    <View style={styles.driverIconWrap}>
+                      <Ionicons name="car-sport" size={18} color={Colors.info} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.driverName}>{order.driverName}</Text>
+                      <Text style={styles.driverVehicle}>{order.vehicleNo} · {order.driverPhone}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.trackBtn}
+                      onPress={() => router.push('/live-tracking')}
+                    >
+                      <Ionicons name="navigate" size={13} color="#FFF" />
+                      <Text style={styles.trackBtnText}>Track</Text>
                     </TouchableOpacity>
                   </View>
                 ) : null}
 
-                {/* Actions Bar */}
-                <View style={styles.actionsBar}>
-                  {o.status === 'rate_quoted' && (
-                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#DCFCE7' }]} onPress={() => handleAgreeRate(o)}>
-                      <Ionicons name="checkmark-circle" size={16} color="#16A34A" />
-                      <Text style={[styles.actionText, { color: '#16A34A' }]}>Agree Rate ({fmtCurrency(o.materialPrice)})</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* 3-Way Walkie Talkie button */}
-                  <TouchableOpacity
-                    style={[styles.actionBtn, { backgroundColor: '#F5F3FF' }]}
-                    onPress={() => {
-                      setWalkiePeer({ name: o.driverName ? `Lorry ${o.driverName}` : 'Quarry Owner', role: o.driverName ? 'driver' : 'quarry_owner', id: o.driverId || 'admin' });
-                      setWalkieModalVisible(true);
-                    }}
-                  >
-                    <Ionicons name="radio-outline" size={16} color="#7C3AED" />
-                    <Text style={[styles.actionText, { color: '#7C3AED' }]}>Walkie-Talkie</Text>
+                {/* Action: Agree Rate */}
+                {order.status === 'rate_quoted' && (
+                  <TouchableOpacity style={styles.agreeBtn} onPress={() => handleAgreeRate(order)}>
+                    <Ionicons name="checkmark-circle" size={18} color="#FFF" />
+                    <Text style={styles.agreeBtnText}>
+                      Agree to Rate — {fmtCurrency(order.materialPrice)}
+                    </Text>
                   </TouchableOpacity>
+                )}
 
-                  {/* Shared Documents button */}
-                  <TouchableOpacity
-                    style={[styles.actionBtn, { backgroundColor: '#EFF6FF' }]}
-                    onPress={() => {
-                      setSelectedOrderForDoc(o);
-                      setDocModalVisible(true);
-                    }}
-                  >
-                    <Ionicons name="document-text-outline" size={16} color="#2563EB" />
-                    <Text style={[styles.actionText, { color: '#2563EB' }]}>Documents ({(o.documents || []).length})</Text>
-                  </TouchableOpacity>
-                </View>
+                {/* Order date */}
+                <Text style={styles.orderDate}>
+                  Placed {new Date(order.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                </Text>
               </View>
             );
           })}
@@ -225,101 +321,200 @@ export default function CustomerMarketplaceScreen() {
       )}
 
       {/* Post Requirement Modal */}
-      <Modal visible={modalVisible} animationType="slide" presentationStyle="pageSheet">
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={styles.modalContent}>
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalRoot}>
+            {/* Modal Header */}
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Post Material Requirement</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Ionicons name="close" size={22} color={Colors.text} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Post Material Requirement</Text>
+                <Text style={styles.modalSub}>Quarry owners will quote rates for your requirement</Text>
+              </View>
+              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setModalVisible(false)}>
+                <Ionicons name="close" size={20} color={Colors.text} />
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ padding: Spacing.lg }}>
-              <Input label="Your Name / Construction Company" value={customerName} onChangeText={setCustomerName} placeholder="e.g. Anand Construction" />
-              <Input label="Contact Mobile Number" value={customerPhone} onChangeText={setCustomerPhone} keyboardType="phone-pad" placeholder="e.g. 9876543210" />
-              <Input label="Material Type Required" value={materialName} onChangeText={setMaterialName} placeholder="e.g. River Sand, M-Sand, Blue Metal" />
+            <ScrollView style={styles.modalScroll} contentContainerStyle={{ padding: 20 }} showsVerticalScrollIndicator={false}>
+              {/* Material Name */}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>
+                  <Ionicons name="layers-outline" size={13} /> Material Type
+                </Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={matName}
+                  onChangeText={setMatName}
+                  placeholder="e.g. River Sand, M-Sand, Blue Metal 20mm"
+                  placeholderTextColor={Colors.textDisabled}
+                />
+              </View>
 
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Input label="Quantity" value={quantity} onChangeText={setQuantity} keyboardType="numeric" placeholder="10" />
+              {/* Quantity + Unit */}
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <View style={[styles.fieldGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>Quantity</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={quantity}
+                    onChangeText={setQuantity}
+                    placeholder="e.g. 10"
+                    placeholderTextColor={Colors.textDisabled}
+                    keyboardType="numeric"
+                  />
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Input label="Unit" value={unitType} onChangeText={setUnitType} placeholder="ton / unit" />
+                <View style={[styles.fieldGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>Unit</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      {UNIT_OPTIONS.map(u => (
+                        <TouchableOpacity
+                          key={u}
+                          style={[styles.unitChip, unitType === u && styles.unitChipSelected]}
+                          onPress={() => setUnitType(u)}
+                        >
+                          <Text style={[styles.unitChipText, unitType === u && { color: Colors.primary }]}>{u}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
                 </View>
               </View>
 
-              <Input label="Delivery Site Address" value={customerAddress} onChangeText={setCustomerAddress} placeholder="Detailed site delivery location" />
+              {/* Delivery Address */}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>
+                  <Ionicons name="location-outline" size={13} /> Delivery Site Address
+                </Text>
+                <TextInput
+                  style={[styles.textInput, { height: 80, textAlignVertical: 'top', paddingTop: 12 }]}
+                  value={address}
+                  onChangeText={setAddress}
+                  placeholder="Enter detailed delivery site address"
+                  placeholderTextColor={Colors.textDisabled}
+                  multiline
+                />
+              </View>
 
-              <Button title="🚀 Post Requirement to Quarries" onPress={handlePostRequirement} loading={saving} style={{ marginTop: 12 }} />
+              <TouchableOpacity
+                style={[styles.submitBtn, saving && { opacity: 0.7 }]}
+                onPress={handlePostRequirement}
+                disabled={saving}
+                activeOpacity={0.82}
+              >
+                {saving
+                  ? <ActivityIndicator color="#FFF" size="small" />
+                  : (
+                    <>
+                      <Ionicons name="paper-plane" size={18} color="#FFF" />
+                      <Text style={styles.submitBtnText}>Send to Quarry Owners</Text>
+                    </>
+                  )
+                }
+              </TouchableOpacity>
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
-
-      {/* Walkie-Talkie Modal */}
-      <WalkieTalkieModal
-        visible={walkieModalVisible}
-        onClose={() => setWalkieModalVisible(false)}
-        peerName={walkiePeer.name}
-        peerRole={walkiePeer.role}
-        peerId={walkiePeer.id}
-      />
-
-      {/* Documents Modal */}
-      <DocumentUploadModal
-        visible={docModalVisible}
-        onClose={() => setDocModalVisible(false)}
-        orderId={selectedOrderForDoc?._id || selectedOrderForDoc?.id}
-        documents={selectedOrderForDoc?.documents || []}
-        uploaderName="Customer"
-        onUploaded={loadOrders}
-      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+  root: { flex: 1, backgroundColor: Colors.background },
   header: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingHorizontal: Spacing.xl, paddingTop: Spacing.lg, paddingBottom: Spacing.md,
-    backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 20, paddingVertical: 14,
+    backgroundColor: Colors.surface,
+    borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
   },
-  backBtn: { padding: 4 },
-  headerTitle: { ...Typography.h2, color: Colors.text },
-  headerSub: { ...Typography.caption, color: Colors.textSecondary },
-  addBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  backBtn: { width: 38, height: 38, borderRadius: 10, backgroundColor: Colors.backgroundMuted, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: Colors.navy },
+  headerSub: { fontSize: 12, color: Colors.textSecondary, marginTop: 1 },
+  addBtn: { width: 38, height: 38, borderRadius: 10, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
+  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
+  loadingText: { fontSize: 14, color: Colors.textSecondary, marginTop: 8 },
+  emptyIcon: { width: 80, height: 80, borderRadius: 20, backgroundColor: Colors.backgroundMuted, alignItems: 'center', justifyContent: 'center' },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
+  emptySub: { fontSize: 13, color: Colors.textSecondary, textAlign: 'center', lineHeight: 19 },
+  emptyBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.primary, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 12, marginTop: 8 },
+  emptyBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
   scroll: { flex: 1 },
-  scrollContent: { padding: Spacing.lg },
+  scrollContent: { padding: 16, gap: 14 },
   card: {
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.xl,
-    padding: Spacing.lg, marginBottom: 12, borderWidth: 1, borderColor: Colors.borderLight,
+    backgroundColor: Colors.surface, borderRadius: 16,
+    padding: 16, borderWidth: 1, borderColor: Colors.borderLight,
+    shadowColor: Colors.shadow, shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 1, shadowRadius: 10, elevation: 3,
   },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
-  matTitle: { ...Typography.h2, color: Colors.text },
-  custMeta: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  badge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
-  priceBox: { backgroundColor: Colors.backgroundSecondary, borderRadius: BorderRadius.md, padding: Spacing.md, gap: 3, marginVertical: 8 },
-  priceRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  priceLabel: { ...Typography.caption, color: Colors.textSecondary },
-  priceVal: { ...Typography.captionSemibold, color: Colors.text },
-  driverPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: Colors.primarySurface, borderRadius: BorderRadius.md,
-    padding: Spacing.md, marginVertical: 6,
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  cardMat: { fontSize: 16, fontWeight: '800', color: Colors.navy },
+  addressRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 4 },
+  addressText: { fontSize: 12, color: Colors.textSecondary, flex: 1 },
+  statusChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5 },
+  statusText: { fontSize: 11, fontWeight: '700' },
+  priceCard: {
+    backgroundColor: Colors.background, borderRadius: 10,
+    padding: 12, gap: 6, marginTop: 4,
+    borderWidth: 1, borderColor: Colors.borderLight,
   },
-  driverName: { ...Typography.bodyMedium, color: Colors.primary, fontWeight: '700' },
-  driverPhone: { ...Typography.caption, color: Colors.textSecondary },
-  trackMapBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.primary, borderRadius: BorderRadius.sm, paddingHorizontal: 8, paddingVertical: 5 },
-  trackMapText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
-  actionsBar: { flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' },
-  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 8, borderRadius: BorderRadius.sm },
-  actionText: { fontSize: 11, fontWeight: '700' },
+  priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  priceRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  priceLabel: { fontSize: 13, color: Colors.textSecondary },
+  priceVal: { fontSize: 13, fontWeight: '600', color: Colors.text },
+  priceTotalRow: { borderTopWidth: 1, borderTopColor: Colors.borderLight, paddingTop: 6, marginTop: 2 },
+  driverCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: Colors.infoLight, borderRadius: 10, padding: 12, marginTop: 10,
+    borderWidth: 1, borderColor: Colors.infoBorder,
+  },
+  driverIconWrap: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
+  driverName: { fontSize: 14, fontWeight: '700', color: Colors.navy },
+  driverVehicle: { fontSize: 11, color: Colors.textSecondary, marginTop: 2 },
+  trackBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.info, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  trackBtnText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
+  agreeBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: Colors.success, borderRadius: 12, padding: 14, marginTop: 12,
+  },
+  agreeBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+  orderDate: { fontSize: 11, color: Colors.textTertiary, marginTop: 10 },
   // Modal
-  modalContent: { flex: 1, backgroundColor: Colors.background },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: Spacing.lg, backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  modalTitle: { ...Typography.h2, color: Colors.text },
+  modalRoot: { flex: 1, backgroundColor: Colors.background },
+  modalHeader: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+    padding: 20, backgroundColor: Colors.surface,
+    borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: Colors.navy },
+  modalSub: { fontSize: 12, color: Colors.textSecondary, marginTop: 3 },
+  modalCloseBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: Colors.backgroundMuted, alignItems: 'center', justifyContent: 'center' },
+  modalScroll: { flex: 1 },
+  fieldGroup: { gap: 6, marginBottom: 14 },
+  fieldLabel: { fontSize: 13, fontWeight: '600', color: Colors.text },
+  textInput: {
+    height: 52, backgroundColor: Colors.surface,
+    borderWidth: 1.5, borderColor: Colors.border,
+    borderRadius: 12, paddingHorizontal: 14,
+    fontSize: 14, color: Colors.text,
+  },
+  unitChip: {
+    paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8,
+    backgroundColor: Colors.backgroundMuted, borderWidth: 1, borderColor: Colors.border,
+  },
+  unitChipSelected: { backgroundColor: Colors.primarySurface, borderColor: Colors.primary },
+  unitChipText: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
+  submitBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, height: 56, borderRadius: 14, backgroundColor: Colors.primary,
+    marginTop: 8,
+    shadowColor: Colors.primary, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35, shadowRadius: 12, elevation: 6,
+  },
+  submitBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
 });

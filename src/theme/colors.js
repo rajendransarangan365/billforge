@@ -1,59 +1,86 @@
 export const Colors = {
-  // Brand
-  primary: '#0F2050',
-  primaryMid: '#1A3A7C',
-  primaryLight: '#2952B3',
-  primarySurface: '#EEF2FF',
+  // ─── Brand / Primary (Rapido-inspired deep orange) ───
+  primary: '#FF6B00',
+  primaryDark: '#CC5500',
+  primaryLight: '#FF8C33',
+  primarySurface: '#FFF3EA',
+  primaryBorder: '#FFD5B0',
 
-  accent: '#4F6AF5',
-  accentLight: '#7B92F8',
-  accentSurface: '#EEF0FE',
+  // ─── Accent (Swiggy-orange warm accent) ───
+  accent: '#FC8019',
+  accentSurface: '#FFF0E5',
 
-  amber: '#F5A623',
-  amberLight: '#F8C06A',
-  amberSurface: '#FEF6E7',
+  // ─── Navy (header/text anchor) ───
+  navy: '#0A1628',
+  navyMid: '#1C2E4A',
+  navySoft: '#2D4266',
 
-  // Backgrounds
-  background: '#F5F7FA',
+  // ─── Backgrounds ───
+  background: '#F4F5F7',
+  backgroundCard: '#FFFFFF',
+  backgroundSheet: '#FAFAFA',
+  backgroundMuted: '#EEF0F4',
+
+  // ─── Surface ───
   surface: '#FFFFFF',
-  surfaceElevated: '#FAFBFF',
-  surfaceRaised: '#F0F3FB',
+  surfaceElevated: '#FFFFFF',
 
-  // Text
-  text: '#0D1226',
-  textSecondary: '#495270',
-  textTertiary: '#8D96B0',
-  textOnPrimary: '#FFFFFF',
-  textOnAccent: '#FFFFFF',
-  textOnAmber: '#7C5200',
-  textDisabled: '#B8BFCD',
+  // ─── Text ───
+  text: '#0A1628',
+  textSecondary: '#4A5568',
+  textTertiary: '#8D97AD',
+  textDisabled: '#BCC3CE',
+  textInverse: '#FFFFFF',
 
-  // Borders & Dividers
-  border: '#DDE2EE',
-  borderLight: '#EBF0F7',
-  divider: '#F0F4FA',
+  // ─── Borders ───
+  border: '#E2E6EE',
+  borderLight: '#EDF0F5',
+  borderMedium: '#CBD3DF',
 
-  // Semantics
-  success: '#0E7850',
-  successMid: '#15A36B',
-  successLight: '#D4F0E5',
-  warning: '#C27B0A',
-  warningLight: '#FEF3D6',
-  danger: '#C0303A',
-  dangerLight: '#FDEAEA',
-  info: '#1C5FAB',
-  infoLight: '#DDEEFF',
+  // ─── Semantic ───
+  success: '#27AE60',
+  successLight: '#E9F7EF',
+  successBorder: '#A9DFBF',
 
-  // Utility
-  shadow: 'rgba(15, 32, 80, 0.10)',
-  shadowMedium: 'rgba(15, 32, 80, 0.16)',
-  shadowDeep: 'rgba(15, 32, 80, 0.24)',
-  overlay: 'rgba(10, 18, 40, 0.55)',
-  skeleton: '#E5E9F0',
+  warning: '#F39C12',
+  warningLight: '#FEF9E7',
+  warningBorder: '#F9E4B7',
 
-  // Gradient stops (used as array in LinearGradient)
-  gradientPrimary: ['#0F2050', '#1A3A7C'],
-  gradientAccent: ['#4F6AF5', '#2952B3'],
-  gradientAmber: ['#F5A623', '#E8870E'],
-  gradientSuccess: ['#0E7850', '#15A36B'],
+  danger: '#E74C3C',
+  dangerLight: '#FDEDEC',
+  dangerBorder: '#F5B7B1',
+
+  info: '#2980B9',
+  infoLight: '#EBF5FB',
+  infoBorder: '#A9CCE3',
+
+  // ─── Status Chips ───
+  statusNew: '#3498DB',
+  statusNewBg: '#EBF5FB',
+  statusQuoted: '#8E44AD',
+  statusQuotedBg: '#F4ECF7',
+  statusAgreed: '#27AE60',
+  statusAgreedBg: '#E9F7EF',
+  statusBidding: '#E67E22',
+  statusBiddingBg: '#FEF5E7',
+  statusAssigned: '#2980B9',
+  statusAssignedBg: '#EBF5FB',
+  statusLoaded: '#F39C12',
+  statusLoadedBg: '#FEF9E7',
+  statusTransit: '#16A085',
+  statusTransitBg: '#E8F8F5',
+  statusDelivered: '#27AE60',
+  statusDeliveredBg: '#E9F7EF',
+  statusSettled: '#7F8C8D',
+  statusSettledBg: '#F2F3F4',
+
+  // ─── Shadows ───
+  shadow: 'rgba(10, 22, 40, 0.08)',
+  shadowMedium: 'rgba(10, 22, 40, 0.14)',
+  shadowDeep: 'rgba(10, 22, 40, 0.22)',
+  overlay: 'rgba(10, 22, 40, 0.6)',
+
+  // ─── Utility ───
+  skeleton: '#E8ECF1',
+  divider: '#EDF0F5',
 };

@@ -2,274 +2,339 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Modal, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  Modal, Alert, ActivityIndicator, TextInput,
+  Dimensions, RefreshControl,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
-import { Button, Input, EmptyState } from '../src/components';
-import WalkieTalkieModal from '../src/components/WalkieTalkieModal';
-import DocumentUploadModal from '../src/components/DocumentUploadModal';
+import { Colors } from '../src/theme';
+import * as MarketplaceStore from '../src/store/MarketplaceStore';
+import { useAuth } from '../src/context/AuthContext';
 
-function fmtCurrency(n) {
-  if (!n && n !== 0) return '₹0';
+const { width: W } = Dimensions.get('window');
+
+function fmtCurrency(n: number) {
+  if (!n) return '₹0';
   return `₹${Number(n).toLocaleString('en-IN')}`;
 }
+
+const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; icon: string }> = {
+  requirement_posted: { label: 'New Request',      color: Colors.statusNew,      bg: Colors.statusNewBg,      icon: 'alert-circle-outline' },
+  rate_quoted:        { label: 'Rate Sent',         color: Colors.statusQuoted,   bg: Colors.statusQuotedBg,   icon: 'pricetag-outline' },
+  rate_agreed:        { label: 'Rate Agreed',       color: Colors.statusAgreed,   bg: Colors.statusAgreedBg,   icon: 'checkmark-circle-outline' },
+  bidding_active:     { label: 'Bids Coming In',    color: Colors.statusBidding,  bg: Colors.statusBiddingBg,  icon: 'trending-up-outline' },
+  driver_assigned:    { label: 'Driver Assigned',   color: Colors.statusAssigned, bg: Colors.statusAssignedBg, icon: 'car-outline' },
+  loaded:             { label: 'Material Loaded',   color: Colors.statusLoaded,   bg: Colors.statusLoadedBg,   icon: 'cube-outline' },
+  in_transit:         { label: 'In Transit',        color: Colors.statusTransit,  bg: Colors.statusTransitBg,  icon: 'navigate-outline' },
+  delivered:          { label: 'Delivered',         color: Colors.statusDelivered,bg: Colors.statusDeliveredBg, icon: 'checkmark-done-circle-outline' },
+  settled:            { label: 'Settled',           color: Colors.statusSettled,  bg: Colors.statusSettledBg,  icon: 'wallet-outline' },
+};
 
 export default function QuarryMarketplaceScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [orders, setOrders] = useState([]);
-  const [bids, setBids] = useState([]);
+  const { user } = useAuth();
+
+  const [orders, setOrders] = useState<MarketplaceStore.MarketplaceOrder[]>([]);
+  const [bidsMap, setBidsMap] = useState<Record<string, MarketplaceStore.TransportBid[]>>({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Quote rate modal
-  const [quoteModalVisible, setQuoteModalVisible] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState(null);
-  const [materialPrice, setMaterialPrice] = useState('');
+  const [quoteVisible, setQuoteVisible] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<MarketplaceStore.MarketplaceOrder | null>(null);
+  const [matPrice, setMatPrice] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Walkie & Doc Modals
-  const [walkieModalVisible, setWalkieModalVisible] = useState(false);
-  const [walkiePeer, setWalkiePeer] = useState({ name: 'Customer', role: 'customer', id: 'customer' });
-  const [docModalVisible, setDocModalVisible] = useState(false);
-  const [selectedOrderForDoc, setSelectedOrderForDoc] = useState(null);
+  // Settle modal
+  const [settleVisible, setSettleVisible] = useState(false);
+  const [settleOrder, setSettleOrder] = useState<MarketplaceStore.MarketplaceOrder | null>(null);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
     try {
-      const baseUrl = process.env.EXPO_PUBLIC_API_URL || '';
-      const response = await fetch(`${baseUrl}/api/marketplace`);
-      const data = await response.json();
-      setOrders(data.orders || []);
-      setBids(data.bids || []);
+      const all = await MarketplaceStore.getOrders();
+      setOrders(all);
+
+      // Load bids for all orders
+      const allBids = await MarketplaceStore.getBids();
+      const map: Record<string, MarketplaceStore.TransportBid[]> = {};
+      allBids.forEach(b => {
+        if (!map[b.orderId]) map[b.orderId] = [];
+        map[b.orderId].push(b);
+      });
+      setBidsMap(map);
     } catch (e) {
-      console.error('Quarry marketplace load error:', e);
+      console.error('Quarry load error:', e);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
+  useFocusEffect(useCallback(() => {
+    loadData();
+    const interval = setInterval(loadData, 4000); // poll every 4s for new bids
+    return () => clearInterval(interval);
+  }, [loadData]));
 
   const handleQuoteRate = async () => {
-    if (!materialPrice || !selectedOrder) {
-      Alert.alert('Required', 'Please enter your material rate quote.');
+    if (!matPrice || !selectedOrder) {
+      Alert.alert('Required', 'Please enter material rate.');
+      return;
+    }
+    const price = parseFloat(matPrice);
+    if (isNaN(price) || price <= 0) {
+      Alert.alert('Invalid', 'Enter a valid positive rate.');
       return;
     }
     setSaving(true);
     try {
-      const baseUrl = process.env.EXPO_PUBLIC_API_URL || '';
-      await fetch(`${baseUrl}/api/marketplace`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'quote_rate',
-          orderId: selectedOrder._id || selectedOrder.id,
-          materialPrice: parseFloat(materialPrice) || 0,
-        }),
+      await MarketplaceStore.updateOrder(selectedOrder.id, {
+        materialPrice: price,
+        totalPrice: price,
+        status: 'rate_quoted',
       });
-      setQuoteModalVisible(false);
-      setMaterialPrice('');
-      Alert.alert('Quoted 💰', 'Material rate quote sent to customer.');
+      setQuoteVisible(false);
+      setMatPrice('');
+      setSelectedOrder(null);
+      Alert.alert('Rate Sent', `Your rate of ${fmtCurrency(price)} has been sent to the customer. Waiting for their confirmation.`);
       loadData();
     } catch (e) {
-      Alert.alert('Error', 'Failed to submit quote.');
+      Alert.alert('Error', 'Failed to send rate. Please try again.');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleAcceptBid = async (order, bid) => {
-    try {
-      const baseUrl = process.env.EXPO_PUBLIC_API_URL || '';
-      await fetch(`${baseUrl}/api/marketplace`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'accept_bid',
-          orderId: order._id || order.id,
-          bidId: bid._id || bid.id,
-          driverId: bid.driverId,
-          driverName: bid.driverName,
-          vehicleNo: bid.vehicleNo,
-          transportPrice: bid.fareQuote,
-        }),
-      });
-      Alert.alert('Transport Agreed! 🚚', `Assigned lorry ${bid.driverName} (${bid.vehicleNo}) for ${fmtCurrency(bid.fareQuote)}.`);
-      loadData();
-    } catch (e) {
-      Alert.alert('Transport Agreed!', 'Lorry assigned.');
-      loadData();
-    }
+  const handleAcceptBid = async (order: MarketplaceStore.MarketplaceOrder, bid: MarketplaceStore.TransportBid) => {
+    Alert.alert(
+      'Accept Transport Bid?',
+      `Assign ${bid.driverName} (${bid.vehicleNo}) for transport at ${fmtCurrency(bid.fareQuote)}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Accept & Assign',
+          style: 'default',
+          onPress: async () => {
+            await MarketplaceStore.acceptBid(bid.id, order.id);
+            Alert.alert('Driver Assigned!', `${bid.driverName} has been assigned. The driver will navigate to your quarry for pickup.`);
+            loadData();
+          },
+        },
+      ]
+    );
   };
 
-  const handleSettleOrder = async (order) => {
-    Alert.alert('Settle Order & Driver Fare', `Mark customer payment collected (${fmtCurrency(order.totalPrice)}) and settle driver transport fare (${fmtCurrency(order.transportPrice)})?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Settle Payment',
-        onPress: async () => {
-          try {
-            const baseUrl = process.env.EXPO_PUBLIC_API_URL || '';
-            await fetch(`${baseUrl}/api/marketplace`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                action: 'update_status',
-                orderId: order._id || order.id,
-                status: 'settled',
-              }),
-            });
-            Alert.alert('Settled 🎉', 'Payment collected and driver transport fare settled!');
-            loadData();
-          } catch (e) {
-            loadData();
-          }
-        },
-      },
-    ]);
+  const handleSettlePayment = async () => {
+    if (!settleOrder) return;
+    await MarketplaceStore.updateOrder(settleOrder.id, { status: 'settled' });
+    setSettleVisible(false);
+    setSettleOrder(null);
+    Alert.alert('Payment Settled', 'Order marked as fully settled. Great job!');
+    loadData();
   };
+
+  const urgentOrders = orders.filter(o => o.status === 'requirement_posted');
+  const activeOrders = orders.filter(o => !['requirement_posted', 'settled'].includes(o.status));
+  const completedOrders = orders.filter(o => o.status === 'settled');
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.root, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={Colors.text} />
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="arrow-back" size={22} color={Colors.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Quarry Owner Marketplace 🏢</Text>
-          <Text style={styles.headerSub}>Review enquiries, accept lorry bids & settle driver fares</Text>
+          <Text style={styles.headerTitle}>Quarry Dispatch</Text>
+          {user?.name ? <Text style={styles.headerSub}>{user.name}</Text> : null}
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={loadData}>
+        <TouchableOpacity style={styles.refreshBtn} onPress={() => { setRefreshing(true); loadData(); }}>
           <Ionicons name="refresh" size={18} color={Colors.primary} />
         </TouchableOpacity>
       </View>
 
+      {/* Stats bar */}
+      <View style={styles.statsBar}>
+        <View style={styles.statItem}>
+          <Text style={[styles.statNum, { color: Colors.statusNew }]}>{urgentOrders.length}</Text>
+          <Text style={styles.statLbl}>New</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={[styles.statNum, { color: Colors.statusAssigned }]}>{activeOrders.length}</Text>
+          <Text style={styles.statLbl}>Active</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={[styles.statNum, { color: Colors.success }]}>{completedOrders.length}</Text>
+          <Text style={styles.statLbl}>Settled</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={[styles.statNum, { color: Colors.primary }]}>{orders.length}</Text>
+          <Text style={styles.statLbl}>Total</Text>
+        </View>
+      </View>
+
       {loading ? (
-        <View style={styles.loadingWrap}>
+        <View style={styles.centerWrap}>
           <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.loadingText}>Loading orders...</Text>
         </View>
       ) : orders.length === 0 ? (
-        <EmptyState
-          icon="business-outline"
-          title="No incoming requirements"
-          description="Customer material requirements posted from mobile/web will appear here"
-        />
+        <View style={styles.centerWrap}>
+          <View style={styles.emptyIcon}>
+            <Ionicons name="receipt-outline" size={40} color={Colors.textTertiary} />
+          </View>
+          <Text style={styles.emptyTitle}>No Customer Orders Yet</Text>
+          <Text style={styles.emptySub}>When customers post material requirements, they'll appear here for you to quote rates.</Text>
+        </View>
       ) : (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          {orders.map((o) => {
-            const orderBids = bids.filter(b => b.orderId === (o._id || o.id));
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} colors={[Colors.primary]} tintColor={Colors.primary} />
+          }
+        >
+          {orders.map(order => {
+            const sc = STATUS_LABELS[order.status] || STATUS_LABELS.requirement_posted;
+            const orderBids = bidsMap[order.id] || [];
+            const pendingBids = orderBids.filter(b => b.status === 'pending');
 
             return (
-              <View key={o._id || o.id} style={styles.card}>
-                <View style={styles.cardHeader}>
+              <View key={order.id} style={styles.card}>
+                {/* Card Header */}
+                <View style={styles.cardTop}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.custName}>{o.customerName}</Text>
-                    <Text style={styles.custPhone}>📱 {o.customerPhone || 'No phone'} · 📍 {o.customerAddress}</Text>
+                    <Text style={styles.cardMat}>{order.quantity} {order.unitType} {order.materialName}</Text>
+                    <View style={styles.customerRow}>
+                      <Ionicons name="person-outline" size={13} color={Colors.textTertiary} />
+                      <Text style={styles.customerName}>{order.customerName} · {order.customerPhone}</Text>
+                    </View>
+                    <View style={styles.addressRow}>
+                      <Ionicons name="location-outline" size={13} color={Colors.textTertiary} />
+                      <Text style={styles.addressText} numberOfLines={2}>{order.customerAddress}</Text>
+                    </View>
                   </View>
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{o.status.toUpperCase().replace('_', ' ')}</Text>
+                  <View style={[styles.statusChip, { backgroundColor: sc.bg }]}>
+                    <Ionicons name={sc.icon as any} size={11} color={sc.color} />
+                    <Text style={[styles.statusText, { color: sc.color }]}>{sc.label}</Text>
                   </View>
                 </View>
 
-                {/* Cargo */}
-                <View style={styles.cargoBox}>
-                  <Text style={styles.cargoTitle}>Required Material:</Text>
-                  <Text style={styles.cargoVal}>{o.quantity} {o.unitType} {o.materialName}</Text>
-                </View>
+                <View style={styles.divider} />
 
-                {/* Action 1: Quote Material Rate */}
-                {o.status === 'requirement_posted' && (
-                  <Button
-                    title="💰 Quote Material Rate"
-                    onPress={() => {
-                      setSelectedOrder(o);
-                      setQuoteModalVisible(true);
-                    }}
-                    style={{ marginVertical: 6 }}
-                  />
+                {/* Actions based on status */}
+
+                {/* 1. New — Quote Rate */}
+                {order.status === 'requirement_posted' && (
+                  <TouchableOpacity
+                    style={styles.primaryBtn}
+                    onPress={() => { setSelectedOrder(order); setMatPrice(''); setQuoteVisible(true); }}
+                    activeOpacity={0.82}
+                  >
+                    <Ionicons name="pricetag" size={16} color="#FFF" />
+                    <Text style={styles.primaryBtnText}>Quote Material Rate</Text>
+                  </TouchableOpacity>
                 )}
 
-                {/* Action 2: Show Driver Transport Bids when Rate Agreed / Bidding Active */}
-                {(o.status === 'rate_agreed' || o.status === 'bidding_active') && (
+                {/* 2. Rate sent — waiting */}
+                {order.status === 'rate_quoted' && (
+                  <View style={styles.waitingBox}>
+                    <Ionicons name="time-outline" size={16} color={Colors.statusQuoted} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.waitingTitle}>Rate Sent — Waiting for Customer</Text>
+                      <Text style={styles.waitingText}>Quoted {fmtCurrency(order.materialPrice)} · Customer needs to agree</Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* 3. Rate agreed — show driver bids */}
+                {(order.status === 'rate_agreed' || order.status === 'bidding_active') && (
                   <View style={styles.bidsSection}>
-                    <Text style={styles.bidsTitle}>🚚 Nearby Lorry Driver Transport Bids ({orderBids.length}):</Text>
-                    {orderBids.length === 0 ? (
-                      <Text style={styles.noBidsText}>Waiting for nearby drivers to quote transport price…</Text>
+                    <View style={styles.bidsHeader}>
+                      <Ionicons name="car-sport" size={15} color={Colors.navy} />
+                      <Text style={styles.bidsSectionTitle}>
+                        Transport Bids {pendingBids.length > 0 ? `(${pendingBids.length} available)` : '(Waiting for drivers...)'}
+                      </Text>
+                    </View>
+
+                    {pendingBids.length === 0 ? (
+                      <View style={styles.noBidsBox}>
+                        <ActivityIndicator size="small" color={Colors.textTertiary} />
+                        <Text style={styles.noBidsText}>Waiting for nearby lorry drivers to bid...</Text>
+                      </View>
                     ) : (
-                      orderBids.map(b => (
-                        <View key={b._id || b.id} style={styles.bidCard}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.driverBidName}>{b.driverName} ({b.vehicleNo})</Text>
-                            <Text style={styles.driverBidFare}>Transport Quote: <Text style={{ color: '#16A34A', fontWeight: '800' }}>{fmtCurrency(b.fareQuote)}</Text> for {b.distanceKm || 12} km</Text>
+                      pendingBids.map(bid => (
+                        <View key={bid.id} style={styles.bidCard}>
+                          <View style={styles.bidLeft}>
+                            <View style={styles.bidDriverIcon}>
+                              <Ionicons name="car-sport" size={16} color={Colors.info} />
+                            </View>
+                            <View>
+                              <Text style={styles.bidDriverName}>{bid.driverName}</Text>
+                              <Text style={styles.bidVehicle}>{bid.vehicleNo} · {bid.distanceKm} km</Text>
+                            </View>
                           </View>
-                          <TouchableOpacity style={styles.acceptBidBtn} onPress={() => handleAcceptBid(o, b)}>
-                            <Text style={styles.acceptBidText}>Accept Bid</Text>
-                          </TouchableOpacity>
+                          <View style={styles.bidRight}>
+                            <Text style={styles.bidFare}>{fmtCurrency(bid.fareQuote)}</Text>
+                            <TouchableOpacity
+                              style={styles.acceptBidBtn}
+                              onPress={() => handleAcceptBid(order, bid)}
+                            >
+                              <Text style={styles.acceptBidText}>Accept</Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
                       ))
                     )}
                   </View>
                 )}
 
-                {/* Trip Execution Status */}
-                {o.driverName ? (
-                  <View style={styles.executionBox}>
-                    <Text style={styles.execTitle}>Assigned Lorry: {o.driverName} ({o.vehicleNo})</Text>
-                    <Text style={styles.execText}>Material Price: {fmtCurrency(o.materialPrice)} · Transport Fare: {fmtCurrency(o.transportPrice)}</Text>
-                    <Text style={styles.execTotal}>Total Customer Payment: {fmtCurrency(o.totalPrice)}</Text>
-
-                    {o.status === 'delivered' && (
-                      <Button
-                        title="💵 Collect Payment & Settle Driver Fare"
-                        onPress={() => handleSettleOrder(o)}
-                        variant="success"
-                        style={{ marginTop: 8 }}
-                      />
-                    )}
+                {/* 4. Driver assigned — show trip info */}
+                {['driver_assigned', 'loaded', 'in_transit'].includes(order.status) && order.driverName && (
+                  <View style={styles.tripInfoBox}>
+                    <View style={styles.tripRow}>
+                      <Ionicons name="car-sport" size={14} color={Colors.info} />
+                      <Text style={styles.tripLabel}>{order.driverName} · {order.vehicleNo}</Text>
+                    </View>
+                    <View style={styles.tripRow}>
+                      <Ionicons name="cash-outline" size={14} color={Colors.success} />
+                      <Text style={styles.tripLabel}>
+                        Material {fmtCurrency(order.materialPrice)} + Transport {fmtCurrency(order.transportPrice)} = Total {fmtCurrency((order.materialPrice || 0) + (order.transportPrice || 0))}
+                      </Text>
+                    </View>
                   </View>
-                ) : null}
+                )}
 
-                {/* Shared Tools */}
-                <View style={styles.toolsRow}>
+                {/* 5. Delivered — collect & settle */}
+                {order.status === 'delivered' && (
                   <TouchableOpacity
-                    style={[styles.toolBtn, { backgroundColor: '#F5F3FF' }]}
-                    onPress={() => {
-                      setWalkiePeer({ name: `Customer ${o.customerName}`, role: 'customer', id: 'customer' });
-                      setWalkieModalVisible(true);
-                    }}
+                    style={[styles.primaryBtn, { backgroundColor: Colors.success }]}
+                    onPress={() => { setSettleOrder(order); setSettleVisible(true); }}
+                    activeOpacity={0.82}
                   >
-                    <Ionicons name="radio-outline" size={14} color="#7C3AED" />
-                    <Text style={[styles.toolText, { color: '#7C3AED' }]}>Walkie Customer</Text>
+                    <Ionicons name="wallet" size={16} color="#FFF" />
+                    <Text style={styles.primaryBtnText}>Collect Payment & Settle Driver</Text>
                   </TouchableOpacity>
+                )}
 
-                  {o.driverName ? (
-                    <TouchableOpacity
-                      style={[styles.toolBtn, { backgroundColor: '#EFF6FF' }]}
-                      onPress={() => {
-                        setWalkiePeer({ name: `Lorry ${o.driverName}`, role: 'driver', id: o.driverId });
-                        setWalkieModalVisible(true);
-                      }}
-                    >
-                      <Ionicons name="radio-outline" size={14} color="#2563EB" />
-                      <Text style={[styles.toolText, { color: '#2563EB' }]}>Walkie Driver</Text>
-                    </TouchableOpacity>
-                  ) : null}
+                {/* 6. Settled */}
+                {order.status === 'settled' && (
+                  <View style={[styles.waitingBox, { backgroundColor: Colors.statusSettledBg }]}>
+                    <Ionicons name="checkmark-done-circle" size={16} color={Colors.statusSettled} />
+                    <Text style={[styles.waitingTitle, { color: Colors.statusSettled }]}>Fully Settled</Text>
+                  </View>
+                )}
 
-                  <TouchableOpacity
-                    style={[styles.toolBtn, { backgroundColor: '#DCFCE7' }]}
-                    onPress={() => {
-                      setSelectedOrderForDoc(o);
-                      setDocModalVisible(true);
-                    }}
-                  >
-                    <Ionicons name="document-text-outline" size={14} color="#16A34A" />
-                    <Text style={[styles.toolText, { color: '#16A34A' }]}>Trip Docs ({(o.documents || []).length})</Text>
-                  </TouchableOpacity>
-                </View>
+                {/* Footer */}
+                <Text style={styles.orderDate}>
+                  {new Date(order.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                </Text>
               </View>
             );
           })}
@@ -277,94 +342,196 @@ export default function QuarryMarketplaceScreen() {
       )}
 
       {/* Quote Rate Modal */}
-      <Modal visible={quoteModalVisible} animationType="slide" transparent>
+      <Modal visible={quoteVisible} animationType="slide" transparent onRequestClose={() => setQuoteVisible(false)}>
         <View style={styles.overlay}>
           <View style={styles.dialog}>
+            <View style={styles.dialogHandle} />
             <Text style={styles.dialogTitle}>Quote Material Rate</Text>
-            <Text style={styles.dialogSub}>Quote price for {selectedOrder?.quantity} {selectedOrder?.unitType} {selectedOrder?.materialName}</Text>
+            {selectedOrder && (
+              <View style={styles.dialogInfoBox}>
+                <Text style={styles.dialogInfoText}>
+                  {selectedOrder.quantity} {selectedOrder.unitType} {selectedOrder.materialName}
+                </Text>
+                <Text style={styles.dialogInfoSub}>{selectedOrder.customerName} · {selectedOrder.customerAddress}</Text>
+              </View>
+            )}
 
-            <Input
-              label="Quarry Material Rate (₹)"
-              value={materialPrice}
-              onChangeText={setMaterialPrice}
-              keyboardType="numeric"
-              placeholder="e.g. 3200"
-              icon="cash-outline"
-            />
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Your Rate per {selectedOrder?.unitType || 'unit'} (₹)</Text>
+              <View style={styles.inputWrap}>
+                <Ionicons name="cash-outline" size={18} color={Colors.textTertiary} style={{ paddingLeft: 14 }} />
+                <TextInput
+                  style={styles.modalInput}
+                  value={matPrice}
+                  onChangeText={setMatPrice}
+                  placeholder="e.g. 3200"
+                  placeholderTextColor={Colors.textDisabled}
+                  keyboardType="numeric"
+                  autoFocus
+                />
+              </View>
+              {matPrice && selectedOrder ? (
+                <Text style={styles.totalCalc}>
+                  Total = {fmtCurrency(parseFloat(matPrice) * selectedOrder.quantity)} for {selectedOrder.quantity} {selectedOrder.unitType}
+                </Text>
+              ) : null}
+            </View>
 
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
-              <Button title="Cancel" onPress={() => setQuoteModalVisible(false)} variant="ghost" style={{ flex: 1 }} />
-              <Button title="Submit Quote" onPress={handleQuoteRate} loading={saving} style={{ flex: 1 }} />
+            <View style={styles.dialogBtns}>
+              <TouchableOpacity style={styles.dialogCancelBtn} onPress={() => setQuoteVisible(false)}>
+                <Text style={styles.dialogCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.dialogConfirmBtn, saving && { opacity: 0.7 }]}
+                onPress={handleQuoteRate}
+                disabled={saving}
+              >
+                {saving
+                  ? <ActivityIndicator color="#FFF" size="small" />
+                  : <Text style={styles.dialogConfirmText}>Send Quote</Text>
+                }
+              </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* Walkie & Doc Modals */}
-      <WalkieTalkieModal
-        visible={walkieModalVisible}
-        onClose={() => setWalkieModalVisible(false)}
-        peerName={walkiePeer.name}
-        peerRole={walkiePeer.role}
-        peerId={walkiePeer.id}
-      />
-
-      <DocumentUploadModal
-        visible={docModalVisible}
-        onClose={() => setDocModalVisible(false)}
-        orderId={selectedOrderForDoc?._id || selectedOrderForDoc?.id}
-        documents={selectedOrderForDoc?.documents || []}
-        uploaderName="Quarry Owner"
-        onUploaded={loadData}
-      />
+      {/* Settle Modal */}
+      <Modal visible={settleVisible} animationType="slide" transparent onRequestClose={() => setSettleVisible(false)}>
+        <View style={styles.overlay}>
+          <View style={styles.dialog}>
+            <View style={styles.dialogHandle} />
+            <Text style={styles.dialogTitle}>Settle Order</Text>
+            {settleOrder && (
+              <>
+                <View style={styles.settleRow}>
+                  <Text style={styles.settleLabel}>Material amount</Text>
+                  <Text style={styles.settleVal}>{fmtCurrency(settleOrder.materialPrice)}</Text>
+                </View>
+                <View style={styles.settleRow}>
+                  <Text style={styles.settleLabel}>Driver transport fare</Text>
+                  <Text style={styles.settleVal}>{fmtCurrency(settleOrder.transportPrice)}</Text>
+                </View>
+                <View style={[styles.settleRow, { borderTopWidth: 1, borderTopColor: Colors.border, paddingTop: 8, marginTop: 4 }]}>
+                  <Text style={[styles.settleLabel, { fontWeight: '700', color: Colors.navy }]}>Total to collect</Text>
+                  <Text style={[styles.settleVal, { fontWeight: '800', color: Colors.primary, fontSize: 16 }]}>
+                    {fmtCurrency((settleOrder.materialPrice || 0) + (settleOrder.transportPrice || 0))}
+                  </Text>
+                </View>
+              </>
+            )}
+            <View style={styles.dialogBtns}>
+              <TouchableOpacity style={styles.dialogCancelBtn} onPress={() => setSettleVisible(false)}>
+                <Text style={styles.dialogCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.dialogConfirmBtn, { backgroundColor: Colors.success }]} onPress={handleSettlePayment}>
+                <Text style={styles.dialogConfirmText}>Mark Settled</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+  root: { flex: 1, backgroundColor: Colors.background },
   header: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingHorizontal: Spacing.xl, paddingTop: Spacing.lg, paddingBottom: Spacing.md,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 20, paddingVertical: 14,
     backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
   },
-  backBtn: { padding: 4 },
-  headerTitle: { ...Typography.h2, color: Colors.text },
-  headerSub: { ...Typography.caption, color: Colors.textSecondary },
-  refreshBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  scroll: { flex: 1 },
-  scrollContent: { padding: Spacing.lg },
-  card: {
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.xl,
-    padding: Spacing.lg, marginBottom: 12, borderWidth: 1, borderColor: Colors.borderLight,
+  backBtn: { width: 38, height: 38, borderRadius: 10, backgroundColor: Colors.backgroundMuted, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: Colors.navy },
+  headerSub: { fontSize: 12, color: Colors.textSecondary, marginTop: 1 },
+  refreshBtn: { width: 38, height: 38, borderRadius: 10, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
+  statsBar: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface, paddingVertical: 12, paddingHorizontal: 16,
+    borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
   },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
-  custName: { ...Typography.h2, color: Colors.text },
-  custPhone: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  badge: { backgroundColor: Colors.primarySurface, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4 },
-  badgeText: { fontSize: 10, color: Colors.primary, fontWeight: '700' },
-  cargoBox: { backgroundColor: Colors.backgroundSecondary, borderRadius: BorderRadius.md, padding: Spacing.md, marginVertical: 6 },
-  cargoTitle: { ...Typography.caption, color: Colors.textSecondary },
-  cargoVal: { ...Typography.h3, color: Colors.text, marginTop: 2 },
-  bidsSection: { backgroundColor: '#F3E8FF', borderRadius: BorderRadius.md, padding: Spacing.md, marginVertical: 6 },
-  bidsTitle: { ...Typography.captionSemibold, color: '#6B21A8', marginBottom: 6 },
-  noBidsText: { ...Typography.caption, color: Colors.textSecondary, fontStyle: 'italic' },
-  bidCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', padding: 8, borderRadius: BorderRadius.sm, marginBottom: 6 },
-  driverBidName: { ...Typography.bodyMedium, color: Colors.text, fontWeight: '700' },
-  driverBidFare: { ...Typography.caption, color: Colors.textSecondary },
-  acceptBidBtn: { backgroundColor: '#16A34A', borderRadius: BorderRadius.sm, paddingHorizontal: 10, paddingVertical: 6 },
-  acceptBidText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
-  executionBox: { backgroundColor: Colors.primarySurface, borderRadius: BorderRadius.md, padding: Spacing.md, marginVertical: 6 },
-  execTitle: { ...Typography.bodyMedium, color: Colors.primary, fontWeight: '700' },
-  execText: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  execTotal: { ...Typography.captionSemibold, color: Colors.text, marginTop: 2 },
-  toolsRow: { flexDirection: 'row', gap: 6, marginTop: 8, flexWrap: 'wrap' },
-  toolBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 6, borderRadius: BorderRadius.sm },
-  toolText: { fontSize: 11, fontWeight: '700' },
-  // Dialog
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: Spacing.lg },
-  dialog: { width: '100%', backgroundColor: Colors.surface, borderRadius: BorderRadius.xl, padding: Spacing.xl },
-  dialogTitle: { ...Typography.h2, color: Colors.text, textAlign: 'center' },
-  dialogSub: { ...Typography.caption, color: Colors.textSecondary, textAlign: 'center', marginTop: 4, marginBottom: 12 },
+  statItem: { flex: 1, alignItems: 'center', gap: 2 },
+  statNum: { fontSize: 20, fontWeight: '800' },
+  statLbl: { fontSize: 11, color: Colors.textTertiary, fontWeight: '600' },
+  statDivider: { width: 1, height: 28, backgroundColor: Colors.borderLight },
+  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
+  loadingText: { fontSize: 14, color: Colors.textSecondary, marginTop: 8 },
+  emptyIcon: { width: 80, height: 80, borderRadius: 20, backgroundColor: Colors.backgroundMuted, alignItems: 'center', justifyContent: 'center' },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
+  emptySub: { fontSize: 13, color: Colors.textSecondary, textAlign: 'center', lineHeight: 19 },
+  scroll: { flex: 1 },
+  scrollContent: { padding: 16, gap: 14 },
+  card: {
+    backgroundColor: Colors.surface, borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: Colors.borderLight,
+    shadowColor: Colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 10, elevation: 3,
+  },
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  cardMat: { fontSize: 16, fontWeight: '800', color: Colors.navy },
+  customerRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  customerName: { fontSize: 12, color: Colors.textSecondary, flex: 1 },
+  addressRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 4, marginTop: 3 },
+  addressText: { fontSize: 12, color: Colors.textTertiary, flex: 1, lineHeight: 16 },
+  statusChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 5 },
+  statusText: { fontSize: 10, fontWeight: '700' },
+  divider: { height: 1, backgroundColor: Colors.borderLight, marginVertical: 12 },
+  primaryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: Colors.primary, borderRadius: 12, paddingVertical: 14,
+  },
+  primaryBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+  waitingBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: Colors.statusQuotedBg, borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: Colors.statusQuoted + '30',
+  },
+  waitingTitle: { fontSize: 13, fontWeight: '700', color: Colors.statusQuoted },
+  waitingText: { fontSize: 11, color: Colors.textSecondary, marginTop: 2 },
+  bidsSection: { backgroundColor: Colors.statusBiddingBg, borderRadius: 12, padding: 12, gap: 10, borderWidth: 1, borderColor: Colors.statusBidding + '30' },
+  bidsHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  bidsSectionTitle: { fontSize: 13, fontWeight: '700', color: Colors.navy },
+  noBidsBox: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  noBidsText: { fontSize: 12, color: Colors.textSecondary, fontStyle: 'italic' },
+  bidCard: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: Colors.surface, borderRadius: 10, padding: 10,
+    borderWidth: 1, borderColor: Colors.borderLight,
+  },
+  bidLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  bidDriverIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: Colors.infoLight, alignItems: 'center', justifyContent: 'center' },
+  bidDriverName: { fontSize: 13, fontWeight: '700', color: Colors.navy },
+  bidVehicle: { fontSize: 11, color: Colors.textSecondary },
+  bidRight: { alignItems: 'flex-end', gap: 4 },
+  bidFare: { fontSize: 15, fontWeight: '800', color: Colors.success },
+  acceptBidBtn: { backgroundColor: Colors.success, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  acceptBidText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
+  tripInfoBox: { backgroundColor: Colors.infoLight, borderRadius: 10, padding: 12, gap: 6, borderWidth: 1, borderColor: Colors.infoBorder },
+  tripRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  tripLabel: { fontSize: 12, color: Colors.navyMid, fontWeight: '500', flex: 1 },
+  orderDate: { fontSize: 11, color: Colors.textTertiary, marginTop: 10 },
+  // Modal
+  overlay: { flex: 1, backgroundColor: Colors.overlay, justifyContent: 'flex-end' },
+  dialog: { backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 32, gap: 16 },
+  dialogHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.borderMedium, alignSelf: 'center', marginBottom: 8 },
+  dialogTitle: { fontSize: 18, fontWeight: '800', color: Colors.navy },
+  dialogInfoBox: { backgroundColor: Colors.background, borderRadius: 10, padding: 12 },
+  dialogInfoText: { fontSize: 15, fontWeight: '700', color: Colors.navy },
+  dialogInfoSub: { fontSize: 12, color: Colors.textSecondary, marginTop: 3 },
+  fieldGroup: { gap: 8 },
+  fieldLabel: { fontSize: 13, fontWeight: '600', color: Colors.text },
+  inputWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.background, borderWidth: 1.5, borderColor: Colors.border, borderRadius: 12,
+  },
+  modalInput: { flex: 1, height: 52, paddingHorizontal: 12, fontSize: 16, color: Colors.text },
+  totalCalc: { fontSize: 12, color: Colors.success, fontWeight: '600', marginTop: 4 },
+  dialogBtns: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  dialogCancelBtn: { flex: 1, height: 50, borderRadius: 12, backgroundColor: Colors.backgroundMuted, alignItems: 'center', justifyContent: 'center' },
+  dialogCancelText: { fontSize: 14, fontWeight: '700', color: Colors.textSecondary },
+  dialogConfirmBtn: { flex: 1.5, height: 50, borderRadius: 12, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
+  dialogConfirmText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+  settleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 },
+  settleLabel: { fontSize: 13, color: Colors.textSecondary },
+  settleVal: { fontSize: 14, fontWeight: '600', color: Colors.text },
 });

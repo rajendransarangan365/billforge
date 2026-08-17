@@ -1,10 +1,13 @@
 // @ts-nocheck
 import React, { createContext, useState, useEffect, useContext } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const SESSION_KEY = 'bf_user_session';
 
 const AuthContext = createContext({
   user: null,
-  loginOwner: () => {},
-  loginDriver: () => {},
+  loginOwner: (_userData: any) => {},
+  loginDriver: (_userData: any) => {},
   logout: () => {},
 });
 
@@ -13,37 +16,34 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     // Load stored session on startup
-    if (typeof localStorage !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('billforge_user_session');
-        if (saved) {
-          setUser(JSON.parse(saved));
-        }
-      } catch (e) {}
-    }
+    AsyncStorage.getItem(SESSION_KEY)
+      .then(saved => {
+        if (saved) setUser(JSON.parse(saved));
+      })
+      .catch(() => {});
   }, []);
 
+  const persist = async (userData) => {
+    try {
+      await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(userData));
+    } catch (e) {}
+  };
+
   const loginOwner = (userData) => {
-    const ownerUser = { ...userData, role: 'owner' };
-    setUser(ownerUser);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('billforge_user_session', JSON.stringify(ownerUser));
-    }
+    const u = { ...userData, role: userData.role || 'owner' };
+    setUser(u);
+    persist(u);
   };
 
   const loginDriver = (userData) => {
-    const driverUser = { ...userData, role: 'driver' };
-    setUser(driverUser);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('billforge_user_session', JSON.stringify(driverUser));
-    }
+    const u = { ...userData, role: 'driver' };
+    setUser(u);
+    persist(u);
   };
 
   const logout = () => {
     setUser(null);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('billforge_user_session');
-    }
+    AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
   };
 
   return (

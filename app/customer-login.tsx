@@ -2,119 +2,200 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, KeyboardAvoidingView, Platform,
-  TouchableOpacity, Alert,
+  TouchableOpacity, ScrollView, TextInput, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
-import { Button, Input } from '../src/components';
+import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
 
 export default function CustomerLoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { loginOwner } = useAuth(); // Logged in user session
-  const [phone, setPhone] = useState('9876500000');
-  const [password, setPassword] = useState('customer123');
+  const { loginOwner } = useAuth();
+
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleLogin = async () => {
-    if (!phone.trim() || !password.trim()) {
-      Alert.alert('Required', 'Please enter your mobile number and password.');
-      return;
-    }
+    setError('');
+    if (!name.trim()) { setError('Please enter your name or company name.'); return; }
+    if (!phone.trim()) { setError('Please enter your mobile number.'); return; }
 
     setLoading(true);
     try {
       const customerUser = {
-        id: 'cust-1',
-        name: 'Anand Construction',
+        id: `cust-${Date.now()}`,
+        name: name.trim(),
         phone: phone.trim(),
         role: 'customer',
       };
       loginOwner(customerUser);
       router.replace('/customer-marketplace');
     } catch (e) {
-      Alert.alert('Error', 'Login failed.');
+      setError('Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={Colors.text} />
+          <Ionicons name="arrow-back" size={22} color={Colors.text} />
         </TouchableOpacity>
 
-        <View style={styles.content}>
-          <View style={[styles.iconCircle, { backgroundColor: '#DCFCE7' }]}>
-            <Ionicons name="cart" size={40} color="#16A34A" />
-          </View>
-
-          <Text style={styles.title}>Customer Portal Login</Text>
-          <Text style={styles.subtitle}>Enter your mobile & password to post material requirements & track lorries live</Text>
-
-          <View style={styles.formCard}>
-            <Input
-              label="Registered Mobile Number"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              placeholder="e.g. 9876500000"
-              icon="call-outline"
-            />
-            <Input
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              placeholder="••••••••"
-              icon="key-outline"
-            />
-
-            <Button
-              title="Log In to Customer Portal"
-              onPress={handleLogin}
-              loading={loading}
-              style={{ marginTop: 10, backgroundColor: '#16A34A' }}
-            />
-          </View>
-
-          <View style={styles.demoBox}>
-            <Text style={[styles.demoTitle, { color: '#16A34A' }]}>💡 Demo Customer Credentials:</Text>
-            <Text style={styles.demoText}>Phone: <Text style={{ fontWeight: '700' }}>9876500000</Text></Text>
-            <Text style={styles.demoText}>Password: <Text style={{ fontWeight: '700' }}>customer123</Text></Text>
-          </View>
+        <View style={[styles.iconWrap, { backgroundColor: Colors.statusAgreedBg }]}>
+          <Ionicons name="construct" size={34} color={Colors.success} />
         </View>
-      </View>
+
+        <Text style={styles.title}>Customer Login</Text>
+        <Text style={styles.subtitle}>
+          Post material requirements, track your lorry live and share delivery documents
+        </Text>
+
+        <View style={styles.form}>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Your Name / Company</Text>
+            <View style={styles.inputWrap}>
+              <Ionicons name="person-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={name}
+                onChangeText={setName}
+                placeholder="e.g. Anand Construction"
+                placeholderTextColor={Colors.textDisabled}
+                returnKeyType="next"
+              />
+            </View>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Mobile Number</Text>
+            <View style={styles.inputWrap}>
+              <Ionicons name="call-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={phone}
+                onChangeText={setPhone}
+                placeholder="10-digit mobile number"
+                placeholderTextColor={Colors.textDisabled}
+                keyboardType="phone-pad"
+                maxLength={10}
+                returnKeyType="next"
+              />
+            </View>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Password (optional)</Text>
+            <View style={styles.inputWrap}>
+              <Ionicons name="lock-closed-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
+              <TextInput
+                style={[styles.input, { paddingRight: 48 }]}
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Enter password"
+                placeholderTextColor={Colors.textDisabled}
+                secureTextEntry={!showPass}
+                returnKeyType="done"
+                onSubmitEditing={handleLogin}
+              />
+              <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPass(!showPass)}>
+                <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={Colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {error ? (
+            <View style={styles.errorBox}>
+              <Ionicons name="alert-circle-outline" size={14} color={Colors.danger} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={[styles.loginBtn, { backgroundColor: Colors.success }, loading && styles.loginBtnDisabled]}
+            onPress={handleLogin}
+            disabled={loading}
+            activeOpacity={0.82}
+          >
+            {loading
+              ? <ActivityIndicator color="#FFF" size="small" />
+              : (
+                <>
+                  <Text style={styles.loginBtnText}>Continue as Customer</Text>
+                  <Ionicons name="arrow-forward" size={18} color="#FFF" />
+                </>
+              )
+            }
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.demoBox, { backgroundColor: Colors.statusAgreedBg, borderColor: Colors.successBorder }]}>
+          <Ionicons name="information-circle-outline" size={14} color={Colors.success} />
+          <Text style={[styles.demoText, { color: Colors.success }]}>
+            Enter any name and mobile to get started. No registration required.
+          </Text>
+        </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  backBtn: { marginHorizontal: Spacing.xl, marginTop: Spacing.md, padding: 4 },
-  content: { flex: 1, paddingHorizontal: Spacing.xl, justifyContent: 'center', marginTop: -30 },
-  iconCircle: {
-    width: 80, height: 80, borderRadius: 40,
+  root: { flex: 1, backgroundColor: Colors.background },
+  scroll: { paddingHorizontal: 24 },
+  backBtn: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.border, marginBottom: 28,
+  },
+  iconWrap: {
+    width: 72, height: 72, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
-    alignSelf: 'center', marginBottom: Spacing.lg,
+    alignSelf: 'center', marginBottom: 20,
   },
-  title: { ...Typography.h1, color: Colors.text, textAlign: 'center' },
-  subtitle: { ...Typography.caption, color: Colors.textSecondary, textAlign: 'center', marginTop: 4, marginBottom: Spacing.xl },
-  formCard: {
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.xl,
-    padding: Spacing.lg, borderWidth: 1, borderColor: Colors.borderLight,
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, elevation: 2,
+  title: { fontSize: 24, fontWeight: '800', color: Colors.navy, textAlign: 'center', letterSpacing: -0.4 },
+  subtitle: { fontSize: 13, color: Colors.textSecondary, textAlign: 'center', marginTop: 6, lineHeight: 19, marginBottom: 32 },
+  form: { gap: 16 },
+  fieldGroup: { gap: 6 },
+  label: { fontSize: 13, fontWeight: '600', color: Colors.text },
+  inputWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface, borderWidth: 1.5, borderColor: Colors.border,
+    borderRadius: 12, overflow: 'hidden',
   },
+  inputIcon: { paddingLeft: 14 },
+  input: { flex: 1, height: 52, paddingHorizontal: 12, fontSize: 15, color: Colors.text },
+  eyeBtn: { padding: 14, position: 'absolute', right: 0 },
+  errorBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: Colors.dangerLight, borderRadius: 10, padding: 10,
+    borderWidth: 1, borderColor: Colors.dangerBorder,
+  },
+  errorText: { fontSize: 12, color: Colors.danger, flex: 1 },
+  loginBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, height: 56, borderRadius: 14, marginTop: 8,
+    shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 6,
+  },
+  loginBtnDisabled: { opacity: 0.7 },
+  loginBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
   demoBox: {
-    backgroundColor: Colors.backgroundSecondary, borderRadius: BorderRadius.md,
-    padding: Spacing.md, marginTop: Spacing.xl, borderWidth: 1, borderColor: Colors.borderLight,
-    alignItems: 'center', gap: 2,
+    flexDirection: 'row', alignItems: 'flex-start', gap: 6,
+    borderRadius: 10, padding: 12, marginTop: 28, borderWidth: 1,
   },
-  demoTitle: { ...Typography.captionSemibold, marginBottom: 2 },
-  demoText: { ...Typography.caption, color: Colors.textSecondary },
+  demoText: { fontSize: 12, flex: 1, lineHeight: 18 },
+  demoBold: { fontWeight: '700' },
 });
