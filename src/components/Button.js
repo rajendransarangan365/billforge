@@ -54,20 +54,20 @@ export function Button({
 
   const iconSize = size === 'sm' ? 15 : size === 'lg' ? 22 : 18;
 
-  const inner = loading ? (
-    <ActivityIndicator color={iconColor} size="small" />
-  ) : (
+  const inner = (
     <View style={styles.content}>
-      {icon && iconPosition === 'left' && (
+      {loading ? (
+        <ActivityIndicator color={iconColor} size="small" style={styles.iconLeft} />
+      ) : icon && iconPosition === 'left' ? (
         <Ionicons
           name={icon}
           size={iconSize}
           color={isDisabled ? Colors.textDisabled : iconColor}
           style={styles.iconLeft}
         />
-      )}
-      <Text style={textStyles}>{title}</Text>
-      {icon && iconPosition === 'right' && (
+      ) : null}
+      <Text style={textStyles}>{loading ? `${title}...` : title}</Text>
+      {!loading && icon && iconPosition === 'right' && (
         <Ionicons
           name={icon}
           size={iconSize}

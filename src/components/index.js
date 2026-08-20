@@ -5,3 +5,4 @@ export { FAB } from './FAB';
 export { EmptyState } from './EmptyState';
 export { AppHeader } from './AppHeader';
 export { DateTimePickerInput } from './DateTimePickerInput';
+export { SidebarNav } from './SidebarNav';
