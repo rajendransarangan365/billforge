@@ -78,21 +78,6 @@ export default function EnquiriesScreen() {
   const [pickupAddress, setPickupAddress] = useState('Quarry Yard 1');
   const [customerAddress, setCustomerAddress] = useState('Customer Site');
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const db = await getDatabase();
-      const list = await getEnquiries(db);
-      const driverList = await getDrivers(db);
-      setEnquiries(list);
-      setDrivers(driverList);
-    } catch (e) {
-      console.error('Enquiries load error:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
   const handleCreateEnquiry = async () => {
