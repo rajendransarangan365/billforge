@@ -137,12 +137,14 @@ export default function BillFormScreen() {
   const [newCustAddress, setNewCustAddress] = useState('');
   const [savingNewCustomer, setSavingNewCustomer] = useState(false);
 
+  const targetEditId = editBillId ? (Array.isArray(editBillId) ? editBillId[0] : editBillId) : null;
+
   useEffect(() => {
     loadTemplate();
     loadBillNumber();
     loadMaterials();
     loadCustomers();
-  }, [templateId, companyId]);
+  }, [templateId, companyId, editBillId]);
 
   // Keyboard Shortcuts for Material Billing on Web
   useEffect(() => {
@@ -220,7 +222,7 @@ export default function BillFormScreen() {
   };
 
   const loadBillNumber = async () => {
-    if (editBillId) return; // Do NOT overwrite bill number when editing an existing bill!
+    if (targetEditId) return; // Do NOT overwrite bill number when editing an existing bill!
     try {
       const db = await getDatabase();
       const nextBn = await getNextBillNumber(db, companyId);
@@ -289,18 +291,18 @@ export default function BillFormScreen() {
           setCompanyProfile(profile);
         }
         
-        // 1. If editing an existing bill (editBillId)
-        if (editBillId) {
+        // 1. If editing an existing bill (targetEditId)
+        if (targetEditId) {
           setIsEditing(true);
-          const existingBill = await getBillById(db, parseInt(editBillId), companyId);
+          const existingBill = await getBillById(db, parseInt(targetEditId), companyId);
           if (existingBill) {
             const hData = typeof existingBill.header_data_json === 'string' ? JSON.parse(existingBill.header_data_json || '{}') : (existingBill.header_data_json || {});
             const rData = typeof existingBill.row_data_json === 'string' ? JSON.parse(existingBill.row_data_json || '[]') : (existingBill.row_data_json || []);
             
             setHeaderData(hData);
             setRowData(rData);
-            if (hData.customer_phone) setCustomerPhone(hData.customer_phone);
-            if (hData.customer_address) setCustomerAddress(hData.customer_address);
+            if (hData.customer_phone || existingBill.customer_phone) setCustomerPhone(hData.customer_phone || existingBill.customer_phone);
+            if (hData.customer_address || existingBill.customer_address) setCustomerAddress(hData.customer_address || existingBill.customer_address);
             
             setCalcSettings({
               multiplyTrip: hData.calc_multiply_trip === 'true',
@@ -313,7 +315,7 @@ export default function BillFormScreen() {
         }
 
         // 2. Check for an unfinished left-over draft ONLY when creating a new bill (not editing)
-        if (!editBillId) {
+        if (!targetEditId) {
           const draft = await getDraft(templateId, companyId);
           if (draft && draft.headerData && (Object.keys(draft.headerData).length > 0 || (draft.rowData && draft.rowData.length > 0))) {
             setSavedDraftData(draft);

@@ -557,22 +557,24 @@ export async function getBills(db, quarryId) {
 }
 
 export async function getBillById(db, id, quarryId = 1) {
+  const targetId = parseInt(id);
+  if (isNaN(targetId)) return null;
   const qid = quarryId || 1;
   if (IS_WEB) {
     const list = webGet(qKey(qid, 'bills')) || [];
-    const bill = list.find(b => b.id === parseInt(id));
+    const bill = list.find(b => parseInt(b.id) === targetId);
     if (bill) return bill;
 
     // Cross-quarry fallback search
     const quarries = webGet('bf_quarries') || [];
     for (const q of quarries) {
       const qBills = webGet(qKey(q.id, 'bills')) || [];
-      const found = qBills.find(b => b.id === parseInt(id));
+      const found = qBills.find(b => parseInt(b.id) === targetId);
       if (found) return found;
     }
     return null;
   }
-  return await db.getFirstAsync('SELECT * FROM bills WHERE id = ?', [id]);
+  return await db.getFirstAsync('SELECT * FROM bills WHERE id = ?', [targetId]);
 }
 
 export async function saveBill(db, bill) {
