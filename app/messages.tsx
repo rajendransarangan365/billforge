@@ -70,10 +70,39 @@ export default function MessagesScreen() {
   useEffect(() => {
     if (activeContact) {
       loadMessages(activeContact);
+
+      // Real-time broadcast channel listener across browser windows/tabs
+      let bc;
+      try {
+        if (typeof window !== 'undefined' && window.BroadcastChannel) {
+          bc = new window.BroadcastChannel('billforge_chat');
+          bc.onmessage = (event) => {
+            if (event.data?.type === 'NEW_MESSAGE') {
+              loadMessages(activeContact);
+            }
+          };
+        }
+      } catch (e) {}
+
+      // Storage event listener fallback
+      const handleStorageChange = () => {
+        loadMessages(activeContact);
+      };
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.addEventListener('storage', handleStorageChange);
+      }
+
       const interval = setInterval(() => {
         loadMessages(activeContact);
       }, 2000);
-      return () => clearInterval(interval);
+
+      return () => {
+        clearInterval(interval);
+        if (bc) bc.close();
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          window.removeEventListener('storage', handleStorageChange);
+        }
+      };
     }
   }, [activeContact, loadMessages]);
 

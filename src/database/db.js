@@ -1567,48 +1567,44 @@ export async function getUniversalContacts(db, currentRole, currentQuarryId) {
   return [];
 }
 
+export function getEntityId(entity) {
+  if (!entity) return 'guest';
+  if (typeof entity === 'string') return entity;
+  if (entity.role === 'admin' || entity.id === 'contact_admin') return 'admin_1';
+  if (entity.quarry_id || entity.quarryId) return `quarry_${entity.quarry_id || entity.quarryId}`;
+  if (entity.driver_id || entity.driverId) return `driver_${entity.driver_id || entity.driverId}`;
+  if (entity.customer_id || entity.customerId) return `customer_${entity.customer_id || entity.customerId}`;
+  if (entity.phone) return `phone_${String(entity.phone).replace(/\D/g, '')}`;
+  if (entity.id) return `entity_${entity.id}`;
+  return 'user';
+}
+
 export function getSharedThreadKey(contact, currentUser) {
-  if (!contact) return 'bf_msg_thread_general';
-  
-  // Extract identifiers
-  let id1 = 'user';
-  if (currentUser) {
-    id1 = currentUser.quarryId ? `quarry_${currentUser.quarryId}` : (currentUser.phone ? `phone_${currentUser.phone}` : `user_${currentUser.id || 1}`);
-  }
-
-  let id2 = contact.quarry_id ? `quarry_${contact.quarry_id}` : (contact.phone ? `phone_${contact.phone}` : (contact.driver_id ? `driver_${contact.driver_id}` : contact.id));
-
-  // If one is quarry and one is phone (customer/driver):
-  if (contact.phone && currentUser?.quarryId) {
-    return `bf_chat_${currentUser.quarryId}_${contact.phone}`;
-  }
-  if (contact.quarry_id && currentUser?.phone) {
-    return `bf_chat_${contact.quarry_id}_${currentUser.phone}`;
-  }
-
-  // Sort both IDs alphabetically to ensure 100% symmetry
-  const pair = [String(id1), String(id2)].sort();
-  return `bf_msg_thread_${pair.join('_')}`;
+  const idA = getEntityId(currentUser);
+  const idB = getEntityId(contact);
+  const pair = [String(idA), String(idB)].sort();
+  return `bf_chat_${pair.join('_')}`;
 }
 
 export async function getUniversalMessages(db, contact, currentUser) {
   if (IS_WEB) {
-    const threadKey = typeof contact === 'string' ? `bf_msg_thread_${contact}` : getSharedThreadKey(contact, currentUser);
-    const msgs = webGet(threadKey) || [];
-    if (msgs.length > 0) return msgs;
-
-    // Check fallback legacy keys if empty
-    if (typeof contact === 'object' && contact) {
-      const fallbackKey = contact.quarry_id && currentUser?.phone
-        ? `bf_chat_${contact.quarry_id}_${currentUser.phone}`
-        : contact.phone && currentUser?.quarryId
-        ? `bf_chat_${currentUser.quarryId}_${contact.phone}`
-        : null;
-      if (fallbackKey) {
-        const fall = webGet(fallbackKey);
-        if (fall && fall.length > 0) return fall;
+    const threadKey = typeof contact === 'string' ? `bf_chat_${contact}` : getSharedThreadKey(contact, currentUser);
+    let msgs = webGet(threadKey) || [];
+    
+    // Legacy fallback check if empty
+    if (msgs.length === 0 && typeof contact === 'object' && contact) {
+      const qid = contact.quarry_id || currentUser?.quarryId;
+      const phone = contact.phone || currentUser?.phone;
+      if (qid && phone) {
+        const legacyMsgs = webGet(`bf_chat_${qid}_${phone}`);
+        if (legacyMsgs && legacyMsgs.length > 0) {
+          webSet(threadKey, legacyMsgs);
+          return legacyMsgs;
+        }
       }
     }
+
+    if (msgs.length > 0) return msgs;
 
     const welcomeMsgs = [
       {
@@ -1627,7 +1623,7 @@ export async function getUniversalMessages(db, contact, currentUser) {
 
 export async function sendUniversalMessage(db, contact, senderRole, senderName, text, currentUser) {
   if (IS_WEB) {
-    const threadKey = typeof contact === 'string' ? `bf_msg_thread_${contact}` : getSharedThreadKey(contact, currentUser);
+    const threadKey = typeof contact === 'string' ? `bf_chat_${contact}` : getSharedThreadKey(contact, currentUser);
     const list = webGet(threadKey) || [];
     const newMsg = {
       id: `msg-${Date.now()}`,
@@ -1640,10 +1636,19 @@ export async function sendUniversalMessage(db, contact, senderRole, senderName, 
     list.push(newMsg);
     webSet(threadKey, list);
 
-    // Also sync if it's a customer <-> quarry chat
+    // Broadcast event across browser tabs if available
+    try {
+      if (typeof window !== 'undefined' && window.BroadcastChannel) {
+        const bc = new window.BroadcastChannel('billforge_chat');
+        bc.postMessage({ type: 'NEW_MESSAGE', threadKey });
+        bc.close();
+      }
+    } catch (e) {}
+
+    // Legacy sync fallback for enquiry feeds
     if (typeof contact === 'object' && contact) {
-      const targetQuarryId = contact.quarry_id || currentUser?.quarryId;
-      const targetPhone = contact.phone || currentUser?.phone;
+      const targetQuarryId = contact.quarry_id || currentUser?.quarryId || 1;
+      const targetPhone = contact.phone || currentUser?.phone || '9894698049';
       if (targetQuarryId && targetPhone) {
         const legacyKey = `bf_chat_${targetQuarryId}_${targetPhone}`;
         webSet(legacyKey, list);
