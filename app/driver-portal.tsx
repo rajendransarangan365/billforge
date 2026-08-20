@@ -195,9 +195,18 @@ export default function DriverPortalScreen() {
                     <Ionicons name="person-outline" size={14} color={Colors.textSecondary} />
                     <Text style={styles.customerText}>Customer: {c.customer_name} ({c.customer_phone || 'N/A'})</Text>
                     {c.customer_phone ? (
-                      <TouchableOpacity onPress={() => Linking.openURL(`tel:${c.customer_phone}`)}>
-                        <Ionicons name="call-outline" size={16} color={Colors.primary} />
-                      </TouchableOpacity>
+                      <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                        <TouchableOpacity onPress={() => Linking.openURL(`tel:${c.customer_phone}`)}>
+                          <Ionicons name="call-outline" size={16} color={Colors.primary} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#E3F2FD', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, gap: 4 }}
+                          onPress={() => router.push('/messages')}
+                        >
+                          <Ionicons name="chatbubbles" size={14} color="#1565C0" />
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: '#1565C0' }}>Chat Customer</Text>
+                        </TouchableOpacity>
+                      </View>
                     ) : null}
                   </View>
                 ) : null}

@@ -395,23 +395,40 @@ export default function EnquiriesScreen() {
       <Modal visible={assignModalVisible} animationType="fade" transparent>
         <View style={styles.overlay}>
           <View style={styles.dialog}>
-            <Text style={styles.dialogTitle}>Assign Driver to Delivery</Text>
-            <Text style={styles.dialogSub}>Select an available driver for {selectedEnquiry?.customer_name}</Text>
+            <Text style={styles.dialogTitle}>Assign Driver & Transport Negotiation</Text>
+            <Text style={styles.dialogSub}>Select an available driver or chat to negotiate transport rates for {selectedEnquiry?.customer_name}</Text>
 
-            <ScrollView style={{ maxHeight: 200, marginVertical: 12 }}>
+            <ScrollView style={{ maxHeight: 220, marginVertical: 12 }}>
               {drivers.map(d => (
-                <TouchableOpacity
+                <View
                   key={d.id}
                   style={[styles.driverRow, selectedDriverId === d.id && styles.driverRowActive]}
-                  onPress={() => setSelectedDriverId(d.id)}
                 >
-                  <Ionicons name="person-circle" size={24} color={selectedDriverId === d.id ? Colors.primary : Colors.textSecondary} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.driverName}>{d.name}</Text>
-                    <Text style={styles.driverMeta}>{d.vehicle_no || 'No vehicle'} · {d.status}</Text>
-                  </View>
-                  {selectedDriverId === d.id && <Ionicons name="checkmark" size={18} color={Colors.primary} />}
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                    onPress={() => setSelectedDriverId(d.id)}
+                  >
+                    <Ionicons name="person-circle" size={26} color={selectedDriverId === d.id ? Colors.primary : Colors.textSecondary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.driverName}>{d.name}</Text>
+                      <Text style={styles.driverMeta}>
+                        {d.category === 'private' ? 'Private Freelance Driver' : 'In-House Fleet'} • {d.vehicle_no || 'Lorry'}
+                      </Text>
+                    </View>
+                    {selectedDriverId === d.id && <Ionicons name="checkmark" size={18} color={Colors.primary} />}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={{ backgroundColor: '#E3F2FD', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8 }}
+                    onPress={() => {
+                      setAssignModalVisible(false);
+                      router.push('/messages');
+                    }}
+                  >
+                    <Ionicons name="chatbubbles" size={14} color="#1565C0" />
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#1565C0' }}>Chat Driver</Text>
+                  </TouchableOpacity>
+                </View>
               ))}
             </ScrollView>
 
