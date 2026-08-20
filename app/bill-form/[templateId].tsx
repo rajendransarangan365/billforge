@@ -15,6 +15,7 @@ import {
   getNextBillNumber,
   saveBill,
   getMaterials,
+  saveMaterial,
   saveCustomer,
   getCustomers,
   getEnquiries,
@@ -940,9 +941,60 @@ export default function BillFormScreen() {
     setMaterialModalVisible(true);
   };
 
-  const selectMaterial = (materialName) => {
-    updateRowField(activeRowIdx, activeFieldKey, materialName);
+  const [customPriceInput, setCustomPriceInput] = useState('');
+  const [customUnitInput, setCustomUnitInput] = useState('unit');
+  const [savingCustomMaterial, setSavingCustomMaterial] = useState(false);
+
+  const selectMaterial = (mat) => {
+    const matObj = typeof mat === 'object' ? mat : materials.find(m => m.name.toLowerCase() === String(mat).toLowerCase());
+    const matName = typeof mat === 'object' ? mat.name : mat;
+    const matPrice = matObj ? String(matObj.price_per_unit || '') : '';
+
+    setRowData(prev => {
+      const updated = [...prev];
+      if (activeRowIdx !== null && updated[activeRowIdx]) {
+        const row = { ...updated[activeRowIdx], [activeFieldKey]: matName };
+        if (matPrice) {
+          const costField = tableFields.find(f => {
+            const norm = normalizeKey(f.name);
+            return norm === 'materialtypecost' || norm.includes('cost') || norm.includes('rate') || norm.includes('price');
+          });
+          if (costField) {
+            row[costField.name] = matPrice;
+          }
+        }
+        updated[activeRowIdx] = row;
+      }
+      return updated;
+    });
     setMaterialModalVisible(false);
+  };
+
+  const handleSaveMaterialOnTheGo = async () => {
+    if (!customMaterialInput.trim()) {
+      Alert.alert('Required', 'Please enter material name.');
+      return;
+    }
+    setSavingCustomMaterial(true);
+    try {
+      const db = await getDatabase();
+      const newMat = {
+        name: customMaterialInput.trim(),
+        price_per_unit: parseFloat(customPriceInput) || 0,
+        unit_type: customUnitInput || 'unit',
+        quarry_id: companyId,
+      };
+      await saveMaterial(db, newMat);
+      await loadMaterials();
+      selectMaterial(newMat);
+      setShowCustomMaterialForm(false);
+      setCustomMaterialInput('');
+      setCustomPriceInput('');
+    } catch (e) {
+      selectMaterial({ name: customMaterialInput.trim(), price_per_unit: parseFloat(customPriceInput) || 0 });
+    } finally {
+      setSavingCustomMaterial(false);
+    }
   };
 
   const openCustomerPicker = (fieldName) => {
@@ -1881,7 +1933,10 @@ export default function BillFormScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Material</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="cube-outline" size={20} color={Colors.primary} />
+                <Text style={styles.modalTitle}>Select Material</Text>
+              </View>
               <TouchableOpacity onPress={() => setMaterialModalVisible(false)} style={styles.closeBtn}>
                 <Ionicons name="close" size={24} color={Colors.text} />
               </TouchableOpacity>
@@ -1892,7 +1947,7 @@ export default function BillFormScreen() {
                 <TouchableOpacity
                   key={m.id}
                   style={styles.modalItem}
-                  onPress={() => selectMaterial(m.name)}
+                  onPress={() => selectMaterial(m)}
                 >
                   <View style={styles.modalItemIconCircle}>
                     <Ionicons name="cube-outline" size={18} color={Colors.primary} />
@@ -1912,31 +1967,50 @@ export default function BillFormScreen() {
                   onPress={() => setShowCustomMaterialForm(true)}
                 >
                   <View style={[styles.modalItemIconCircle, { backgroundColor: '#E8F5E9' }]}>
-                    <Ionicons name="create" size={18} color={Colors.success} />
+                    <Ionicons name="add-circle" size={18} color={Colors.success} />
                   </View>
                   <Text style={[styles.modalItemText, { color: Colors.success, fontWeight: '600' }]}>
-                    Enter Custom Material...
+                    + Add New Material On-The-Go...
                   </Text>
                 </TouchableOpacity>
               ) : (
-                <View style={styles.customForm}>
+                <View style={[styles.customForm, { padding: 14, backgroundColor: '#F8FAFC', borderRadius: 12, marginTop: 10 }]}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: Colors.navy, marginBottom: 8 }}>New Material On-The-Go</Text>
                   <Input
-                    label="Custom Material Name"
+                    label="Material Name *"
                     value={customMaterialInput}
                     onChangeText={setCustomMaterialInput}
-                    placeholder="Type material name"
+                    placeholder="e.g. P-Sand Grade B / 10mm Metal"
+                    icon="cube-outline"
                   />
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <View style={{ flex: 1 }}>
+                      <Input
+                        label="Price per Unit (₹) *"
+                        value={customPriceInput}
+                        onChangeText={setCustomPriceInput}
+                        placeholder="2800"
+                        keyboardType="numeric"
+                        icon="cash-outline"
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Input
+                        label="Unit Type"
+                        value={customUnitInput}
+                        onChangeText={setCustomUnitInput}
+                        placeholder="unit / ton / cft"
+                        icon="options-outline"
+                      />
+                    </View>
+                  </View>
                   <Button
-                    title="Add & Select"
-                    onPress={() => {
-                      if (customMaterialInput.trim()) {
-                        selectMaterial(customMaterialInput.trim());
-                      } else {
-                        Alert.alert('Required', 'Please enter a name');
-                      }
-                    }}
+                    title={savingCustomMaterial ? "Saving..." : "Save to Catalog & Select"}
+                    onPress={handleSaveMaterialOnTheGo}
+                    disabled={savingCustomMaterial}
                     variant="success"
                     fullWidth
+                    style={{ marginTop: 6 }}
                   />
                 </View>
               )}

@@ -417,12 +417,25 @@ export async function saveCompanyProfile(db, profile) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // MATERIALS (quarry-scoped)
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function getMaterials(db, quarryId) {
+export async function getMaterials(db, quarryId = 1) {
+  const qid = quarryId || 1;
   if (IS_WEB) {
-    const list = webGet(qKey(quarryId, 'materials')) || [];
+    let list = webGet(qKey(qid, 'materials'));
+    if (!list || list.length === 0) {
+      list = getDefaultMaterials();
+      webSet(qKey(qid, 'materials'), list);
+    }
     return list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }
-  return await db.getAllAsync('SELECT * FROM materials WHERE quarry_id = ? ORDER BY name', [quarryId]);
+  const rows = await db.getAllAsync('SELECT * FROM materials WHERE quarry_id = ? ORDER BY name', [qid]);
+  if (!rows || rows.length === 0) {
+    const defaults = getDefaultMaterials();
+    for (const m of defaults) {
+      await db.runAsync('INSERT INTO materials (quarry_id, name, price_per_unit, unit_type) VALUES (?,?,?,?)', [qid, m.name, m.price_per_unit, m.unit_type || 'unit']);
+    }
+    return defaults;
+  }
+  return rows;
 }
 
 export async function saveMaterial(db, material) {
