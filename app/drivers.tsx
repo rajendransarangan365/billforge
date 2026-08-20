@@ -11,9 +11,12 @@ import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
 import { Button, Input, EmptyState } from '../src/components';
 import { getDatabase, getDrivers, saveDriver } from '../src/database/db';
 
+import { useAuth } from '../src/context/AuthContext';
+
 export default function DriversScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { companyId } = useAuth();
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
@@ -29,14 +32,14 @@ export default function DriversScreen() {
     setLoading(true);
     try {
       const db = await getDatabase();
-      const list = await getDrivers(db);
+      const list = await getDrivers(db, companyId);
       setDrivers(list);
     } catch (e) {
       console.error('Drivers load error:', e);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [companyId]);
 
   useFocusEffect(useCallback(() => { loadDrivers(); }, [loadDrivers]));
 
@@ -49,6 +52,7 @@ export default function DriversScreen() {
     try {
       const db = await getDatabase();
       await saveDriver(db, {
+        company_id: companyId,
         name: name.trim(),
         phone: phone.trim(),
         vehicle_no: vehicleNo.trim(),

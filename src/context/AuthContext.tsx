@@ -6,6 +6,7 @@ const SESSION_KEY = 'bf_user_session';
 
 const AuthContext = createContext({
   user: null,
+  companyId: 1,
   loginOwner: (_userData: any) => {},
   loginDriver: (_userData: any) => {},
   logout: () => {},
@@ -25,7 +26,11 @@ export function AuthProvider({ children }) {
   };
 
   const loginOwner = (userData: any) => {
-    const u = { ...userData, role: userData.role || 'owner' };
+    const u = {
+      ...userData,
+      company_id: userData.company_id || userData.id || 1,
+      role: userData.role || 'owner',
+    };
     setUser(u);
     persist(u);
   };
@@ -41,8 +46,10 @@ export function AuthProvider({ children }) {
     Storage.removeItem(SESSION_KEY).catch(() => {});
   };
 
+  const companyId = user?.company_id || user?.id || 1;
+
   return (
-    <AuthContext.Provider value={{ user, loginOwner, loginDriver, logout }}>
+    <AuthContext.Provider value={{ user, companyId, loginOwner, loginDriver, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -51,3 +58,4 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
+

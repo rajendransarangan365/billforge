@@ -17,6 +17,7 @@ import {
 } from '../../src/database/db';
 import { getKeyboardTypeForField } from '../../src/services/templateParser';
 import { generatePDF, sharePDF, savePDFPermanently } from '../../src/services/pdfGenerator';
+import { useAuth } from '../../src/context/AuthContext';
 
 const normalizeKey = (key: string) => key ? key.toLowerCase().replace(/[\s_-]/g, '') : '';
 
@@ -29,6 +30,7 @@ const getRowValue = (row: any, targetNames: string[]) => {
 export default function BillFormScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { companyId } = useAuth();
   const { templateId, editBillId } = useLocalSearchParams();
   const [template, setTemplate] = useState(null);
   const [headerFields, setHeaderFields] = useState([]);
@@ -120,7 +122,26 @@ export default function BillFormScreen() {
     loadBillNumber();
     loadMaterials();
     loadCustomers();
-  }, [templateId]);
+  }, [templateId, companyId]);
+
+  // Keyboard Shortcuts for Material Billing on Web
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSaveBill();
+      } else if (e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        addRow();
+      } else if (e.altKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        handleGeneratePDF();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [headerData, rowData, calcSettings, companyProfile, saving, generating, companyId]);
 
   const loadCustomers = async () => {
     try {
@@ -135,7 +156,7 @@ export default function BillFormScreen() {
   const loadBillNumber = async () => {
     try {
       const db = await getDatabase();
-      const nextBn = await getNextBillNumber(db);
+      const nextBn = await getNextBillNumber(db, companyId);
       setHeaderData(prev => {
         const updated = { ...prev };
         const bnField = headerFields.find(f => {
@@ -158,7 +179,7 @@ export default function BillFormScreen() {
   const loadMaterials = async () => {
     try {
       const db = await getDatabase();
-      const list = await getMaterials(db);
+      const list = await getMaterials(db, companyId);
       setMaterials(list);
     } catch (error) {
       console.error('Error loading materials:', error);
@@ -196,8 +217,8 @@ export default function BillFormScreen() {
 
         setHeaderFields(hFields);
         setTableFields(tFields);
-               // Load company profile and sequential bill number
-        const profile = await getCompanyProfile(db);
+        // Load company profile and sequential bill number
+        const profile = await getCompanyProfile(db, companyId);
         if (profile) {
           setCompanyProfile(profile);
         }
@@ -225,14 +246,14 @@ export default function BillFormScreen() {
           }
         }
 
-        // 2. Check for an unfinished left-over draft for this template
-        const draft = await getDraft(templateId);
+        // 2. Check for an unfinished left-over draft for this template & company login
+        const draft = await getDraft(templateId, companyId);
         if (draft && draft.headerData && (Object.keys(draft.headerData).length > 0 || (draft.rowData && draft.rowData.length > 0))) {
           setSavedDraftData(draft);
           setDraftModalVisible(true);
         }
 
-        const nextBn = await getNextBillNumber(db);
+        const nextBn = await getNextBillNumber(db, companyId);
 
         // Initialize header data with current date for date/datetime fields and prefilled values
         const hData = {};
@@ -266,7 +287,7 @@ export default function BillFormScreen() {
         // Auto-fill Sno for the first row
         const snoField = tFields.find(f => {
           const norm = normalizeKey(f.name);
-          return norm === 'sno' || norm === 'slno';
+          return norm === 'sno' || norm === 'slno' || norm === 's/no';
         });
         if (snoField) {
           rowInit[snoField.name] = '1';
@@ -289,9 +310,9 @@ export default function BillFormScreen() {
         calcSettings,
         customerPhone,
         customerAddress,
-      });
+      }, companyId);
     }
-  }, [headerData, rowData, calcSettings, customerPhone, customerAddress, isEditing, template]);
+  }, [headerData, rowData, calcSettings, customerPhone, customerAddress, isEditing, template, companyId]);
 
   // Auto-sync serial numbers when rows change
   useEffect(() => {
@@ -1006,7 +1027,7 @@ export default function BillFormScreen() {
 
       const billId = await saveBill(db, {
         template_id: parseInt(templateId),
-        company_id: 1,
+        company_id: companyId || 1,
         bill_number: billNumber,
         customer_name: customerName,
         headerData: headerDataToSave,
@@ -1399,6 +1420,16 @@ export default function BillFormScreen() {
           <Text style={styles.headerSub}>{template.name}</Text>
         </View>
       </View>
+
+      {/* Shortcuts Banner (Web/Desktop) */}
+      {Platform.OS === 'web' && (
+        <View style={styles.shortcutBanner}>
+          <Ionicons name="flash-outline" size={14} color={Colors.primary} />
+          <Text style={styles.shortcutText}>
+            <Text style={styles.shortcutBold}>Fast Billing Shortcuts:</Text> Ctrl+S to Save Bill | Alt+N for New Row | Alt+P for PDF Preview
+          </Text>
+        </View>
+      )}
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -1976,7 +2007,7 @@ export default function BillFormScreen() {
                 <Button
                   title="Start Fresh"
                   onPress={async () => {
-                    await clearDraft(templateId);
+                    await clearDraft(templateId, companyId);
                     setDraftModalVisible(false);
                   }}
                   variant="outline"
@@ -2083,6 +2114,25 @@ const styles = StyleSheet.create({
   loadingText: {
     ...Typography.body,
     color: Colors.textTertiary,
+  },
+  shortcutBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Colors.primarySurface,
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.primaryBorder,
+  },
+  shortcutText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  shortcutBold: {
+    fontWeight: '700',
+    color: Colors.primary,
   },
   header: {
     flexDirection: 'row',

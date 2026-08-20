@@ -11,8 +11,11 @@ import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card, Button, Input } from '../../src/components';
 import { getDatabase, getCompanyProfile, saveCompanyProfile } from '../../src/database/db';
 
+import { useAuth } from '../../src/context/AuthContext';
+
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const { companyId } = useAuth();
   const [profile, setProfile] = useState({ name: '', address: '', location: '', phone: '' });
   const [saving, setSaving] = useState(false);
 
@@ -21,7 +24,7 @@ export default function ProfileScreen() {
       (async () => {
         try {
           const db = await getDatabase();
-          const existing = await getCompanyProfile(db);
+          const existing = await getCompanyProfile(db, companyId);
           if (existing) {
             setProfile({
               name: existing.name || '',
@@ -34,7 +37,7 @@ export default function ProfileScreen() {
           console.error('Error loading profile:', error);
         }
       })();
-    }, [])
+    }, [companyId])
   );
 
   const handleSave = async () => {
@@ -45,7 +48,7 @@ export default function ProfileScreen() {
     setSaving(true);
     try {
       const db = await getDatabase();
-      await saveCompanyProfile(db, profile);
+      await saveCompanyProfile(db, { ...profile, id: companyId });
       Alert.alert('Saved', 'Company profile updated successfully.');
     } catch (error) {
       Alert.alert('Error', 'Failed to save profile.');

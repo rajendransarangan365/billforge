@@ -11,10 +11,14 @@ import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card, Button, Input, FAB } from '../../src/components';
 import { getDatabase, getMaterials, saveMaterial, deleteMaterial } from '../../src/database/db';
 
+import { useAuth } from '../../src/context/AuthContext';
+
 export default function MaterialsScreen() {
   const insets = useSafeAreaInsets();
+  const { companyId } = useAuth();
   const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState(null);
   const [formData, setFormData] = useState({ name: '', price_per_unit: '', unit_type: '' });
@@ -23,14 +27,14 @@ export default function MaterialsScreen() {
     try {
       setLoading(true);
       const db = await getDatabase();
-      const list = await getMaterials(db);
+      const list = await getMaterials(db, companyId);
       setMaterials(list);
     } catch (error) {
       console.error('Error loading materials:', error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [companyId]);
 
   useFocusEffect(useCallback(() => { loadMaterials(); }, [loadMaterials]));
 
@@ -39,10 +43,12 @@ export default function MaterialsScreen() {
       Alert.alert('Required', 'Please enter both name and price.');
       return;
     }
+    setSaving(true);
     try {
       const db = await getDatabase();
       await saveMaterial(db, {
         id: editingMaterial?.id,
+        company_id: companyId,
         name: formData.name,
         price_per_unit: parseFloat(formData.price_per_unit),
         unit_type: formData.unit_type,
@@ -52,6 +58,8 @@ export default function MaterialsScreen() {
       loadMaterials();
     } catch (error) {
       Alert.alert('Error', 'Failed to save material.');
+    } finally {
+      setSaving(false);
     }
   };
 

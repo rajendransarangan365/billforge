@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
+import { getDatabase, authenticateOwner } from '../src/database/db';
 
 const { width: W } = Dimensions.get('window');
 
@@ -38,16 +39,26 @@ export default function OwnerLoginScreen() {
 
     setLoading(true);
     try {
-      // Demo login — replace with real API call when backend is live
-      const ownerUser = {
-        id: 'owner-1',
-        name: phone.trim() === '9999999999' ? 'Sri Murugan Quarry' : 'Quarry Owner',
-        phone: phone.trim(),
-        role: 'owner',
-      };
-      loginOwner(ownerUser);
-      router.replace('/quarry-marketplace');
+      const db = await getDatabase();
+      const authenticated = await authenticateOwner(db, phone, password);
+
+      if (authenticated) {
+        const ownerUser = {
+          id: authenticated.id,
+          company_id: authenticated.id,
+          name: authenticated.name || 'Sri Murugan Quarry',
+          phone: authenticated.phone || phone.trim(),
+          location: authenticated.location || 'Tiruppur',
+          address: authenticated.address || 'Main Quarry Road',
+          role: 'owner',
+        };
+        loginOwner(ownerUser);
+        router.replace('/(tabs)');
+      } else {
+        setError('Invalid mobile number or password. Please try again or register.');
+      }
     } catch (e) {
+      console.error('Login error:', e);
       setError('Login failed. Please try again.');
     } finally {
       setLoading(false);
@@ -76,7 +87,7 @@ export default function OwnerLoginScreen() {
 
         <Text style={styles.title}>Quarry Owner Login</Text>
         <Text style={styles.subtitle}>
-          Manage material enquiries, transport bids and driver assignments
+          Sign in to access your company bills, auto-resume drafts, customer ledgers & transport handling
         </Text>
 
         {/* Form */}
@@ -144,6 +155,16 @@ export default function OwnerLoginScreen() {
                 </>
               )
             }
+          </TouchableOpacity>
+
+          {/* Register Link */}
+          <TouchableOpacity
+            style={styles.registerLinkBtn}
+            onPress={() => router.push('/owner-register')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="person-add-outline" size={18} color={Colors.primary} />
+            <Text style={styles.registerLinkText}>New Business? Register Quarry Account</Text>
           </TouchableOpacity>
         </View>
 
@@ -214,7 +235,24 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   loginBtnDisabled: { opacity: 0.7 },
-  loginBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
+  registerLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justify: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: Colors.primaryBorder,
+    backgroundColor: Colors.primarySurface,
+    marginTop: 6,
+  },
+  registerLinkText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
   demoBox: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 6,
     backgroundColor: Colors.infoLight,

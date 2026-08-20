@@ -399,23 +399,27 @@ async function initializeSchema(db) {
 }
 
 /**
- * Get the next sequential bill number.
+ * Get the next sequential bill number for a company.
  */
-export async function getNextBillNumber(db) {
+export async function getNextBillNumber(db, companyId = 1) {
   if (IS_WEB) {
     const bills = webGetItems('billforge_bills') || [];
-    const count = bills.length;
+    const count = bills.filter(b => !companyId || b.company_id === parseInt(companyId)).length;
     return (count + 1).toString().padStart(4, '0');
   }
-  const result = await db.getFirstAsync('SELECT COUNT(*) as count FROM bills');
+  const result = await db.getFirstAsync('SELECT COUNT(*) as count FROM bills WHERE company_id = ?', [companyId || 1]);
   const count = result?.count || 0;
   return (count + 1).toString().padStart(4, '0');
 }
 
 // === Materials ===
-export async function getMaterials(db) {
+export async function getMaterials(db, companyId) {
   if (IS_WEB) {
     const list = webGetItems('billforge_materials') || [];
+    if (companyId) {
+      const companyMaterials = list.filter(m => !m.company_id || m.company_id === parseInt(companyId));
+      return companyMaterials.sort((a, b) => a.name.localeCompare(b.name));
+    }
     return list.sort((a, b) => a.name.localeCompare(b.name));
   }
   return await db.getAllAsync('SELECT * FROM materials ORDER BY name ASC');
@@ -476,22 +480,127 @@ export async function deleteMaterial(db, id) {
   await db.runAsync('DELETE FROM materials WHERE id = ?', [id]);
 }
 
-// === Company Profile ===
-export async function getCompanyProfile(db) {
+// === Company Profile & Registration ===
+export async function getCompanyProfile(db, companyId) {
   if (IS_WEB) {
     const list = webGetItems('billforge_company_profiles') || [];
+    if (companyId) {
+      return list.find(p => p.id === parseInt(companyId)) || list[0] || null;
+    }
     return list[0] || null;
   }
+  if (companyId) {
+    return await db.getFirstAsync('SELECT * FROM company_profiles WHERE id = ?', [companyId]);
+  }
   return await db.getFirstAsync('SELECT * FROM company_profiles ORDER BY id LIMIT 1');
+}
+
+export async function registerCompanyOwner(db, details) {
+  const { name, ownerName, phone, password, address, location, materials = [], drivers = [] } = details;
+  
+  if (IS_WEB) {
+    let profiles = webGetItems('billforge_company_profiles') || [];
+    const nextId = profiles.reduce((max, p) => p.id > max ? p.id : max, 0) + 1;
+    
+    const newProfile = {
+      id: nextId,
+      name: name || 'Sri Murugan Quarry',
+      owner_name: ownerName || 'Owner',
+      phone: phone || '',
+      password: password || '',
+      address: address || '',
+      location: location || '',
+      logo_base64: '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    
+    profiles.push(newProfile);
+    webSetItems('billforge_company_profiles', profiles);
+    
+    // Save initial materials if provided
+    if (materials && materials.length > 0) {
+      let existingMat = webGetItems('billforge_materials') || [];
+      materials.forEach(m => {
+        const matId = existingMat.reduce((max, item) => item.id > max ? item.id : max, 0) + 1;
+        existingMat.push({
+          id: matId,
+          company_id: nextId,
+          name: m.name,
+          price_per_unit: parseFloat(m.price_per_unit) || 0,
+          unit_type: m.unit_type || 'unit',
+          created_at: new Date().toISOString()
+        });
+      });
+      webSetItems('billforge_materials', existingMat);
+    }
+
+    // Save initial drivers if provided
+    if (drivers && drivers.length > 0) {
+      let existingDrivers = webGetItems('billforge_drivers') || [];
+      drivers.forEach(d => {
+        const dId = existingDrivers.reduce((max, item) => item.id > max ? item.id : max, 0) + 1;
+        existingDrivers.push({
+          id: dId,
+          company_id: nextId,
+          name: d.name,
+          phone: d.phone,
+          vehicle_no: d.vehicle_no || '',
+          password: d.password || 'driver123',
+          status: 'Available',
+          lat: 11.0168,
+          lng: 76.9558,
+          updated_at: new Date().toISOString()
+        });
+      });
+      webSetItems('billforge_drivers', existingDrivers);
+    }
+
+    return newProfile;
+  }
+  
+  const result = await db.runAsync(
+    'INSERT INTO company_profiles (name, address, location, phone) VALUES (?, ?, ?, ?)',
+    [name || '', address || '', location || '', phone || '']
+  );
+  return { id: result.lastInsertRowId, name, phone, address, location };
+}
+
+export async function authenticateOwner(db, phone, password) {
+  const normPhone = (phone || '').trim();
+  const normPass = (password || '').trim();
+  
+  if (IS_WEB) {
+    const profiles = webGetItems('billforge_company_profiles') || [];
+    // Demo fallback credentials
+    if (normPhone === '9999999999' && normPass === 'admin123') {
+      let demo = profiles.find(p => p.phone === '9999999999') || profiles[0];
+      if (!demo) {
+        demo = { id: 1, name: 'Sri Murugan Quarry', phone: '9999999999', address: 'Main Quarry Road', location: 'Tiruppur' };
+      }
+      return demo;
+    }
+    
+    const matched = profiles.find(p => (p.phone === normPhone || p.phone === `+91${normPhone}`) && (!p.password || p.password === normPass));
+    return matched || null;
+  }
+
+  if (normPhone === '9999999999' && normPass === 'admin123') {
+    return { id: 1, name: 'Sri Murugan Quarry', phone: '9999999999' };
+  }
+
+  return await db.getFirstAsync('SELECT * FROM company_profiles WHERE phone = ?', [normPhone]);
 }
 
 export async function saveCompanyProfile(db, profile) {
   if (IS_WEB) {
     const list = webGetItems('billforge_company_profiles') || [];
-    const existing = list[0];
-    if (existing) {
-      list[0] = {
-        ...existing,
+    const targetId = profile.id ? parseInt(profile.id) : 1;
+    const existingIdx = list.findIndex(p => p.id === targetId);
+    
+    if (existingIdx !== -1) {
+      list[existingIdx] = {
+        ...list[existingIdx],
         name: profile.name || '',
         address: profile.address || '',
         location: profile.location || '',
@@ -500,10 +609,10 @@ export async function saveCompanyProfile(db, profile) {
         updated_at: new Date().toISOString()
       };
       webSetItems('billforge_company_profiles', list);
-      return existing.id;
+      return targetId;
     } else {
       const newProfile = {
-        id: 1,
+        id: targetId,
         name: profile.name || '',
         address: profile.address || '',
         location: profile.location || '',
@@ -512,12 +621,13 @@ export async function saveCompanyProfile(db, profile) {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
-      webSetItems('billforge_company_profiles', [newProfile]);
-      return 1;
+      list.push(newProfile);
+      webSetItems('billforge_company_profiles', list);
+      return targetId;
     }
   }
 
-  const existing = await getCompanyProfile(db);
+  const existing = await getCompanyProfile(db, profile.id);
   if (existing) {
     await db.runAsync(
       `UPDATE company_profiles SET name = ?, address = ?, location = ?, phone = ?, logo_base64 = ?, updated_at = datetime('now') WHERE id = ?`,
@@ -594,9 +704,12 @@ export async function deleteTemplate(db, id) {
 }
 
 // === Bills ===
-export async function getBills(db) {
+export async function getBills(db, companyId) {
   if (IS_WEB) {
-    const bills = webGetItems('billforge_bills') || [];
+    let bills = webGetItems('billforge_bills') || [];
+    if (companyId) {
+      bills = bills.filter(b => !b.company_id || b.company_id === parseInt(companyId));
+    }
     const templates = webGetItems('billforge_templates') || [];
     const joined = bills.map(b => {
       const t = templates.find(temp => temp.id === b.template_id);
@@ -606,6 +719,16 @@ export async function getBills(db) {
       };
     });
     return joined.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+
+  if (companyId) {
+    return await db.getAllAsync(`
+      SELECT b.*, t.name as template_name 
+      FROM bills b 
+      LEFT JOIN templates t ON b.template_id = t.id 
+      WHERE b.company_id = ?
+      ORDER BY b.created_at DESC
+    `, [companyId]);
   }
 
   return await db.getAllAsync(`
@@ -726,18 +849,18 @@ export async function updateBillPdfUri(db, billId, pdfUri) {
 }
 
 // === Unfinished Draft Management (Resume Left Over Work) ===
-export async function saveDraft(templateId, draftData) {
+export async function saveDraft(templateId, draftData, companyId = 1) {
   try {
-    const key = `billforge_draft_${templateId}`;
-    webSetItems(key, { ...draftData, updated_at: new Date().toISOString() });
+    const key = `billforge_draft_${companyId}_${templateId}`;
+    webSetItems(key, { ...draftData, companyId, updated_at: new Date().toISOString() });
   } catch (e) {
     console.error('Error saving draft:', e);
   }
 }
 
-export async function getDraft(templateId) {
+export async function getDraft(templateId, companyId = 1) {
   try {
-    const key = `billforge_draft_${templateId}`;
+    const key = `billforge_draft_${companyId}_${templateId}`;
     return webGetItems(key);
   } catch (e) {
     console.error('Error getting draft:', e);
@@ -745,23 +868,24 @@ export async function getDraft(templateId) {
   }
 }
 
-export async function clearDraft(templateId) {
+export async function clearDraft(templateId, companyId = 1) {
   try {
-    const key = `billforge_draft_${templateId}`;
+    const key = `billforge_draft_${companyId}_${templateId}`;
     webSetItems(key, null);
   } catch (e) {
     console.error('Error clearing draft:', e);
   }
 }
 
-export async function getAllDrafts() {
+export async function getAllDrafts(companyId = 1) {
   try {
     const drafts = [];
+    const prefix = `billforge_draft_${companyId}_`;
     if (typeof localStorage !== 'undefined') {
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
-        if (k && k.startsWith('billforge_draft_')) {
-          const templateId = k.replace('billforge_draft_', '');
+        if (k && k.startsWith(prefix)) {
+          const templateId = k.replace(prefix, '');
           const d = webGetItems(k);
           if (d && d.headerData) {
             drafts.push({ templateId, ...d });

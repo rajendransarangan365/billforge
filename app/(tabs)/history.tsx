@@ -14,6 +14,7 @@ import {
   getDatabase, getBills, deleteBill, getPaymentsForBill,
   savePayment, getAllPayments,
 } from '../../src/database/db';
+import { useAuth } from '../../src/context/AuthContext';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function fmtCurrency(n) {
@@ -314,6 +315,7 @@ const bc = StyleSheet.create({
 export default function HistoryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { companyId } = useAuth();
   const [bills, setBills] = useState([]);
   const [filteredBills, setFilteredBills] = useState([]);
   const [paidMap, setPaidMap] = useState({});
@@ -327,7 +329,7 @@ export default function HistoryScreen() {
     try {
       setLoading(true);
       const db = await getDatabase();
-      const list = await getBills(db);
+      const list = await getBills(db, companyId);
       const allPayments = await getAllPayments(db);
       // Build paidMap: bill_id -> total paid
       const pm = {};
