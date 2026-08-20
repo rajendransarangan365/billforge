@@ -63,7 +63,7 @@ export function SidebarNav() {
   const { user, role, quarryId } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
-  const standalonePages = ['/', '', '/index', '/select-role', '/admin-portal', '/owner-login', '/driver-login', '/customer-login', '/owner-register', '/customer-marketplace', '/driver-portal'];
+  const standalonePages = ['/', '', '/index', '/select-role', '/admin-portal', '/owner-login', '/driver-login', '/customer-login', '/owner-register', '/customer-marketplace', '/driver-portal', '/driver-marketplace'];
   if (pathname === '/' || pathname === '' || pathname === '/index' || standalonePages.some(p => p !== '/' && p !== '' && (pathname === p || pathname.startsWith(p)))) {
     return null;
   }

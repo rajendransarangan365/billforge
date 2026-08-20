@@ -1121,13 +1121,109 @@ export async function saveConsignment(db, c) {
     webSet(qKey(qid, 'consignments'), list);
     return nextId;
   }
-  if (c.id) {
-    await db.runAsync('UPDATE consignments SET status=?, last_updated=datetime(\'now\') WHERE id=?', [c.status, c.id]);
-    return c.id;
-  }
   const r = await db.runAsync('INSERT INTO consignments (enquiry_id, driver_id, quarry_id, driver_name, customer_name, customer_phone, material_name, quantity, unit_type, agreed_rate, pickup_address, customer_address, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
     [c.enquiry_id || null, c.driver_id, qid, c.driver_name || '', c.customer_name || '', c.customer_phone || '', c.material_name || '', c.quantity || 0, c.unit_type || '', c.agreed_rate || 0, c.pickup_address || '', c.customer_address || '', 'assigned']);
   return r.lastInsertRowId;
+}
+
+export async function getOpenDeliveryOrders(db) {
+  if (IS_WEB) {
+    const quarries = webGet('bf_quarries') || [];
+    const openOrders = [];
+    for (const q of quarries) {
+      const consignments = webGet(qKey(q.id, 'consignments')) || [];
+      const unassigned = consignments.filter(c => !c.driver_id || c.status === 'unassigned' || c.status === 'pending_pickup');
+      for (const u of unassigned) {
+        openOrders.push({ ...u, quarry_name: q.name, quarry_location: q.location, quarry_phone: q.phone });
+      }
+    }
+    if (openOrders.length === 0) {
+      return [
+        {
+          id: 901,
+          quarry_id: 1,
+          quarry_name: 'Demo Quarry & Crushers',
+          quarry_location: 'Madukkarai, Coimbatore',
+          customer_name: 'Anand Construction',
+          customer_phone: '9876543210',
+          pickup_address: 'Madukkarai Quarry Gate #2',
+          customer_address: 'Site #42, Avinashi Road, Tiruppur',
+          material_name: 'M-Sand Grade A',
+          quantity: 12,
+          unit_type: 'tons',
+          distance_km: 42,
+          estimated_payout: 3570,
+          status: 'unassigned',
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 902,
+          quarry_id: 1,
+          quarry_name: 'Demo Quarry & Crushers',
+          quarry_location: 'Madukkarai, Coimbatore',
+          customer_name: 'Kovai Builders Pvt Ltd',
+          customer_phone: '9123456789',
+          pickup_address: 'Quarry Yard 1',
+          customer_address: 'Saravanampatti, Coimbatore',
+          material_name: '20mm Jelly Metal',
+          quantity: 20,
+          unit_type: 'tons',
+          distance_km: 18,
+          estimated_payout: 1800,
+          status: 'unassigned',
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 903,
+          quarry_id: 2,
+          quarry_name: 'Kongu Granite Quarry',
+          quarry_location: 'Palladam, Tiruppur',
+          customer_name: 'Surya Infrastructure',
+          customer_phone: '9944332211',
+          pickup_address: 'Kongu Quarry Yard',
+          customer_address: 'Dharapuram Main Road',
+          material_name: 'P-Sand Plastering',
+          quantity: 15,
+          unit_type: 'tons',
+          distance_km: 28,
+          estimated_payout: 2500,
+          status: 'unassigned',
+          created_at: new Date().toISOString(),
+        },
+      ];
+    }
+    return openOrders;
+  }
+  return [];
+}
+
+export async function acceptDeliveryOrder(db, orderId, quarryId, driverId, driverName, vehicleNo) {
+  if (IS_WEB) {
+    const list = webGet(qKey(quarryId || 1, 'consignments')) || [];
+    const idx = list.findIndex(c => c.id === parseInt(orderId));
+    if (idx !== -1) {
+      list[idx].driver_id = parseInt(driverId);
+      list[idx].driver_name = driverName;
+      list[idx].vehicle_no = vehicleNo;
+      list[idx].status = 'assigned';
+      list[idx].last_updated = new Date().toISOString();
+      webSet(qKey(quarryId || 1, 'consignments'), list);
+      return true;
+    }
+    // Fallback for mock orders
+    list.push({
+      id: parseInt(orderId),
+      quarry_id: quarryId || 1,
+      driver_id: parseInt(driverId),
+      driver_name: driverName,
+      vehicle_no: vehicleNo,
+      status: 'assigned',
+      last_updated: new Date().toISOString(),
+    });
+    webSet(qKey(quarryId || 1, 'consignments'), list);
+    return true;
+  }
+  return true;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
