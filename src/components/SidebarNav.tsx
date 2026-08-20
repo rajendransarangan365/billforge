@@ -29,6 +29,7 @@ const OWNER_NAV = [
   { title: 'QUARRY OPERATIONS', items: [
     { route: '/customers', icon: 'people-outline', activeIcon: 'people', label: 'Customer Directory' },
     { route: '/drivers', icon: 'car-sport-outline', activeIcon: 'car-sport', label: 'Transport & Drivers' },
+    { route: '/driver-marketplace', icon: 'navigate-circle-outline', activeIcon: 'navigate-circle', label: 'Lorry Marketplace' },
     { route: '/enquiries', icon: 'chatbubbles-outline', activeIcon: 'chatbubbles', label: 'Enquiries' },
     { route: '/ledger', icon: 'book-outline', activeIcon: 'book', label: 'Ledger & Dues' },
     { route: '/reminders', icon: 'time-outline', activeIcon: 'time', label: 'Payment Reminders' },
@@ -42,6 +43,7 @@ const OWNER_NAV = [
 const DRIVER_NAV = [
   { title: 'MY TRIPS', items: [
     { route: '/driver-portal', icon: 'navigate-outline', activeIcon: 'navigate', label: 'Active Trips' },
+    { route: '/driver-marketplace', icon: 'navigate-circle-outline', activeIcon: 'navigate-circle', label: 'Delivery Orders Feed' },
   ]},
   { title: 'ACCOUNT', items: [
     { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },
@@ -63,19 +65,18 @@ export function SidebarNav() {
   const { user, role, quarryId } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
-  const standalonePages = ['/', '', '/index', '/select-role', '/admin-portal', '/owner-login', '/driver-login', '/customer-login', '/owner-register', '/customer-marketplace', '/driver-portal', '/driver-marketplace'];
-  if (pathname === '/' || pathname === '' || pathname === '/index' || standalonePages.some(p => p !== '/' && p !== '' && (pathname === p || pathname.startsWith(p)))) {
+  // Hide navigation bar ONLY on the root Product Landing Page
+  if (pathname === '/' || pathname === '' || pathname === '/index') {
     return null;
   }
 
-  const navSections = role === 'admin' ? ADMIN_NAV
-    : role === 'quarry_owner' ? OWNER_NAV
-    : role === 'driver' ? DRIVER_NAV
-    : role === 'customer' ? CUSTOMER_NAV
-    : OWNER_NAV; // fallback
+  const navSections = role === 'admin' || pathname.startsWith('/admin') ? ADMIN_NAV
+    : role === 'driver' || pathname.startsWith('/driver') ? DRIVER_NAV
+    : role === 'customer' || pathname.startsWith('/customer') ? CUSTOMER_NAV
+    : OWNER_NAV;
 
   const isCurrentRoute = (r) => {
-    if (r === '/(tabs)' && (pathname === '/(tabs)' || pathname === '/(tabs)/index')) return true;
+    if (r === '/(tabs)' && (pathname === '/(tabs)' || pathname === '/(tabs)/index' || pathname === '/quarry')) return true;
     if (r === '/bill-form/1' && pathname.includes('/bill-form')) return true;
     return pathname.startsWith(r);
   };
