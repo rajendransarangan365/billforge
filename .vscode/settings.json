@@ -1,8 +1,21 @@
 {
   "editor.codeActionsOnSave": {
     "source.fixAll": "explicit",
-    "source.organizeImports": "explicit",
-    "source.sortMembers": "explicit"
+    "source.organizeImports": "explicit"
   },
-  "java.compile.nullAnalysis.mode": "automatic"
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/*/**": true,
+    "**/.expo/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.expo": true
+  },
+  "java.project.exclusionFilters": [
+    "**/node_modules/**"
+  ],
+  "java.import.gradle.enabled": false,
+  "kotlin.compiler.jvm.target": "1.8"
 }
