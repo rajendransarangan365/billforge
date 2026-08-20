@@ -529,13 +529,23 @@ export async function deleteTemplate(db, id, quarryId) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // BILLS (quarry-scoped)
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function getNextBillNumber(db, quarryId) {
+export async function getNextBillNumber(db, quarryId = 1) {
+  const qid = quarryId || 1;
   if (IS_WEB) {
-    const bills = webGet(qKey(quarryId, 'bills')) || [];
-    return (bills.length + 1).toString().padStart(4, '0');
+    const bills = webGet(qKey(qid, 'bills')) || [];
+    const maxBn = bills.reduce((max, b) => {
+      const bnStr = b.bill_number || '';
+      const num = parseInt(bnStr.replace(/\D/g, ''));
+      return (!isNaN(num) && num > max) ? num : max;
+    }, 0);
+    return (maxBn + 1).toString().padStart(4, '0');
   }
-  const r = await db.getFirstAsync('SELECT COUNT(*) as count FROM bills WHERE quarry_id = ?', [quarryId]);
-  return ((r?.count || 0) + 1).toString().padStart(4, '0');
+  const bills = await db.getAllAsync('SELECT bill_number FROM bills WHERE quarry_id = ?', [qid]);
+  const maxBn = (bills || []).reduce((max, b) => {
+    const num = parseInt((b.bill_number || '').replace(/\D/g, ''));
+    return (!isNaN(num) && num > max) ? num : max;
+  }, 0);
+  return (maxBn + 1).toString().padStart(4, '0');
 }
 
 export async function getBills(db, quarryId) {
@@ -546,10 +556,21 @@ export async function getBills(db, quarryId) {
   return await db.getAllAsync('SELECT * FROM bills WHERE quarry_id = ? ORDER BY created_at DESC', [quarryId]);
 }
 
-export async function getBillById(db, id, quarryId) {
+export async function getBillById(db, id, quarryId = 1) {
+  const qid = quarryId || 1;
   if (IS_WEB) {
-    const list = webGet(qKey(quarryId, 'bills')) || [];
-    return list.find(b => b.id === parseInt(id)) || null;
+    const list = webGet(qKey(qid, 'bills')) || [];
+    const bill = list.find(b => b.id === parseInt(id));
+    if (bill) return bill;
+
+    // Cross-quarry fallback search
+    const quarries = webGet('bf_quarries') || [];
+    for (const q of quarries) {
+      const qBills = webGet(qKey(q.id, 'bills')) || [];
+      const found = qBills.find(b => b.id === parseInt(id));
+      if (found) return found;
+    }
+    return null;
   }
   return await db.getFirstAsync('SELECT * FROM bills WHERE id = ?', [id]);
 }

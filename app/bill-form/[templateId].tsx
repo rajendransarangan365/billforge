@@ -220,6 +220,7 @@ export default function BillFormScreen() {
   };
 
   const loadBillNumber = async () => {
+    if (editBillId) return; // Do NOT overwrite bill number when editing an existing bill!
     try {
       const db = await getDatabase();
       const nextBn = await getNextBillNumber(db, companyId);
@@ -255,7 +256,7 @@ export default function BillFormScreen() {
   const loadTemplate = async () => {
     try {
       const db = await getDatabase();
-      const t = await getTemplateById(db, parseInt(templateId));
+      const t = await getTemplateById(db, parseInt(templateId), companyId);
       if (t) {
         setTemplate(t);
         const hFields = JSON.parse(t.header_fields_json || '[]');
@@ -283,7 +284,6 @@ export default function BillFormScreen() {
 
         setHeaderFields(hFields);
         setTableFields(tFields);
-        // Load company profile and sequential bill number
         const profile = await getCompanyProfile(db, companyId);
         if (profile) {
           setCompanyProfile(profile);
@@ -292,10 +292,10 @@ export default function BillFormScreen() {
         // 1. If editing an existing bill (editBillId)
         if (editBillId) {
           setIsEditing(true);
-          const existingBill = await getBillById(db, parseInt(editBillId));
+          const existingBill = await getBillById(db, parseInt(editBillId), companyId);
           if (existingBill) {
-            const hData = JSON.parse(existingBill.header_data_json || '{}');
-            const rData = JSON.parse(existingBill.row_data_json || '[]');
+            const hData = typeof existingBill.header_data_json === 'string' ? JSON.parse(existingBill.header_data_json || '{}') : (existingBill.header_data_json || {});
+            const rData = typeof existingBill.row_data_json === 'string' ? JSON.parse(existingBill.row_data_json || '[]') : (existingBill.row_data_json || []);
             
             setHeaderData(hData);
             setRowData(rData);
@@ -312,11 +312,13 @@ export default function BillFormScreen() {
           }
         }
 
-        // 2. Check for an unfinished left-over draft for this template & company login
-        const draft = await getDraft(templateId, companyId);
-        if (draft && draft.headerData && (Object.keys(draft.headerData).length > 0 || (draft.rowData && draft.rowData.length > 0))) {
-          setSavedDraftData(draft);
-          setDraftModalVisible(true);
+        // 2. Check for an unfinished left-over draft ONLY when creating a new bill (not editing)
+        if (!editBillId) {
+          const draft = await getDraft(templateId, companyId);
+          if (draft && draft.headerData && (Object.keys(draft.headerData).length > 0 || (draft.rowData && draft.rowData.length > 0))) {
+            setSavedDraftData(draft);
+            setDraftModalVisible(true);
+          }
         }
 
         const nextBn = await getNextBillNumber(db, companyId);
