@@ -235,14 +235,14 @@ export async function getAllQuarries(db) {
 }
 
 export async function registerQuarry(db, details) {
-  const { name, owner_name, phone, password, address, location, materials = [], drivers = [] } = details;
+  const { name, owner_name, phone, password, address, location, materials = [], drivers = [], status = 'pending_approval' } = details;
   if (IS_WEB) {
     const quarries = webGet('bf_quarries') || [];
     const nextId = quarries.reduce((max, q) => q.id > max ? q.id : max, 0) + 1;
     const quarry = {
       id: nextId, name, owner_name: owner_name || name, phone,
       password: password || 'admin123', address: address || '', location: location || '',
-      status: 'active', created_at: new Date().toISOString(),
+      status: status || 'pending_approval', created_at: new Date().toISOString(),
     };
     quarries.push(quarry);
     webSet('bf_quarries', quarries);
@@ -276,10 +276,32 @@ export async function registerQuarry(db, details) {
     return nextId;
   }
   const result = await db.runAsync(
-    'INSERT INTO quarries (name, owner_name, phone, password, address, location) VALUES (?,?,?,?,?,?)',
-    [name, owner_name || name, phone, password || 'admin123', address || '', location || '']
+    'INSERT INTO quarries (name, owner_name, phone, password, address, location, status) VALUES (?,?,?,?,?,?,?)',
+    [name, owner_name || name, phone, password || 'admin123', address || '', location || '', status || 'pending_approval']
   );
   return result.lastInsertRowId;
+}
+
+export async function approveQuarry(db, quarryId) {
+  if (IS_WEB) {
+    const quarries = webGet('bf_quarries') || [];
+    const idx = quarries.findIndex(q => q.id === parseInt(quarryId));
+    if (idx !== -1) { quarries[idx].status = 'active'; webSet('bf_quarries', quarries); return true; }
+    return false;
+  }
+  await db.runAsync('UPDATE quarries SET status = "active" WHERE id = ?', [quarryId]);
+  return true;
+}
+
+export async function rejectQuarry(db, quarryId) {
+  if (IS_WEB) {
+    const quarries = webGet('bf_quarries') || [];
+    const idx = quarries.findIndex(q => q.id === parseInt(quarryId));
+    if (idx !== -1) { quarries[idx].status = 'rejected'; webSet('bf_quarries', quarries); return true; }
+    return false;
+  }
+  await db.runAsync('UPDATE quarries SET status = "rejected" WHERE id = ?', [quarryId]);
+  return true;
 }
 
 export async function getQuarryStats(db, quarryId) {
@@ -305,7 +327,15 @@ export async function authenticateOwner(db, phone, password) {
   if (IS_WEB) {
     const quarries = webGet('bf_quarries') || [];
     const q = quarries.find(q => q.phone === phone && q.password === password);
-    if (q) return { id: q.id, quarry_id: q.id, name: q.name, owner_name: q.owner_name, phone: q.phone, role: 'quarry_owner' };
+    if (q) {
+      if (q.status === 'pending_approval') {
+        return { error: 'pending_approval', message: 'Your quarry account is waiting for approval by Admin. Please contact administrator to activate your portal.' };
+      }
+      if (q.status === 'rejected') {
+        return { error: 'rejected', message: 'Your quarry registration request was rejected by Admin. Please contact administrator.' };
+      }
+      return { id: q.id, quarry_id: q.id, name: q.name, owner_name: q.owner_name, phone: q.phone, role: 'quarry_owner' };
+    }
     // Demo fallback
     if (phone === '9999999999' && password === 'admin123') {
       return { id: 1, quarry_id: 1, name: 'Demo Quarry', owner_name: 'Demo Owner', phone, role: 'quarry_owner' };
@@ -313,7 +343,15 @@ export async function authenticateOwner(db, phone, password) {
     return null;
   }
   const q = await db.getFirstAsync('SELECT * FROM quarries WHERE phone = ? AND password = ?', [phone, password]);
-  if (q) return { id: q.id, quarry_id: q.id, name: q.name, owner_name: q.owner_name, phone: q.phone, role: 'quarry_owner' };
+  if (q) {
+    if (q.status === 'pending_approval') {
+      return { error: 'pending_approval', message: 'Your quarry account is waiting for approval by Admin.' };
+    }
+    if (q.status === 'rejected') {
+      return { error: 'rejected', message: 'Your quarry registration was rejected by Admin.' };
+    }
+    return { id: q.id, quarry_id: q.id, name: q.name, owner_name: q.owner_name, phone: q.phone, role: 'quarry_owner' };
+  }
   return null;
 }
 
@@ -578,14 +616,55 @@ export async function getBillsThisMonth(db, quarryId) {
 }
 
 // === Drafts (quarry-scoped) ===
+export function isMeaningfulDraft(draft) {
+  if (!draft) return false;
+  const hData = draft.headerData || {};
+  // Check if any non-default field is populated
+  const hasUserField = Object.entries(hData).some(([key, val]) => {
+    if (!val || typeof val !== 'string') return false;
+    const v = val.trim();
+    if (!v) return false;
+    // Exclude auto-filled default fields like Bill No, Dates, Shop Name
+    if (v.match(/^(000\d|\d{4}-\d{2}-\d{2})/)) return false;
+    if (v.toLowerCase().includes('quarry') || v.toLowerCase().includes('shop')) return false;
+    return v.length > 1;
+  });
+  const hasPhone = Boolean(draft.customerPhone && draft.customerPhone.trim().length > 0);
+  const hasAddress = Boolean(draft.customerAddress && draft.customerAddress.trim().length > 0);
+  const rData = draft.rowData || [];
+  const hasRowData = rData.some(row => Object.entries(row).some(([k, v]) => {
+    if (k.toLowerCase() === 'sno' || k.toLowerCase() === 'slno') return false;
+    return v && String(v).trim().length > 0 && String(v).trim() !== '0';
+  }));
+
+  return hasUserField || hasPhone || hasAddress || hasRowData;
+}
+
 export async function saveDraft(templateId, draftData, quarryId = 1) {
+  if (!isMeaningfulDraft(draftData)) return;
   const key = qKey(quarryId, `draft_${templateId}`);
   try { localStorage.setItem(key, JSON.stringify(draftData)); } catch {}
 }
 
+export async function minimizeDraft(templateId, draftData, quarryId = 1) {
+  if (!isMeaningfulDraft(draftData)) return;
+  const key = qKey(quarryId, `draft_${templateId}`);
+  const payload = { ...draftData, isMinimized: true, lastSaved: new Date().toISOString() };
+  try { localStorage.setItem(key, JSON.stringify(payload)); } catch {}
+}
+
 export async function getDraft(templateId, quarryId = 1) {
   const key = qKey(quarryId, `draft_${templateId}`);
-  try { const d = localStorage.getItem(key); return d ? JSON.parse(d) : null; } catch { return null; }
+  try {
+    const d = localStorage.getItem(key);
+    if (!d) return null;
+    const parsed = JSON.parse(d);
+    if (!isMeaningfulDraft(parsed)) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return parsed;
+  } catch { return null; }
 }
 
 export async function clearDraft(templateId, quarryId = 1) {
@@ -601,11 +680,19 @@ export async function getAllDrafts(quarryId = 1) {
       const k = localStorage.key(i);
       if (k && k.startsWith(prefix)) {
         const data = JSON.parse(localStorage.getItem(k));
-        if (data) { const tid = k.replace(prefix, ''); drafts.push({ templateId: tid, data }); }
+        if (data && isMeaningfulDraft(data)) {
+          const tid = k.replace(prefix, '');
+          drafts.push({ templateId: tid, data });
+        }
       }
     }
   } catch {}
   return drafts;
+}
+
+export async function getMinimizedDrafts(quarryId = 1) {
+  const all = await getAllDrafts(quarryId);
+  return all.filter(d => d.data && d.data.isMinimized);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

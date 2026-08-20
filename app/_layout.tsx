@@ -4,7 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StyleSheet, Platform, View } from 'react-native';
 import { AuthProvider } from '../src/context/AuthContext';
-import { SidebarNav } from '../src/components';
+import { SidebarNav, MinimizedTaskbar } from '../src/components';
 
 export default function RootLayout() {
   return (
@@ -35,6 +35,7 @@ export default function RootLayout() {
                 <Stack.Screen name="reminders" options={{ headerShown: false }} />
                 <Stack.Screen name="ledger" options={{ headerShown: false }} />
               </Stack>
+              <MinimizedTaskbar />
             </View>
           </View>
         </AuthProvider>

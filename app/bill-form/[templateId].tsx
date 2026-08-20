@@ -11,9 +11,20 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card, Button, Input, DateTimePickerInput } from '../../src/components';
 import { 
-  getDatabase, getTemplateById, saveBill, getCompanyProfile, 
-  updateBillPdfUri, getNextBillNumber, getMaterials, getCustomers, saveCustomer,
-  getBillById, saveDraft, getDraft, clearDraft
+  getDatabase,
+  getNextBillNumber,
+  saveBill,
+  getMaterials,
+  saveCustomer,
+  getCustomers,
+  getCompanyProfile,
+  getBillById,
+  saveDraft,
+  getDraft,
+  clearDraft,
+  minimizeDraft,
+  getTemplateById,
+  updateBillPdfUri,
 } from '../../src/database/db';
 import { getKeyboardTypeForField } from '../../src/services/templateParser';
 import { generatePDF, sharePDF, savePDFPermanently } from '../../src/services/pdfGenerator';
@@ -1398,6 +1409,26 @@ export default function BillFormScreen() {
     );
   };
 
+  const handleMinimizeBill = async () => {
+    try {
+      const db = await getDatabase();
+      await minimizeDraft(templateId, {
+        headerData,
+        rowData,
+        calcSettings,
+        customerPhone,
+        customerAddress,
+      }, companyId);
+      Alert.alert(
+        'Bill Minimized 📄',
+        'Your bill draft has been minimized to your bottom taskbar. You can resume it anytime!',
+        [{ text: 'OK', onPress: () => router.push('/(tabs)') }]
+      );
+    } catch (e) {
+      router.push('/(tabs)');
+    }
+  };
+
   if (!template) {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -1419,6 +1450,10 @@ export default function BillFormScreen() {
           <Text style={styles.headerTitle} numberOfLines={1}>{isEditing ? 'Edit Bill' : 'New Bill'}</Text>
           <Text style={styles.headerSub}>{template.name}</Text>
         </View>
+        <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.primarySurface, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }} onPress={handleMinimizeBill}>
+          <Ionicons name="remove-outline" size={16} color={Colors.primary} />
+          <Text style={{ fontSize: 12, fontWeight: '700', color: Colors.primary }}>Minimize</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Shortcuts Banner (Web/Desktop) */}

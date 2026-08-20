@@ -43,6 +43,10 @@ export default function OwnerLoginScreen() {
       const authenticated = await authenticateOwner(db, phone, password);
 
       if (authenticated) {
+        if (authenticated.error) {
+          setError(authenticated.message);
+          return;
+        }
         const ownerUser = {
           id: authenticated.id,
           quarry_id: authenticated.id,
@@ -50,7 +54,7 @@ export default function OwnerLoginScreen() {
           phone: authenticated.phone || phone.trim(),
           location: authenticated.location || 'Tiruppur',
           address: authenticated.address || 'Main Quarry Road',
-          role: 'owner',
+          role: 'quarry_owner',
         };
         loginOwner(ownerUser);
         router.replace('/(tabs)');

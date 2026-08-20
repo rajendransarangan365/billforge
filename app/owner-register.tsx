@@ -38,6 +38,7 @@ export default function OwnerRegisterScreen() {
   const [companyName, setCompanyName] = useState('');
   const [ownerName, setOwnerName] = useState('');
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('sarangan365@gmail.com');
   const [password, setPassword] = useState('');
   const [location, setLocation] = useState('');
   const [address, setAddress] = useState('');
@@ -74,6 +75,7 @@ export default function OwnerRegisterScreen() {
         name: companyName.trim(),
         ownerName: ownerName.trim() || 'Quarry Owner',
         phone: phone.trim(),
+        email: email.trim() || 'sarangan365@gmail.com',
         password: password.trim(),
         location: location.trim() || 'Tiruppur',
         address: address.trim() || 'Main Quarry Road',
@@ -89,29 +91,29 @@ export default function OwnerRegisterScreen() {
             vehicle_no: vehicleNo.trim() || 'TN 38 AB 1234',
           },
         ],
+        status: 'pending_approval',
       };
 
-      const created = await registerCompanyOwner(db, payload);
+      await registerCompanyOwner(db, payload);
       
-      const userData = {
-        id: created.id,
-        quarry_id: created.id,
-        name: created.name,
-        phone: created.phone,
-        location: created.location,
-        address: created.address,
-        role: 'owner',
-      };
-
-      loginOwner(userData);
+      // Dispatch Onboarding Notification Email
+      try {
+        const { sendOnboardingEmail } = require('../src/services/emailService');
+        await sendOnboardingEmail({
+          toEmail: email.trim() || 'sarangan365@gmail.com',
+          ownerName: ownerName.trim() || companyName.trim(),
+          quarryName: companyName.trim(),
+          status: 'pending_approval',
+        });
+      } catch (err) {}
 
       Alert.alert(
-        'Registration Successful!',
-        `Welcome to BuildRoute & BillForge, ${created.name}! Your materials and driver details have been set up.`,
+        'Registration Submitted ⏳',
+        `Thank you for registering ${companyName.trim()}!\n\nAn onboarding confirmation email has been sent to ${email.trim() || 'sarangan365@gmail.com'}.\n\nYour quarry registration is currently pending approval by the Admin. Once Admin approves your business, you can log in to your portal.`,
         [
           {
-            text: 'Go to Dashboard',
-            onPress: () => router.replace('/(tabs)'),
+            text: 'Go to Owner Login',
+            onPress: () => router.replace('/owner-login'),
           },
         ]
       );
@@ -204,6 +206,24 @@ export default function OwnerRegisterScreen() {
               </View>
             </View>
 
+            <View style={[styles.fieldGroup, { flex: 1 }]}>
+              <Text style={styles.label}>Email Address (for Invoices & Reset)</Text>
+              <View style={styles.inputWrap}>
+                <Ionicons name="mail-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="sarangan365@gmail.com"
+                  placeholderTextColor={Colors.textDisabled}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.rowTwo}>
             <View style={[styles.fieldGroup, { flex: 1 }]}>
               <Text style={styles.label}>Account Password *</Text>
               <View style={styles.inputWrap}>

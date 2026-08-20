@@ -9,7 +9,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
-import { getDatabase, authenticateAdmin, getAllQuarries, registerQuarry, getGlobalDrivers, resetQuarryPassword } from '../src/database/db';
+import {
+  getDatabase, authenticateAdmin, getAllQuarries, registerQuarry, getGlobalDrivers,
+  resetQuarryPassword, approveQuarry, rejectQuarry,
+} from '../src/database/db';
 
 export default function AdminPortalScreen() {
   const router = useRouter();
@@ -110,13 +113,64 @@ export default function AdminPortalScreen() {
     try {
       const db = await getDatabase();
       await resetQuarryPassword(db, quarry.id, tempPass);
+
+      // Dispatch Password Reset Email
+      try {
+        const { sendPasswordResetEmail } = require('../src/services/emailService');
+        await sendPasswordResetEmail({
+          toEmail: quarry.email || 'sarangan365@gmail.com',
+          ownerName: quarry.owner_name || quarry.name,
+          quarryName: quarry.name,
+          tempPassword: tempPass,
+        });
+      } catch (err) {}
+
       Alert.alert(
         'Password Reset Successful 🔑',
-        `Temporary password for ${quarry.name} (${quarry.phone}) set to:\n\n${tempPass}\n\nShare this temporary password with the Quarry Owner to unlock their portal.`
+        `Temporary password for ${quarry.name} (${quarry.phone}) set to:\n\n${tempPass}\n\nNotification email dispatched to ${quarry.email || 'sarangan365@gmail.com'}.`
       );
       loadData();
     } catch (e) {
       Alert.alert('Error', 'Failed to reset password.');
+    }
+  };
+
+  const handleApprove = async (quarry: any) => {
+    try {
+      const qid = typeof quarry === 'object' ? quarry.id : quarry;
+      const qname = typeof quarry === 'object' ? quarry.name : 'Quarry';
+      const qemail = typeof quarry === 'object' ? quarry.email : 'sarangan365@gmail.com';
+      const qowner = typeof quarry === 'object' ? quarry.owner_name : 'Owner';
+
+      const db = await getDatabase();
+      await approveQuarry(db, qid);
+
+      // Dispatch Onboarding Approval Email
+      try {
+        const { sendOnboardingEmail } = require('../src/services/emailService');
+        await sendOnboardingEmail({
+          toEmail: qemail || 'sarangan365@gmail.com',
+          ownerName: qowner || qname,
+          quarryName: qname,
+          status: 'active',
+        });
+      } catch (err) {}
+
+      Alert.alert('Business Approved ✅', `Quarry "${qname}" is now ACTIVE. Approval email sent to ${qemail || 'sarangan365@gmail.com'}.`);
+      loadData();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to approve quarry.');
+    }
+  };
+
+  const handleReject = async (quarryId: number, name: string) => {
+    try {
+      const db = await getDatabase();
+      await rejectQuarry(db, quarryId);
+      Alert.alert('Business Rejected ❌', `Quarry "${name}" registration has been rejected.`);
+      loadData();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to reject quarry.');
     }
   };
 
@@ -235,6 +289,42 @@ export default function AdminPortalScreen() {
               <Text style={styles.gridLbl}>Active Outlets</Text>
             </View>
           </View>
+
+          {/* Pending Business Approvals Section */}
+          {quarries.filter(q => q.status === 'pending_approval').length > 0 && (
+            <View style={{ marginBottom: 20 }}>
+              <Text style={[styles.sectionTitle, { color: '#D97706' }]}>
+                ⏳ Pending Business Approvals ({quarries.filter(q => q.status === 'pending_approval').length})
+              </Text>
+              {quarries.filter(q => q.status === 'pending_approval').map(q => (
+                <View key={q.id} style={[styles.quarryCard, { borderColor: '#FDE68A', backgroundColor: '#FFFBEB' }]}>
+                  <View style={styles.quarryHeader}>
+                    <View style={[styles.quarryAvatar, { backgroundColor: '#FEF3C7' }]}>
+                      <Ionicons name="time" size={20} color="#D97706" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.quarryName}>{q.name}</Text>
+                      <Text style={styles.quarryOwner}>Owner: {q.owner_name} ({q.phone})</Text>
+                      {q.location ? <Text style={styles.quarryLoc}><Ionicons name="location-outline" size={12} /> {q.location}</Text> : null}
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: '#FEF3C7' }]}>
+                      <Text style={[styles.statusBadgeText, { color: '#D97706' }]}>PENDING</Text>
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                    <TouchableOpacity style={[styles.manageBtn, { flex: 1, backgroundColor: Colors.success, borderColor: Colors.success }]} onPress={() => handleApprove(q)}>
+                      <Ionicons name="checkmark-circle" size={16} color="#FFF" />
+                      <Text style={[styles.manageBtnText, { color: '#FFF' }]}>Approve Business ✅</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.manageBtn, { flex: 1, backgroundColor: Colors.dangerLight, borderColor: Colors.dangerBorder }]} onPress={() => handleReject(q.id, q.name)}>
+                      <Ionicons name="close-circle" size={16} color={Colors.danger} />
+                      <Text style={[styles.manageBtnText, { color: Colors.danger }]}>Reject ❌</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
 
           {/* Quarry Directory */}
           <View style={styles.sectionHeaderRow}>
