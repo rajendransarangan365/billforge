@@ -63,8 +63,8 @@ export function SidebarNav() {
   const { user, role, quarryId } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
-  const standalonePages = ['/select-role', '/owner-login', '/driver-login', '/customer-login', '/owner-register', '/customer-marketplace', '/driver-portal'];
-  if (standalonePages.some(p => pathname === p || pathname.startsWith(p))) {
+  const standalonePages = ['/', '', '/index', '/select-role', '/admin-portal', '/owner-login', '/driver-login', '/customer-login', '/owner-register', '/customer-marketplace', '/driver-portal'];
+  if (pathname === '/' || pathname === '' || pathname === '/index' || standalonePages.some(p => p !== '/' && p !== '' && (pathname === p || pathname.startsWith(p)))) {
     return null;
   }
 
@@ -75,7 +75,7 @@ export function SidebarNav() {
     : OWNER_NAV; // fallback
 
   const isCurrentRoute = (r) => {
-    if (r === '/(tabs)' && (pathname === '/' || pathname === '/(tabs)' || pathname === '/(tabs)/index')) return true;
+    if (r === '/(tabs)' && (pathname === '/(tabs)' || pathname === '/(tabs)/index')) return true;
     if (r === '/bill-form/1' && pathname.includes('/bill-form')) return true;
     return pathname.startsWith(r);
   };
