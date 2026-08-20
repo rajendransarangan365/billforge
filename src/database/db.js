@@ -1029,28 +1029,71 @@ export async function deleteReminder(db, id, quarryId) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // ENQUIRIES (quarry-scoped)
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function getEnquiries(db, quarryId) {
+export async function getEnquiries(db, quarryId = 1) {
+  const qid = quarryId || 1;
   if (IS_WEB) {
-    const list = webGet(qKey(quarryId, 'enquiries')) || [];
-    return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    let list = webGet(qKey(qid, 'enquiries')) || [];
+
+    // Merge customer live chats into the enquiries list
+    const chatsIndex = webGet(qKey(qid, 'chats_index')) || [];
+    for (const c of chatsIndex) {
+      if (c.customer_phone) {
+        const exists = list.some(e => e.customer_phone === c.customer_phone);
+        if (!exists) {
+          const msgs = webGet(`bf_chat_${qid}_${c.customer_phone}`) || [];
+          const lastMsg = msgs[msgs.length - 1];
+          list.push({
+            id: `chat_${c.customer_phone}`,
+            quarry_id: qid,
+            customer_name: c.customer_name || 'Customer',
+            customer_phone: c.customer_phone,
+            material_name: lastMsg ? `Chat: "${lastMsg.text.slice(0, 30)}..."` : 'General Enquiry',
+            quantity: 1,
+            unit_type: 'unit',
+            quoted_rate: 0,
+            agreed_rate: 0,
+            status: 'pending',
+            created_at: c.last_updated || new Date().toISOString(),
+          });
+        }
+      }
+    }
+
+    // Fallback: If no enquiries exist for specific quarry ID, pull from global list
+    if (list.length === 0) {
+      const globalList = webGet('bf_global_enquiries') || [];
+      if (globalList.length > 0) {
+        list = [...globalList];
+      }
+    }
+
+    return list.sort((a, b) => new Date(b.created_at || b.updated_at) - new Date(a.created_at || a.updated_at));
   }
-  return await db.getAllAsync('SELECT * FROM enquiries WHERE quarry_id = ? ORDER BY created_at DESC', [quarryId]);
+  return await db.getAllAsync('SELECT * FROM enquiries WHERE quarry_id = ? ORDER BY created_at DESC', [qid]);
 }
 
 export async function saveEnquiry(db, enquiry) {
   const qid = enquiry.quarry_id || 1;
   if (IS_WEB) {
     const list = webGet(qKey(qid, 'enquiries')) || [];
+    let savedId = enquiry.id;
     if (enquiry.id) {
       const idx = list.findIndex(e => e.id === parseInt(enquiry.id));
       if (idx !== -1) { list[idx] = { ...list[idx], ...enquiry }; }
       webSet(qKey(qid, 'enquiries'), list);
-      return enquiry.id;
+    } else {
+      const nextId = list.reduce((max, e) => e.id > max ? e.id : max, 0) + 1;
+      savedId = nextId;
+      const newEnq = { ...enquiry, id: nextId, quarry_id: qid, status: enquiry.status || 'pending', created_at: new Date().toISOString() };
+      list.push(newEnq);
+      webSet(qKey(qid, 'enquiries'), list);
+
+      // Save copy to global fallback registry
+      const globalList = webGet('bf_global_enquiries') || [];
+      globalList.push(newEnq);
+      webSet('bf_global_enquiries', globalList);
     }
-    const nextId = list.reduce((max, e) => e.id > max ? e.id : max, 0) + 1;
-    list.push({ ...enquiry, id: nextId, status: enquiry.status || 'pending', created_at: new Date().toISOString() });
-    webSet(qKey(qid, 'enquiries'), list);
-    return nextId;
+    return savedId;
   }
   if (enquiry.id) {
     await db.runAsync('UPDATE enquiries SET status=?, agreed_rate=? WHERE id=?', [enquiry.status, enquiry.agreed_rate || 0, enquiry.id]);
@@ -1311,10 +1354,39 @@ export async function sendChatMessage(db, quarryId, customerPhone, sender, sende
 
     const chatsKey = qKey(quarryId, 'chats_index');
     const index = webGet(chatsKey) || [];
-    if (!index.find(c => c.customer_phone === customerPhone)) {
+    const existingChat = index.find(c => c.customer_phone === customerPhone);
+    if (!existingChat) {
       index.push({ customer_phone: customerPhone, customer_name: senderName, last_updated: new Date().toISOString() });
-      webSet(chatsKey, index);
+    } else {
+      existingChat.last_updated = new Date().toISOString();
+      if (senderName) existingChat.customer_name = senderName;
     }
+    webSet(chatsKey, index);
+
+    // Auto sync with enquiries list for Quarry Owner visibility
+    const enquiriesKey = qKey(quarryId, 'enquiries');
+    const enquiries = webGet(enquiriesKey) || [];
+    const existingEnq = enquiries.find(e => e.customer_phone === customerPhone);
+    if (existingEnq) {
+      existingEnq.material_name = `Live Chat: "${text.slice(0, 25)}..."`;
+      existingEnq.created_at = new Date().toISOString();
+    } else {
+      enquiries.push({
+        id: Date.now(),
+        quarry_id: quarryId,
+        customer_name: senderName || 'Chat Customer',
+        customer_phone: customerPhone,
+        material_name: `Live Chat: "${text.slice(0, 25)}..."`,
+        quantity: 1,
+        unit_type: 'unit',
+        quoted_rate: 0,
+        agreed_rate: 0,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+      });
+    }
+    webSet(enquiriesKey, enquiries);
+
     return msg;
   }
   return null;
