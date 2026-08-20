@@ -95,7 +95,7 @@ export default function OwnerRegisterScreen() {
       
       const userData = {
         id: created.id,
-        company_id: created.id,
+        quarry_id: created.id,
         name: created.name,
         phone: created.phone,
         location: created.location,

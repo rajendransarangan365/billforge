@@ -45,7 +45,7 @@ export default function OwnerLoginScreen() {
       if (authenticated) {
         const ownerUser = {
           id: authenticated.id,
-          company_id: authenticated.id,
+          quarry_id: authenticated.id,
           name: authenticated.name || 'Sri Murugan Quarry',
           phone: authenticated.phone || phone.trim(),
           location: authenticated.location || 'Tiruppur',

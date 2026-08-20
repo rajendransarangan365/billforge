@@ -6,9 +6,16 @@ const SESSION_KEY = 'bf_user_session';
 
 const AuthContext = createContext({
   user: null,
-  companyId: 1,
+  quarryId: null,
+  role: null, // 'admin' | 'quarry_owner' | 'driver' | 'customer'
+  isAdmin: false,
+  isOwner: false,
+  isDriver: false,
+  isCustomer: false,
+  loginAdmin: (_userData: any) => {},
   loginOwner: (_userData: any) => {},
   loginDriver: (_userData: any) => {},
+  loginCustomer: (_userData: any) => {},
   logout: () => {},
 });
 
@@ -25,11 +32,17 @@ export function AuthProvider({ children }) {
     try { await Storage.setItem(SESSION_KEY, JSON.stringify(userData)); } catch (e) {}
   };
 
+  const loginAdmin = (userData: any) => {
+    const u = { ...userData, role: 'admin' };
+    setUser(u);
+    persist(u);
+  };
+
   const loginOwner = (userData: any) => {
     const u = {
       ...userData,
-      company_id: userData.company_id || userData.id || 1,
-      role: userData.role || 'owner',
+      quarry_id: userData.quarry_id || userData.id || 1,
+      role: 'quarry_owner',
     };
     setUser(u);
     persist(u);
@@ -41,15 +54,29 @@ export function AuthProvider({ children }) {
     persist(u);
   };
 
+  const loginCustomer = (userData: any) => {
+    const u = { ...userData, role: 'customer' };
+    setUser(u);
+    persist(u);
+  };
+
   const logout = () => {
     setUser(null);
     Storage.removeItem(SESSION_KEY).catch(() => {});
   };
 
-  const companyId = user?.company_id || user?.id || 1;
+  const role = user?.role || null;
+  const quarryId = user?.quarry_id || null;
 
   return (
-    <AuthContext.Provider value={{ user, companyId, loginOwner, loginDriver, logout }}>
+    <AuthContext.Provider value={{
+      user, quarryId, role,
+      isAdmin: role === 'admin',
+      isOwner: role === 'quarry_owner',
+      isDriver: role === 'driver',
+      isCustomer: role === 'customer',
+      loginAdmin, loginOwner, loginDriver, loginCustomer, logout,
+    }}>
       {children}
     </AuthContext.Provider>
   );
@@ -58,4 +85,3 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
-

@@ -15,7 +15,7 @@ import { useAuth } from '../../src/context/AuthContext';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { companyId } = useAuth();
+  const { quarryId } = useAuth();
   const [profile, setProfile] = useState({ name: '', address: '', location: '', phone: '' });
   const [saving, setSaving] = useState(false);
 
@@ -24,7 +24,7 @@ export default function ProfileScreen() {
       (async () => {
         try {
           const db = await getDatabase();
-          const existing = await getCompanyProfile(db, companyId);
+          const existing = await getCompanyProfile(db, quarryId);
           if (existing) {
             setProfile({
               name: existing.name || '',
@@ -37,7 +37,7 @@ export default function ProfileScreen() {
           console.error('Error loading profile:', error);
         }
       })();
-    }, [companyId])
+    }, [quarryId])
   );
 
   const handleSave = async () => {
@@ -48,7 +48,7 @@ export default function ProfileScreen() {
     setSaving(true);
     try {
       const db = await getDatabase();
-      await saveCompanyProfile(db, { ...profile, id: companyId });
+      await saveCompanyProfile(db, { ...profile, id: quarryId });
       Alert.alert('Saved', 'Company profile updated successfully.');
     } catch (error) {
       Alert.alert('Error', 'Failed to save profile.');

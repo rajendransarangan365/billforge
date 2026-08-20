@@ -15,7 +15,7 @@ import { useAuth } from '../../src/context/AuthContext';
 
 export default function MaterialsScreen() {
   const insets = useSafeAreaInsets();
-  const { companyId } = useAuth();
+  const { quarryId } = useAuth();
   const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -27,14 +27,14 @@ export default function MaterialsScreen() {
     try {
       setLoading(true);
       const db = await getDatabase();
-      const list = await getMaterials(db, companyId);
+      const list = await getMaterials(db, quarryId);
       setMaterials(list);
     } catch (error) {
       console.error('Error loading materials:', error);
     } finally {
       setLoading(false);
     }
-  }, [companyId]);
+  }, [quarryId]);
 
   useFocusEffect(useCallback(() => { loadMaterials(); }, [loadMaterials]));
 
@@ -48,7 +48,7 @@ export default function MaterialsScreen() {
       const db = await getDatabase();
       await saveMaterial(db, {
         id: editingMaterial?.id,
-        company_id: companyId,
+        quarry_id: quarryId,
         name: formData.name,
         price_per_unit: parseFloat(formData.price_per_unit),
         unit_type: formData.unit_type,

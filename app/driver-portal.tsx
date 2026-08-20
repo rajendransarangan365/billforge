@@ -2,156 +2,57 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Linking, Alert, ActivityIndicator, Platform,
+  Linking, Alert, ActivityIndicator, Platform, RefreshControl,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as Location from 'expo-location';
-import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
-import { Button, Card, EmptyState } from '../src/components';
-import { getDatabase, getConsignments, saveConsignment } from '../src/database/db';
-import { socketService } from '../src/services/socketService';
-import WalkieTalkieModal from '../src/components/WalkieTalkieModal';
+import { Colors } from '../src/theme';
+import { useAuth } from '../src/context/AuthContext';
+import { getDatabase, getDriverTrips, getConsignments, saveConsignment } from '../src/database/db';
 
 export default function DriverPortalScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams();
-  const driverId = params.driverId ? parseInt(params.driverId) : 1;
-  const driverName = params.driverName || 'Ramesh (Driver)';
+  const { user } = useAuth();
+  const driverId = user?.id || 1;
+  const driverName = user?.name || 'Ramesh (Driver)';
+  const vehicleNo = user?.vehicle_no || 'TN 38 AB 1234';
 
   const [consignments, setConsignments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [currentLocation, setCurrentLocation] = useState(null);
-  const [gpsActive, setGpsActive] = useState(false);
-  const [walkieVisible, setWalkieVisible] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Load assigned consignments
   const loadData = useCallback(async () => {
-    setLoading(true);
     try {
       const db = await getDatabase();
-      const list = await getConsignments(db);
-      const activeList = list.filter(c => c.driver_id === driverId || c.driver_name === driverName);
-      setConsignments(activeList);
+      const list = await getDriverTrips(db, driverId);
+      setConsignments(list);
     } catch (e) {
       console.error('Driver portal load error:', e);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [driverId, driverName]);
+  }, [driverId]);
 
   useEffect(() => {
     loadData();
-    socketService.connect('driver', driverId);
-  }, [loadData, driverId]);
+  }, [loadData]);
 
-  // Request & Start GPS Location Stream over WebSockets
-  useEffect(() => {
-    let intervalId;
-    async function startGpsTracking() {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          console.warn('GPS location permission denied.');
-          return;
-        }
-        setGpsActive(true);
-
-        const loc = await Location.getCurrentPositionAsync({});
-        setCurrentLocation(loc.coords);
-
-        // Emit initial socket location update
-        socketService.emitLocationUpdate({
-          driverId,
-          driverName,
-          lat: loc.coords.latitude,
-          lng: loc.coords.longitude,
-          status: 'On Duty',
-        });
-
-        // Ping position every 5 seconds over WebSocket
-        intervalId = setInterval(async () => {
-          try {
-            const current = await Location.getCurrentPositionAsync({});
-            setCurrentLocation(current.coords);
-
-            // Emit live location stream via WebSocket
-            socketService.emitLocationUpdate({
-              driverId,
-              driverName,
-              lat: current.coords.latitude,
-              lng: current.coords.longitude,
-              status: 'On Duty',
-            });
-
-            // Sync with DB
-            const db = await getDatabase();
-            const list = await getConsignments(db);
-            for (const c of list) {
-              if ((c.driver_id === driverId || c.driver_name === driverName) && c.status !== 'delivered') {
-                await saveConsignment(db, {
-                  ...c,
-                  driver_lat: current.coords.latitude,
-                  driver_lng: current.coords.longitude,
-                });
-              }
-            }
-          } catch (err) {
-            console.warn('GPS update ping error:', err);
-          }
-        }, 5000);
-      } catch (e) {
-        console.warn('Location initialization error:', e);
-      }
-    }
-    startGpsTracking();
-
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [driverId, driverName]);
-
-  // Navigate to location via Google Maps App
-  const openGoogleMapsNav = (lat, lng, addressLabel) => {
-    if (!lat || !lng) {
-      const encoded = encodeURIComponent(addressLabel || 'Tamil Nadu');
-      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encoded}`);
-      return;
-    }
-    const url = Platform.OS === 'android'
-      ? `google.navigation:q=${lat},${lng}`
-      : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-    
-    Linking.openURL(url).catch(() => {
-      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
-    });
+  const openGoogleMapsNav = (addressLabel) => {
+    const encoded = encodeURIComponent(addressLabel || 'Tamil Nadu');
+    Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encoded}`).catch(() => {});
   };
 
-  // Update Status
   const handleUpdateStatus = async (consignment, newStatus, label) => {
     try {
       const db = await getDatabase();
       await saveConsignment(db, {
         ...consignment,
         status: newStatus,
-        driver_lat: currentLocation?.latitude || consignment.driver_lat,
-        driver_lng: currentLocation?.longitude || consignment.driver_lng,
       });
-
-      let alertTitle = 'Status Updated ✅';
-      let alertMsg = `Consignment status updated to ${label}. Admin has been notified!`;
-
-      if (newStatus === 'reached_pickup') {
-        alertTitle = '📍 Reached Pickup Location';
-        alertMsg = 'Owner has been notified: "Driver Ramesh reached Pickup Location!"';
-      } else if (newStatus === 'reached_customer') {
-        alertTitle = '🏁 Reached Customer Location';
-        alertMsg = 'Owner has been notified: "Driver Ramesh reached Customer Location!"';
-      }
-
-      Alert.alert(alertTitle, alertMsg);
+      Alert.alert('Status Updated ✅', `Trip status updated to: ${label}`);
       loadData();
     } catch (e) {
       Alert.alert('Error', 'Failed to update status.');
@@ -159,189 +60,156 @@ export default function DriverPortalScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Driver App Header */}
+    <View style={[styles.root, { paddingTop: insets.top }]}>
+      {/* Header */}
       <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.push('/select-role')} style={styles.backBtn}>
+          <Ionicons name="arrow-back" size={20} color={Colors.navy} />
+        </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Driver Portal 🚚</Text>
-          <Text style={styles.headerSub}>Welcome, {driverName}</Text>
+          <Text style={styles.headerTitle}>{driverName}</Text>
+          <Text style={styles.headerSub}>Vehicle: {vehicleNo}</Text>
         </View>
-        <TouchableOpacity
-          style={styles.walkieBtn}
-          onPress={() => setWalkieVisible(true)}
-        >
-          <Ionicons name="radio" size={16} color="#FFF" />
-          <Text style={styles.walkieBtnText}>Walkie-Talkie</Text>
+        <TouchableOpacity style={styles.refreshBtn} onPress={() => { setRefreshing(true); loadData(); }}>
+          <Ionicons name="refresh" size={18} color="#1565C0" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.logoutBtn} onPress={() => router.replace('/')}>
-          <Ionicons name="log-out-outline" size={18} color="#DC2626" />
-        </TouchableOpacity>
-      </View>
-
-      {/* GPS Status Banner */}
-      <View style={[styles.gpsBanner, { backgroundColor: gpsActive ? '#DCFCE7' : '#FEF9C3' }]}>
-        <Ionicons name={gpsActive ? 'navigate-circle' : 'warning-outline'} size={18} color={gpsActive ? '#16A34A' : '#D97706'} />
-        <Text style={[styles.gpsText, { color: gpsActive ? '#16A34A' : '#D97706' }]}>
-          {gpsActive
-            ? `Live WebSockets GPS Active (${currentLocation ? `${currentLocation.latitude.toFixed(4)}, ${currentLocation.longitude.toFixed(4)}` : 'Locating…'})`
-            : 'Acquiring GPS Signal…'}
-        </Text>
       </View>
 
       {loading ? (
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={Colors.primary} />
+        <View style={styles.centerWrap}>
+          <ActivityIndicator size="large" color="#1565C0" />
+          <Text style={{ marginTop: 8, color: Colors.textSecondary }}>Loading Assigned Trips...</Text>
         </View>
-      ) : consignments.length === 0 ? (
-        <EmptyState
-          icon="car-outline"
-          title="No active consignments"
-          description="You currently have no pending deliveries assigned"
-        />
       ) : (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          {consignments.map(c => {
-            const statusConfig = {
-              assigned: { label: '🚚 Assigned', bg: '#EFF6FF', text: '#1D4ED8' },
-              reached_pickup: { label: '📍 Reached Pickup', bg: '#FEF9C3', text: '#854D0E' },
-              picked_up: { label: '📦 Picked Up', bg: '#F3E8FF', text: '#6B21A8' },
-              reached_customer: { label: '🏁 Reached Customer', bg: '#FEF08A', text: '#713F12' },
-              delivered: { label: '✅ Delivered', bg: '#DCFCE7', text: '#16A34A' },
-            }[c.status] || { label: c.status, bg: '#F3F4F6', text: '#374151' };
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} colors={['#1565C0']} />}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.statusBanner}>
+            <Ionicons name="location" size={20} color="#1565C0" />
+            <Text style={styles.statusBannerText}>Driver Status: <Text style={{ fontWeight: '800' }}>Active & Ready</Text></Text>
+          </View>
 
-            return (
-              <View key={c.id} style={styles.card}>
-                <View style={styles.cardHeader}>
+          <Text style={styles.sectionTitle}>Assigned Trips ({consignments.length})</Text>
+
+          {consignments.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="car-sport-outline" size={40} color={Colors.textDisabled} />
+              <Text style={styles.emptyTitle}>No Active Trips Assigned</Text>
+              <Text style={styles.emptySub}>When a quarry owner assigns a trip to your lorry, it will appear here instantly.</Text>
+            </View>
+          ) : (
+            consignments.map((c) => (
+              <View key={c.id} style={styles.tripCard}>
+                <View style={styles.tripHeader}>
+                  <View style={styles.materialIconWrap}>
+                    <Ionicons name="cube" size={22} color="#1565C0" />
+                  </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.custName}>{c.customer_name}</Text>
-                    <Text style={styles.custPhone}>📱 {c.customer_phone}</Text>
+                    <Text style={styles.materialName}>{c.material_name || 'Construction Material'}</Text>
+                    <Text style={styles.tripQty}>{c.quantity || 1} {c.unit_type || 'units'} • Rate: ₹{c.agreed_rate || 0}</Text>
                   </View>
-                  <View style={[styles.badge, { backgroundColor: statusConfig.bg }]}>
-                    <Text style={[styles.badgeText, { color: statusConfig.text }]}>{statusConfig.label}</Text>
+                  <View style={[styles.statusBadge, c.status === 'delivered' ? { backgroundColor: Colors.successLight } : { backgroundColor: '#E3F2FD' }]}>
+                    <Text style={[styles.statusText, c.status === 'delivered' ? { color: Colors.success } : { color: '#1565C0' }]}>
+                      {(c.status || 'assigned').toUpperCase()}
+                    </Text>
                   </View>
                 </View>
 
-                {/* Cargo Details */}
-                <View style={styles.cargoBox}>
-                  <Text style={styles.cargoTitle}>📦 Cargo Consignment Details:</Text>
-                  <Text style={styles.cargoVal}>{c.quantity} {c.unit_type} {c.material_name}</Text>
-                  <Text style={styles.cargoRate}>Agreed Value: ₹{c.agreed_rate}</Text>
-                </View>
+                <View style={styles.locationGroup}>
+                  <TouchableOpacity style={styles.locRow} onPress={() => openGoogleMapsNav(c.pickup_address)}>
+                    <Ionicons name="pin" size={16} color={Colors.primary} />
+                    <Text style={styles.locText} numberOfLines={1}>Pickup: {c.pickup_address || 'Quarry Site'}</Text>
+                    <Ionicons name="navigate-outline" size={14} color={Colors.primary} />
+                  </TouchableOpacity>
 
-                {/* Navigation Action Buttons */}
-                <Text style={styles.navHeader}>🧭 Google Maps Navigation:</Text>
-                <View style={styles.navRow}>
-                  <TouchableOpacity
-                    style={[styles.navBtn, { backgroundColor: '#10B981' }]}
-                    onPress={() => openGoogleMapsNav(c.pickup_lat, c.pickup_lng, c.pickup_address)}
-                  >
-                    <Ionicons name="navigate-circle" size={20} color="#FFF" />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.navBtnTitle}>Navigate to Pickup</Text>
-                      <Text style={styles.navBtnSub} numberOfLines={1}>{c.pickup_address || 'Quarry Yard'}</Text>
-                    </View>
-                    <Ionicons name="arrow-forward" size={16} color="#FFF" />
+                  <TouchableOpacity style={styles.locRow} onPress={() => openGoogleMapsNav(c.customer_address)}>
+                    <Ionicons name="location" size={16} color={Colors.success} />
+                    <Text style={styles.locText} numberOfLines={1}>Delivery: {c.customer_address || c.customer_name || 'Customer Site'}</Text>
+                    <Ionicons name="navigate-outline" size={14} color={Colors.success} />
                   </TouchableOpacity>
                 </View>
 
-                <View style={styles.navRow}>
-                  <TouchableOpacity
-                    style={[styles.navBtn, { backgroundColor: '#3B82F6' }]}
-                    onPress={() => openGoogleMapsNav(c.customer_lat, c.customer_lng, c.customer_address)}
-                  >
-                    <Ionicons name="navigate-circle" size={20} color="#FFF" />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.navBtnTitle}>Navigate to Customer</Text>
-                      <Text style={styles.navBtnSub} numberOfLines={1}>{c.customer_address || 'Delivery Site'}</Text>
-                    </View>
-                    <Ionicons name="arrow-forward" size={16} color="#FFF" />
-                  </TouchableOpacity>
-                </View>
+                {c.customer_name ? (
+                  <View style={styles.customerRow}>
+                    <Ionicons name="person-outline" size={14} color={Colors.textSecondary} />
+                    <Text style={styles.customerText}>Customer: {c.customer_name} ({c.customer_phone || 'N/A'})</Text>
+                    {c.customer_phone ? (
+                      <TouchableOpacity onPress={() => Linking.openURL(`tel:${c.customer_phone}`)}>
+                        <Ionicons name="call-outline" size={16} color={Colors.primary} />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : null}
 
-                {/* Delivery Progress Actions */}
-                <Text style={styles.navHeader}>⚡ Delivery Status Actions:</Text>
-                <View style={styles.statusGroup}>
+                {/* Status Action Buttons */}
+                <View style={styles.actionRow}>
                   {c.status === 'assigned' && (
-                    <Button
-                      title="📍 Reached Pickup Location"
-                      onPress={() => handleUpdateStatus(c, 'reached_pickup', 'Reached Pickup Location')}
-                      style={{ backgroundColor: '#D97706' }}
-                    />
+                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: Colors.primary }]} onPress={() => handleUpdateStatus(c, 'reached_pickup', 'Reached Quarry')}>
+                      <Ionicons name="location-outline" size={16} color="#FFF" />
+                      <Text style={styles.actionBtnText}>Reached Quarry</Text>
+                    </TouchableOpacity>
                   )}
                   {c.status === 'reached_pickup' && (
-                    <Button
-                      title="📦 Cargo Picked Up"
-                      onPress={() => handleUpdateStatus(c, 'picked_up', 'Cargo Picked Up')}
-                      style={{ backgroundColor: '#7C3AED' }}
-                    />
+                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#1565C0' }]} onPress={() => handleUpdateStatus(c, 'loaded', 'Material Loaded')}>
+                      <Ionicons name="cube-outline" size={16} color="#FFF" />
+                      <Text style={styles.actionBtnText}>Loaded & In Transit</Text>
+                    </TouchableOpacity>
                   )}
-                  {c.status === 'picked_up' && (
-                    <Button
-                      title="🏁 Reached Customer Location"
-                      onPress={() => handleUpdateStatus(c, 'reached_customer', 'Reached Customer Location')}
-                      style={{ backgroundColor: '#2563EB' }}
-                    />
+                  {c.status === 'loaded' && (
+                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: Colors.success }]} onPress={() => handleUpdateStatus(c, 'delivered', 'Delivered to Site')}>
+                      <Ionicons name="checkmark-circle-outline" size={16} color="#FFF" />
+                      <Text style={styles.actionBtnText}>Mark Delivered</Text>
+                    </TouchableOpacity>
                   )}
-                  {c.status === 'reached_customer' && (
-                    <Button
-                      title="✅ Complete Delivery"
-                      onPress={() => handleUpdateStatus(c, 'delivered', 'Delivered')}
-                      variant="success"
-                    />
+                  {c.status === 'delivered' && (
+                    <View style={styles.deliveredTag}>
+                      <Ionicons name="checkmark-done" size={16} color={Colors.success} />
+                      <Text style={styles.deliveredText}>Delivery Completed</Text>
+                    </View>
                   )}
                 </View>
               </View>
-            );
-          })}
+            ))
+          )}
         </ScrollView>
       )}
-
-      {/* Push-to-Talk Walkie Talkie Modal */}
-      <WalkieTalkieModal
-        visible={walkieVisible}
-        onClose={() => setWalkieVisible(false)}
-        peerName="Quarry Owner (Admin)"
-        peerRole="quarry_owner"
-        peerId="admin"
-      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  header: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingHorizontal: Spacing.xl, paddingTop: Spacing.lg, paddingBottom: Spacing.md,
-    backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
-  },
-  headerTitle: { ...Typography.h2, color: Colors.text },
-  headerSub: { ...Typography.caption, color: Colors.textSecondary },
-  walkieBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.primary, paddingHorizontal: 10, paddingVertical: 6, borderRadius: BorderRadius.sm },
-  walkieBtnText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
-  logoutBtn: { padding: 6, backgroundColor: '#FEE2E2', borderRadius: BorderRadius.sm },
-  gpsBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: Spacing.lg, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  gpsText: { fontSize: 11, fontWeight: '700' },
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  scroll: { flex: 1 },
-  scrollContent: { padding: Spacing.lg },
-  card: {
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.xl,
-    padding: Spacing.lg, marginBottom: 14, borderWidth: 1, borderColor: Colors.borderLight,
-  },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-  custName: { ...Typography.h2, color: Colors.text },
-  custPhone: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  badge: { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
-  cargoBox: { backgroundColor: Colors.primarySurface, borderRadius: BorderRadius.md, padding: Spacing.md, marginBottom: 12 },
-  cargoTitle: { ...Typography.captionSemibold, color: Colors.primary },
-  cargoVal: { ...Typography.h3, color: Colors.text, marginTop: 2 },
-  cargoRate: { ...Typography.caption, color: Colors.textSecondary, marginTop: 2 },
-  navHeader: { ...Typography.captionSemibold, color: Colors.textSecondary, marginBottom: 6, marginTop: 4 },
-  navRow: { marginBottom: 8 },
-  navBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: BorderRadius.md },
-  navBtnTitle: { color: '#FFF', fontWeight: '700', fontSize: 13 },
-  navBtnSub: { color: 'rgba(255,255,255,0.85)', fontSize: 11 },
-  statusGroup: { marginTop: 4 },
+  root: { flex: 1, backgroundColor: Colors.background },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight, gap: 12 },
+  backBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.border },
+  headerTitle: { fontSize: 17, fontWeight: '800', color: Colors.navy },
+  headerSub: { fontSize: 11, color: Colors.textSecondary },
+  refreshBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#E3F2FD', alignItems: 'center', justifyContent: 'center' },
+  centerWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  content: { flex: 1 },
+  statusBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#E3F2FD', padding: 12, borderRadius: 10, marginBottom: 16, borderWidth: 1, borderColor: '#BBDEFB' },
+  statusBannerText: { fontSize: 13, color: '#1565C0' },
+  sectionTitle: { fontSize: 13, fontWeight: '700', color: Colors.textTertiary, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 },
+  emptyCard: { padding: 36, alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.borderLight, marginTop: 10 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: Colors.text, marginTop: 10 },
+  emptySub: { fontSize: 12, color: Colors.textSecondary, textAlign: 'center', marginTop: 4, lineHeight: 18 },
+  tripCard: { backgroundColor: Colors.surface, borderRadius: 14, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: Colors.borderLight, gap: 12 },
+  tripHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  materialIconWrap: { width: 42, height: 42, borderRadius: 12, backgroundColor: '#E3F2FD', alignItems: 'center', justifyContent: 'center' },
+  materialName: { fontSize: 16, fontWeight: '700', color: Colors.navy },
+  tripQty: { fontSize: 12, color: Colors.textSecondary, marginTop: 1 },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  statusText: { fontSize: 10, fontWeight: '800' },
+  locationGroup: { backgroundColor: Colors.background, borderRadius: 10, padding: 10, gap: 8 },
+  locRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  locText: { flex: 1, fontSize: 12, fontWeight: '600', color: Colors.text },
+  customerRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  customerText: { flex: 1, fontSize: 12, color: Colors.textSecondary },
+  actionRow: { marginTop: 4 },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44, borderRadius: 10 },
+  actionBtnText: { fontSize: 14, fontWeight: '700', color: '#FFF' },
+  deliveredTag: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, backgroundColor: Colors.successLight, borderRadius: 10 },
+  deliveredText: { fontSize: 13, fontWeight: '700', color: Colors.success },
 });

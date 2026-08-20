@@ -9,42 +9,34 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
+import { getDatabase, authenticateDriver } from '../src/database/db';
 
 export default function DriverLoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { loginDriver } = useAuth();
 
-  const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [vehicleNo, setVehicleNo] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleLogin = async () => {
     setError('');
-    if (!name.trim()) { setError('Please enter your name.'); return; }
     if (!phone.trim()) { setError('Please enter your mobile number.'); return; }
-    if (!vehicleNo.trim()) { setError('Please enter your vehicle number.'); return; }
+    if (!password.trim()) { setError('Please enter your password.'); return; }
 
     setLoading(true);
     try {
-      const driverUser = {
-        id: `driver-${Date.now()}`,
-        name: name.trim(),
-        phone: phone.trim(),
-        vehicleNo: vehicleNo.trim().toUpperCase(),
-        role: 'driver',
-      };
-      loginDriver(driverUser);
-      router.replace({
-        pathname: '/driver-marketplace',
-        params: {
-          driverId: driverUser.id,
-          driverName: driverUser.name,
-          vehicleNo: driverUser.vehicleNo,
-        },
-      });
+      const db = await getDatabase();
+      const authenticated = await authenticateDriver(db, phone.trim(), password.trim());
+      if (authenticated) {
+        loginDriver(authenticated);
+        router.replace('/driver-portal');
+      } else {
+        setError('Invalid driver credentials. (Demo: 9876543210 / driver123)');
+      }
     } catch (e) {
       setError('Login failed. Please try again.');
     } finally {
@@ -63,33 +55,18 @@ export default function DriverLoginScreen() {
           <Ionicons name="arrow-back" size={22} color={Colors.text} />
         </TouchableOpacity>
 
-        <View style={[styles.iconWrap, { backgroundColor: Colors.infoLight }]}>
-          <Ionicons name="car-sport" size={34} color={Colors.info} />
+        <View style={[styles.iconWrap, { backgroundColor: '#E3F2FD' }]}>
+          <Ionicons name="car-sport" size={34} color="#1565C0" />
         </View>
 
-        <Text style={styles.title}>Driver Login</Text>
+        <Text style={styles.title}>Transport & Driver Login</Text>
         <Text style={styles.subtitle}>
-          Accept transport trips, navigate to quarry and delivery sites
+          Sign in to view assigned trips, quarry pickups, delivery sites & earnings
         </Text>
 
         <View style={styles.form}>
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Driver Name</Text>
-            <View style={styles.inputWrap}>
-              <Ionicons name="person-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                value={name}
-                onChangeText={setName}
-                placeholder="e.g. Ramesh Kumar"
-                placeholderTextColor={Colors.textDisabled}
-                returnKeyType="next"
-              />
-            </View>
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Mobile Number</Text>
+            <Text style={styles.label}>Mobile Number *</Text>
             <View style={styles.inputWrap}>
               <Ionicons name="call-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
               <TextInput
@@ -106,19 +83,22 @@ export default function DriverLoginScreen() {
           </View>
 
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Vehicle Number</Text>
+            <Text style={styles.label}>Password *</Text>
             <View style={styles.inputWrap}>
-              <Ionicons name="car-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
+              <Ionicons name="lock-closed-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
-                value={vehicleNo}
-                onChangeText={setVehicleNo}
-                placeholder="e.g. TN 38 AB 1234"
+                style={[styles.input, { paddingRight: 48 }]}
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Enter password"
                 placeholderTextColor={Colors.textDisabled}
-                autoCapitalize="characters"
+                secureTextEntry={!showPass}
                 returnKeyType="done"
                 onSubmitEditing={handleLogin}
               />
+              <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPass(!showPass)}>
+                <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={Colors.textTertiary} />
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -130,7 +110,7 @@ export default function DriverLoginScreen() {
           ) : null}
 
           <TouchableOpacity
-            style={[styles.loginBtn, { backgroundColor: Colors.info }, loading && styles.loginBtnDisabled]}
+            style={[styles.loginBtn, { backgroundColor: '#1565C0' }, loading && styles.loginBtnDisabled]}
             onPress={handleLogin}
             disabled={loading}
             activeOpacity={0.82}
@@ -139,7 +119,7 @@ export default function DriverLoginScreen() {
               ? <ActivityIndicator color="#FFF" size="small" />
               : (
                 <>
-                  <Text style={styles.loginBtnText}>Continue as Driver</Text>
+                  <Text style={styles.loginBtnText}>Sign In as Driver</Text>
                   <Ionicons name="arrow-forward" size={18} color="#FFF" />
                 </>
               )
@@ -147,10 +127,10 @@ export default function DriverLoginScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.noteBox]}>
-          <Ionicons name="shield-checkmark-outline" size={14} color={Colors.info} />
-          <Text style={styles.noteText}>
-            Your location will only be shared with the quarry owner when you are on an active delivery trip.
+        <View style={[styles.demoBox]}>
+          <Ionicons name="information-circle-outline" size={14} color="#1565C0" />
+          <Text style={styles.demoText}>
+            Demo Driver — Phone: <Text style={{ fontWeight: '700' }}>9876543210</Text>  Pass: <Text style={{ fontWeight: '700' }}>driver123</Text>
           </Text>
         </View>
       </ScrollView>
@@ -160,7 +140,7 @@ export default function DriverLoginScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
-  scroll: { paddingHorizontal: 24 },
+  scroll: { paddingHorizontal: 24, maxWidth: 500, alignSelf: 'center', width: '100%' },
   backBtn: {
     width: 40, height: 40, borderRadius: 12,
     backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center',
@@ -183,6 +163,7 @@ const styles = StyleSheet.create({
   },
   inputIcon: { paddingLeft: 14 },
   input: { flex: 1, height: 52, paddingHorizontal: 12, fontSize: 15, color: Colors.text },
+  eyeBtn: { padding: 14, position: 'absolute', right: 0 },
   errorBox: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: Colors.dangerLight, borderRadius: 10, padding: 10,
@@ -196,10 +177,10 @@ const styles = StyleSheet.create({
   },
   loginBtnDisabled: { opacity: 0.7 },
   loginBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
-  noteBox: {
+  demoBox: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 6,
-    backgroundColor: Colors.infoLight, borderRadius: 10, padding: 12, marginTop: 28,
-    borderWidth: 1, borderColor: Colors.infoBorder,
+    backgroundColor: '#E3F2FD', borderRadius: 10, padding: 12, marginTop: 28,
+    borderWidth: 1, borderColor: '#BBDEFB',
   },
-  noteText: { fontSize: 12, color: Colors.info, flex: 1, lineHeight: 18 },
+  demoText: { fontSize: 12, color: '#1565C0', flex: 1, lineHeight: 18 },
 });

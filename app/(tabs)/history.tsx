@@ -315,7 +315,7 @@ const bc = StyleSheet.create({
 export default function HistoryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { companyId } = useAuth();
+  const { quarryId } = useAuth();
   const [bills, setBills] = useState([]);
   const [filteredBills, setFilteredBills] = useState([]);
   const [paidMap, setPaidMap] = useState({});
@@ -329,7 +329,7 @@ export default function HistoryScreen() {
     try {
       setLoading(true);
       const db = await getDatabase();
-      const list = await getBills(db, companyId);
+      const list = await getBills(db, quarryId);
       const allPayments = await getAllPayments(db);
       // Build paidMap: bill_id -> total paid
       const pm = {};

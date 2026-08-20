@@ -9,33 +9,28 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
+import { getDatabase, authenticateCustomer } from '../src/database/db';
 
 export default function CustomerLoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { loginOwner } = useAuth();
+  const { loginCustomer } = useAuth();
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleLogin = async () => {
     setError('');
-    if (!name.trim()) { setError('Please enter your name or company name.'); return; }
     if (!phone.trim()) { setError('Please enter your mobile number.'); return; }
 
     setLoading(true);
     try {
-      const customerUser = {
-        id: `cust-${Date.now()}`,
-        name: name.trim(),
-        phone: phone.trim(),
-        role: 'customer',
-      };
-      loginOwner(customerUser);
+      const db = await getDatabase();
+      const user = await authenticateCustomer(db, phone.trim());
+      if (name.trim()) user.name = name.trim();
+      loginCustomer(user);
       router.replace('/customer-marketplace');
     } catch (e) {
       setError('Login failed. Please try again.');
@@ -55,18 +50,18 @@ export default function CustomerLoginScreen() {
           <Ionicons name="arrow-back" size={22} color={Colors.text} />
         </TouchableOpacity>
 
-        <View style={[styles.iconWrap, { backgroundColor: Colors.statusAgreedBg }]}>
-          <Ionicons name="construct" size={34} color={Colors.success} />
+        <View style={[styles.iconWrap, { backgroundColor: '#E8F5E9' }]}>
+          <Ionicons name="storefront" size={34} color="#2E7D32" />
         </View>
 
-        <Text style={styles.title}>Customer Login</Text>
+        <Text style={styles.title}>Customer Portal Login</Text>
         <Text style={styles.subtitle}>
-          Post material requirements, track your lorry live and share delivery documents
+          Browse quarry catalogs, compare prices, and submit material enquiries
         </Text>
 
         <View style={styles.form}>
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Your Name / Company</Text>
+            <Text style={styles.label}>Your Name / Company (Optional)</Text>
             <View style={styles.inputWrap}>
               <Ionicons name="person-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
               <TextInput
@@ -81,7 +76,7 @@ export default function CustomerLoginScreen() {
           </View>
 
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Mobile Number</Text>
+            <Text style={styles.label}>Mobile Number *</Text>
             <View style={styles.inputWrap}>
               <Ionicons name="call-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
               <TextInput
@@ -92,28 +87,9 @@ export default function CustomerLoginScreen() {
                 placeholderTextColor={Colors.textDisabled}
                 keyboardType="phone-pad"
                 maxLength={10}
-                returnKeyType="next"
-              />
-            </View>
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Password (optional)</Text>
-            <View style={styles.inputWrap}>
-              <Ionicons name="lock-closed-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { paddingRight: 48 }]}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Enter password"
-                placeholderTextColor={Colors.textDisabled}
-                secureTextEntry={!showPass}
                 returnKeyType="done"
                 onSubmitEditing={handleLogin}
               />
-              <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPass(!showPass)}>
-                <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={Colors.textTertiary} />
-              </TouchableOpacity>
             </View>
           </View>
 
@@ -125,7 +101,7 @@ export default function CustomerLoginScreen() {
           ) : null}
 
           <TouchableOpacity
-            style={[styles.loginBtn, { backgroundColor: Colors.success }, loading && styles.loginBtnDisabled]}
+            style={[styles.loginBtn, { backgroundColor: '#2E7D32' }, loading && styles.loginBtnDisabled]}
             onPress={handleLogin}
             disabled={loading}
             activeOpacity={0.82}
@@ -134,7 +110,7 @@ export default function CustomerLoginScreen() {
               ? <ActivityIndicator color="#FFF" size="small" />
               : (
                 <>
-                  <Text style={styles.loginBtnText}>Continue as Customer</Text>
+                  <Text style={styles.loginBtnText}>Browse Quarry Catalogs</Text>
                   <Ionicons name="arrow-forward" size={18} color="#FFF" />
                 </>
               )
@@ -142,10 +118,10 @@ export default function CustomerLoginScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.demoBox, { backgroundColor: Colors.statusAgreedBg, borderColor: Colors.successBorder }]}>
-          <Ionicons name="information-circle-outline" size={14} color={Colors.success} />
-          <Text style={[styles.demoText, { color: Colors.success }]}>
-            Enter any name and mobile to get started. No registration required.
+        <View style={[styles.demoBox]}>
+          <Ionicons name="information-circle-outline" size={14} color="#2E7D32" />
+          <Text style={styles.demoText}>
+            Enter mobile number to view live material prices across all registered quarries.
           </Text>
         </View>
       </ScrollView>
@@ -155,7 +131,7 @@ export default function CustomerLoginScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
-  scroll: { paddingHorizontal: 24 },
+  scroll: { paddingHorizontal: 24, maxWidth: 500, alignSelf: 'center', width: '100%' },
   backBtn: {
     width: 40, height: 40, borderRadius: 12,
     backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center',
@@ -178,7 +154,6 @@ const styles = StyleSheet.create({
   },
   inputIcon: { paddingLeft: 14 },
   input: { flex: 1, height: 52, paddingHorizontal: 12, fontSize: 15, color: Colors.text },
-  eyeBtn: { padding: 14, position: 'absolute', right: 0 },
   errorBox: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: Colors.dangerLight, borderRadius: 10, padding: 10,
@@ -194,8 +169,8 @@ const styles = StyleSheet.create({
   loginBtnText: { fontSize: 16, fontWeight: '700', color: '#FFF' },
   demoBox: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 6,
-    borderRadius: 10, padding: 12, marginTop: 28, borderWidth: 1,
+    backgroundColor: '#E8F5E9', borderRadius: 10, padding: 12, marginTop: 28,
+    borderWidth: 1, borderColor: '#C8E6C9',
   },
-  demoText: { fontSize: 12, flex: 1, lineHeight: 18 },
-  demoBold: { fontWeight: '700' },
+  demoText: { fontSize: 12, color: '#2E7D32', flex: 1, lineHeight: 18 },
 });
