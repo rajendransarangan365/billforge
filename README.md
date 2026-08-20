@@ -1,50 +1,44 @@
-# Welcome to your Expo app 👋
+# BillForge — Multi-Quarry Operations, Customized Billing & Supply Chain Platform
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+BillForge is a 100% serverless multi-tenant platform for quarry operations, custom Word (`.docx`) template billing, customer marketplace & negotiation chat, and transport lorry dispatch management.
 
-## Get started
+Complete architectural specifications, data schemas, role endpoints, and feature guides are documented in [PROJECT_ARCHITECTURE_AND_FEATURES.md](./PROJECT_ARCHITECTURE_AND_FEATURES.md).
 
-1. Install dependencies
+---
 
+## 🚀 Quick Start
+
+1. **Install Dependencies**:
    ```bash
    npm install
    ```
 
-2. Start the app
-
+2. **Run Web Local Server**:
    ```bash
-   npx expo start
+   npx expo start --web
    ```
 
-In the output, you'll find options to open the app in a
+3. **Verify Type Check**:
+   ```bash
+   npx tsc --noEmit
+   ```
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+---
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## 🔑 Portals & Roles Overview
 
-## Get a fresh project
+1. **Admin Control Tower** (`/admin-portal`): PIN `admin123`
+   - Quarry Owner Onboarding, Temporary Password Reset, Platform Stats.
 
-When you're ready, run:
+2. **Quarry Owner Portal** (`/(tabs)` & `/quarry`): Demo `9999999999` / `admin123`
+   - Customized Word Template Billing, Auto Serial Numbers, Draft Auto-Resume, Material Catalogs, Dues Ledger, Customer Live Chat, Transport Driver Assignment & eWay Bill Attachments.
 
-```bash
-npm run reset-project
-```
+3. **Transport Driver Portal** (`/driver-portal`): Demo `9876543210` / `driver123`
+   - Pickup & Delivery Trip Management, Google Maps Navigation, Driver Per-Kilometer Rate Card, Legal Transport Documents (eWay Bill / Challan) Viewer.
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+4. **Customer Marketplace** (`/customer-marketplace`):
+   - Cross-Quarry Catalog Search & Live Pricing, Material Enquiries, Live Negotiating Chat Window with Quarry Owners.
 
-## Learn more
+---
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+For detailed documentation, see [PROJECT_ARCHITECTURE_AND_FEATURES.md](./PROJECT_ARCHITECTURE_AND_FEATURES.md).
