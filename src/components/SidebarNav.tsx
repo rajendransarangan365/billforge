@@ -15,7 +15,8 @@ const ADMIN_NAV = [
     { route: '/(tabs)', icon: 'grid-outline', activeIcon: 'grid', label: 'Platform Overview' },
   ]},
   { title: 'ACCOUNT', items: [
-    { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal / Logout' },
+    { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },
+    { isLogout: true, icon: 'log-out-outline', activeIcon: 'log-out', label: 'Logout' },
   ]},
 ];
 
@@ -39,6 +40,7 @@ const OWNER_NAV = [
   { title: 'SETTINGS', items: [
     { route: '/(tabs)/profile', icon: 'business-outline', activeIcon: 'business', label: 'Company Profile' },
     { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },
+    { isLogout: true, icon: 'log-out-outline', activeIcon: 'log-out', label: 'Logout' },
   ]},
 ];
 
@@ -50,6 +52,7 @@ const DRIVER_NAV = [
   ]},
   { title: 'ACCOUNT', items: [
     { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },
+    { isLogout: true, icon: 'log-out-outline', activeIcon: 'log-out', label: 'Logout' },
   ]},
 ];
 
@@ -60,6 +63,7 @@ const CUSTOMER_NAV = [
   ]},
   { title: 'ACCOUNT', items: [
     { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },
+    { isLogout: true, icon: 'log-out-outline', activeIcon: 'log-out', label: 'Logout' },
   ]},
 ];
 
@@ -68,7 +72,7 @@ import { useWindowDimensions } from 'react-native';
 export function SidebarNav() {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, role, quarryId } = useAuth();
+  const { user, role, quarryId, logout } = useAuth();
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
 
@@ -79,6 +83,12 @@ export function SidebarNav() {
   if (pathname === '/' || pathname === '' || pathname === '/index') {
     return null;
   }
+
+  const handleLogout = () => {
+    logout();
+    setMobileDrawerOpen(false);
+    router.replace('/select-role');
+  };
 
   const navSections = role === 'admin' || pathname.startsWith('/admin') ? ADMIN_NAV
     : role === 'driver' || pathname.startsWith('/driver') ? DRIVER_NAV
@@ -124,11 +134,23 @@ export function SidebarNav() {
               {navSections.map((section, sIdx) => (
                 <View key={section.title || sIdx} style={{ marginBottom: 14 }}>
                   <Text style={mobileStyles.sectionHeader}>{section.title}</Text>
-                  {section.items.map((item) => {
+                  {section.items.map((item, iIdx) => {
+                    if (item.isLogout) {
+                      return (
+                        <TouchableOpacity
+                          key="logout-item-mob"
+                          style={[mobileStyles.navItem, { backgroundColor: '#FFEBEE', marginTop: 4 }]}
+                          onPress={handleLogout}
+                        >
+                          <Ionicons name="log-out" size={20} color="#D32F2F" />
+                          <Text style={[mobileStyles.navText, { color: '#D32F2F', fontWeight: '700' }]}>Logout / Exit</Text>
+                        </TouchableOpacity>
+                      );
+                    }
                     const active = isCurrentRoute(item.route);
                     return (
                       <TouchableOpacity
-                        key={item.route}
+                        key={item.route || iIdx}
                         style={[mobileStyles.navItem, active && mobileStyles.navItemActive]}
                         onPress={() => {
                           setMobileDrawerOpen(false);
@@ -172,10 +194,23 @@ export function SidebarNav() {
         {navSections.map((section, sIdx) => (
           <View key={section.title || sIdx} style={styles.sectionWrap}>
             {!collapsed && <Text style={styles.sectionHeader}>{section.title}</Text>}
-            {section.items.map((item) => {
+            {section.items.map((item, iIdx) => {
+              if (item.isLogout) {
+                return (
+                  <TouchableOpacity
+                    key="logout-item-dt"
+                    style={[styles.navItem, { backgroundColor: '#FFEBEE', marginTop: 4 }]}
+                    onPress={handleLogout}
+                    activeOpacity={0.78}
+                  >
+                    <Ionicons name="log-out" size={20} color="#D32F2F" />
+                    {!collapsed && <Text style={[styles.navLabel, { color: '#D32F2F', fontWeight: '700' }]}>Logout</Text>}
+                  </TouchableOpacity>
+                );
+              }
               const active = isCurrentRoute(item.route);
               return (
-                <TouchableOpacity key={item.route} style={[styles.navItem, active && styles.navItemActive]} onPress={() => router.push(item.route)} activeOpacity={0.78}>
+                <TouchableOpacity key={item.route || iIdx} style={[styles.navItem, active && styles.navItemActive]} onPress={() => router.push(item.route)} activeOpacity={0.78}>
                   <Ionicons name={active ? item.activeIcon : item.icon} size={20} color={active ? Colors.primary : Colors.textSecondary} />
                   {!collapsed && <Text style={[styles.navLabel, active && styles.navLabelActive]} numberOfLines={1}>{item.label}</Text>}
                   {active && !collapsed && <View style={styles.activeDot} />}
@@ -187,14 +222,21 @@ export function SidebarNav() {
       </ScrollView>
 
       {/* Footer */}
-      {!collapsed && (
+      {!collapsed ? (
         <View style={styles.sidebarFooter}>
           <View style={styles.userStatusDot} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.userStatusText} numberOfLines={1}>{user?.phone || 'Active'}</Text>
+            <Text style={styles.userStatusText} numberOfLines={1}>{user?.phone || user?.name || 'Active User'}</Text>
             <Text style={styles.userRoleText}>{role === 'admin' ? 'Admin' : role === 'quarry_owner' ? 'Quarry Owner' : role === 'driver' ? 'Driver' : 'Customer'}</Text>
           </View>
+          <TouchableOpacity style={styles.footerLogoutBtn} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={18} color="#D32F2F" />
+          </TouchableOpacity>
         </View>
+      ) : (
+        <TouchableOpacity style={[styles.sidebarFooter, { justifyContent: 'center' }]} onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={20} color="#D32F2F" />
+        </TouchableOpacity>
       )}
     </View>
   );
@@ -221,6 +263,7 @@ const styles = StyleSheet.create({
   userStatusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.success },
   userStatusText: { fontSize: 12, fontWeight: '700', color: Colors.navy },
   userRoleText: { fontSize: 10, color: Colors.textSecondary },
+  footerLogoutBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: '#FFEBEE', alignItems: 'center', justifyContent: 'center' },
 });
 
 const mobileStyles = StyleSheet.create({
