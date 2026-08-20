@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
-import { getDatabase, authenticateAdmin, getAllQuarries, registerQuarry, getGlobalDrivers } from '../src/database/db';
+import { getDatabase, authenticateAdmin, getAllQuarries, registerQuarry, getGlobalDrivers, resetQuarryPassword } from '../src/database/db';
 
 export default function AdminPortalScreen() {
   const router = useRouter();
@@ -102,6 +102,21 @@ export default function AdminPortalScreen() {
       Alert.alert('Error', e.message || 'Failed to register quarry.');
     } finally {
       setRegSaving(false);
+    }
+  };
+
+  const handleResetPassword = async (quarry: any) => {
+    const tempPass = `temp${Math.floor(1000 + Math.random() * 9000)}`;
+    try {
+      const db = await getDatabase();
+      await resetQuarryPassword(db, quarry.id, tempPass);
+      Alert.alert(
+        'Password Reset Successful 🔑',
+        `Temporary password for ${quarry.name} (${quarry.phone}) set to:\n\n${tempPass}\n\nShare this temporary password with the Quarry Owner to unlock their portal.`
+      );
+      loadData();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to reset password.');
     }
   };
 
@@ -253,10 +268,16 @@ export default function AdminPortalScreen() {
                     <Text style={styles.statusBadgeText}>ACTIVE</Text>
                   </View>
                 </View>
-                <TouchableOpacity style={styles.manageBtn} onPress={() => handleImpersonateQuarry(q)}>
-                  <Ionicons name="open-outline" size={16} color={Colors.primary} />
-                  <Text style={styles.manageBtnText}>Manage & View Bills</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity style={[styles.manageBtn, { flex: 1 }]} onPress={() => handleImpersonateQuarry(q)}>
+                    <Ionicons name="open-outline" size={16} color={Colors.primary} />
+                    <Text style={styles.manageBtnText}>Manage & View Bills</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.manageBtn, { backgroundColor: '#FFF3E0', borderColor: '#FFE0B2' }]} onPress={() => handleResetPassword(q)}>
+                    <Ionicons name="key-outline" size={16} color="#E65100" />
+                    <Text style={[styles.manageBtnText, { color: '#E65100' }]}>Reset Temp Pass</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ))
           )}

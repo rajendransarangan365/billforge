@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
-import { getDatabase, getAllQuarryCatalogs, saveEnquiry } from '../src/database/db';
+import { getDatabase, getAllQuarryCatalogs, saveEnquiry, sendChatMessage, getChatMessages } from '../src/database/db';
 
 export default function CustomerMarketplaceScreen() {
   const router = useRouter();
@@ -31,6 +31,47 @@ export default function CustomerMarketplaceScreen() {
   const [unitType, setUnitType] = useState('unit');
   const [address, setAddress] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Live Chat state
+  const [chatModalVisible, setChatModalVisible] = useState(false);
+  const [chatQuarry, setChatQuarry] = useState<any>(null);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatSending, setChatSending] = useState(false);
+
+  const openChatModal = async (quarry: any) => {
+    setChatQuarry(quarry);
+    setChatModalVisible(true);
+    await loadChatMessages(quarry.id);
+  };
+
+  const loadChatMessages = async (quarryId: number) => {
+    if (!customerPhone) return;
+    try {
+      const db = await getDatabase();
+      const msgs = await getChatMessages(db, quarryId, customerPhone);
+      setChatMessages(msgs);
+    } catch (e) {}
+  };
+
+  const handleSendChatMessage = async () => {
+    if (!chatInput.trim() || !chatQuarry) return;
+    if (!customerPhone.trim()) {
+      Alert.alert('Mobile Required', 'Please enter your mobile number in Customer Login.');
+      return;
+    }
+    setChatSending(true);
+    try {
+      const db = await getDatabase();
+      await sendChatMessage(db, chatQuarry.id, customerPhone, 'customer', customerName, chatInput.trim());
+      setChatInput('');
+      await loadChatMessages(chatQuarry.id);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to send message.');
+    } finally {
+      setChatSending(false);
+    }
+  };
 
   const loadCatalogs = useCallback(async () => {
     try {
@@ -161,6 +202,10 @@ export default function CustomerMarketplaceScreen() {
                     <Text style={styles.quarryName}>{quarry.name}</Text>
                     <Text style={styles.quarrySub}><Ionicons name="location-outline" size={12} /> {quarry.location || 'Tamil Nadu'} • Phone: {quarry.phone}</Text>
                   </View>
+                  <TouchableOpacity style={[styles.enquireBtn, { backgroundColor: '#1565C0' }]} onPress={() => openChatModal(quarry)}>
+                    <Ionicons name="chatbubbles-outline" size={14} color="#FFF" />
+                    <Text style={styles.enquireBtnText}>Live Chat</Text>
+                  </TouchableOpacity>
                 </View>
 
                 {/* Materials List */}
@@ -226,6 +271,60 @@ export default function CustomerMarketplaceScreen() {
               </TouchableOpacity>
               <TouchableOpacity style={[styles.submitBtn, submitting && { opacity: 0.7 }]} onPress={handleSendEnquiry} disabled={submitting}>
                 {submitting ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.submitText}>Send Enquiry</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Live Chat Modal */}
+      <Modal visible={chatModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, { height: 500 }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Chat with {chatQuarry?.name}</Text>
+                <Text style={{ fontSize: 11, color: Colors.textSecondary }}>Quarry Location: {chatQuarry?.location || 'Tamil Nadu'}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setChatModalVisible(false)}>
+                <Ionicons name="close" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ flex: 1, paddingVertical: 10 }} showsVerticalScrollIndicator={false}>
+              {chatMessages.length === 0 ? (
+                <View style={{ padding: 24, alignItems: 'center' }}>
+                  <Ionicons name="chatbubbles-outline" size={32} color={Colors.textDisabled} />
+                  <Text style={{ fontSize: 12, color: Colors.textSecondary, marginTop: 6, textAlign: 'center' }}>
+                    Start a conversation with {chatQuarry?.name} regarding material availability, pricing, or custom orders!
+                  </Text>
+                </View>
+              ) : (
+                chatMessages.map((msg) => {
+                  const isMe = msg.sender === 'customer';
+                  return (
+                    <View key={msg.id} style={[{ marginBottom: 10, maxWidth: '80%', padding: 10, borderRadius: 10 }, isMe ? { alignSelf: 'flex-end', backgroundColor: '#E3F2FD' } : { alignSelf: 'flex-start', backgroundColor: '#F1F5F9' }]}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: isMe ? '#1565C0' : Colors.navy, marginBottom: 2 }}>{msg.sender_name}</Text>
+                      <Text style={{ fontSize: 13, color: Colors.text }}>{msg.text}</Text>
+                      <Text style={{ fontSize: 9, color: Colors.textTertiary, alignSelf: 'flex-end', marginTop: 4 }}>
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', gap: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.borderLight }}>
+              <TextInput
+                style={{ flex: 1, height: 42, borderWidth: 1, borderColor: Colors.border, borderRadius: 8, paddingHorizontal: 12, fontSize: 14, color: Colors.text, backgroundColor: Colors.background }}
+                value={chatInput}
+                onChangeText={setChatInput}
+                placeholder="Type your message..."
+                onSubmitEditing={handleSendChatMessage}
+              />
+              <TouchableOpacity style={{ width: 42, height: 42, borderRadius: 8, backgroundColor: '#1565C0', alignItems: 'center', justifyContent: 'center' }} onPress={handleSendChatMessage} disabled={chatSending}>
+                {chatSending ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="send" size={16} color="#FFF" />}
               </TouchableOpacity>
             </View>
           </View>

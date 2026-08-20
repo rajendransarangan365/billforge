@@ -44,7 +44,7 @@ export default function TabLayout() {
           marginTop: -4,
           marginBottom: 4,
         },
-        tabBarStyle: {
+        tabBarStyle: Platform.OS === 'web' ? { display: 'none' } : {
           backgroundColor: Colors.surface,
           borderTopColor: Colors.borderLight,
           borderTopWidth: 1,

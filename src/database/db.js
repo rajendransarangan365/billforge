@@ -941,3 +941,119 @@ export async function getAllQuarryCatalogs(db) {
 
 // Legacy compatibility exports
 export async function registerCompanyOwner(db, details) { return registerQuarry(db, details); }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PASSWORD RESET / UNLOCK (Admin task)
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function resetQuarryPassword(db, quarryId, newTempPassword) {
+  if (IS_WEB) {
+    const quarries = webGet('bf_quarries') || [];
+    const idx = quarries.findIndex(q => q.id === parseInt(quarryId));
+    if (idx !== -1) {
+      quarries[idx].password = newTempPassword;
+      webSet('bf_quarries', quarries);
+      return true;
+    }
+    return false;
+  }
+  await db.runAsync('UPDATE quarries SET password = ? WHERE id = ?', [newTempPassword, quarryId]);
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CHAT CONVERSATIONS (Customer <-> Quarry Owner)
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function getChatMessages(db, quarryId, customerPhone) {
+  if (IS_WEB) {
+    const key = `bf_chat_${quarryId}_${customerPhone}`;
+    return webGet(key) || [];
+  }
+  return [];
+}
+
+export async function sendChatMessage(db, quarryId, customerPhone, sender, senderName, text) {
+  if (IS_WEB) {
+    const key = `bf_chat_${quarryId}_${customerPhone}`;
+    const list = webGet(key) || [];
+    const msg = {
+      id: `msg-${Date.now()}`,
+      quarry_id: quarryId,
+      customer_phone: customerPhone,
+      sender,
+      sender_name: senderName,
+      text,
+      timestamp: new Date().toISOString(),
+    };
+    list.push(msg);
+    webSet(key, list);
+
+    const chatsKey = qKey(quarryId, 'chats_index');
+    const index = webGet(chatsKey) || [];
+    if (!index.find(c => c.customer_phone === customerPhone)) {
+      index.push({ customer_phone: customerPhone, customer_name: senderName, last_updated: new Date().toISOString() });
+      webSet(chatsKey, index);
+    }
+    return msg;
+  }
+  return null;
+}
+
+export async function getQuarryChats(db, quarryId) {
+  if (IS_WEB) {
+    return webGet(qKey(quarryId, 'chats_index')) || [];
+  }
+  return [];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DRIVER RATE CARD (Per Kilometer & Charges)
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function getDriverRateCard(db, driverId) {
+  if (IS_WEB) {
+    return webGet(`bf_driver_rate_${driverId}`) || {
+      rate_per_km: 45,
+      min_charge: 1200,
+      loading_charge: 500,
+      waiting_charge_per_hr: 200,
+    };
+  }
+  return { rate_per_km: 45, min_charge: 1200, loading_charge: 500, waiting_charge_per_hr: 200 };
+}
+
+export async function saveDriverRateCard(db, driverId, rateCard) {
+  if (IS_WEB) {
+    webSet(`bf_driver_rate_${driverId}`, rateCard);
+    return true;
+  }
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEGAL TRANSPORT DOCUMENTS (eWay Bill, Gate Pass, Delivery Challan)
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function saveConsignmentDocument(db, consignmentId, quarryId, docName, docType, docContent) {
+  if (IS_WEB) {
+    const key = qKey(quarryId, `docs_${consignmentId}`);
+    const docs = webGet(key) || [];
+    const doc = {
+      id: `doc-${Date.now()}`,
+      consignment_id: consignmentId,
+      doc_name: docName,
+      doc_type: docType || 'eWay Bill',
+      doc_content: docContent,
+      created_at: new Date().toISOString(),
+    };
+    docs.push(doc);
+    webSet(key, docs);
+    return doc;
+  }
+  return null;
+}
+
+export async function getConsignmentDocuments(db, consignmentId, quarryId) {
+  if (IS_WEB) {
+    return webGet(qKey(quarryId, `docs_${consignmentId}`)) || [];
+  }
+  return [];
+}
+

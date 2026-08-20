@@ -63,6 +63,11 @@ export function SidebarNav() {
   const { user, role, quarryId } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
+  const standalonePages = ['/select-role', '/owner-login', '/driver-login', '/customer-login', '/owner-register', '/customer-marketplace', '/driver-portal'];
+  if (standalonePages.some(p => pathname === p || pathname.startsWith(p))) {
+    return null;
+  }
+
   const navSections = role === 'admin' ? ADMIN_NAV
     : role === 'quarry_owner' ? OWNER_NAV
     : role === 'driver' ? DRIVER_NAV

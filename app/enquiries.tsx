@@ -11,7 +11,9 @@ import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
 import { Button, Input, EmptyState } from '../src/components';
 import {
   getDatabase, getEnquiries, saveEnquiry, getDrivers, saveConsignment,
+  getQuarryChats, getChatMessages, sendChatMessage, saveConsignmentDocument,
 } from '../src/database/db';
+import { useAuth } from '../src/context/AuthContext';
 
 function fmtCurrency(n) {
   if (!n && n !== 0) return '₹0';
@@ -21,14 +23,50 @@ function fmtCurrency(n) {
 export default function EnquiriesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { quarryId, user } = useAuth();
+  const activeQuarryId = quarryId || 1;
+
   const [enquiries, setEnquiries] = useState([]);
   const [drivers, setDrivers] = useState([]);
+  const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [assignModalVisible, setAssignModalVisible] = useState(false);
   const [selectedEnquiry, setSelectedEnquiry] = useState(null);
   const [selectedDriverId, setSelectedDriverId] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  // eWay Bill Doc Modal
+  const [docModalVisible, setDocModalVisible] = useState(false);
+  const [docConsignmentId, setDocConsignmentId] = useState(null);
+  const [docName, setDocName] = useState('eWay Bill #EW-98231');
+  const [docContent, setDocContent] = useState('Govt eWay Bill No: 8231-9012-4412 | Vehicle: TN 38 AB 1234');
+  const [savingDoc, setSavingDoc] = useState(false);
+
+  // Chat Modal State
+  const [chatModalVisible, setChatModalVisible] = useState(false);
+  const [activeChatPhone, setActiveChatPhone] = useState(null);
+  const [activeChatName, setActiveChatName] = useState('');
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [sendingChat, setSendingChat] = useState(false);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const db = await getDatabase();
+      const list = await getEnquiries(db, activeQuarryId);
+      const driverList = await getDrivers(db, activeQuarryId);
+      const chatIndex = await getQuarryChats(db, activeQuarryId);
+      setEnquiries(list);
+      setDrivers(driverList);
+      setChats(chatIndex);
+    } catch (e) {
+      console.error('Enquiries load error:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeQuarryId]);
 
   // Form state
   const [customerName, setCustomerName] = useState('');
@@ -84,6 +122,56 @@ export default function EnquiriesScreen() {
       Alert.alert('Error', 'Failed to save enquiry.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openChatModal = async (phone: string, name: string) => {
+    setActiveChatPhone(phone);
+    setActiveChatName(name || phone);
+    setChatModalVisible(true);
+    await loadChatMessages(phone);
+  };
+
+  const loadChatMessages = async (phone: string) => {
+    try {
+      const db = await getDatabase();
+      const msgs = await getChatMessages(db, activeQuarryId, phone);
+      setChatMessages(msgs);
+    } catch (e) {}
+  };
+
+  const handleSendOwnerMessage = async () => {
+    if (!chatInput.trim() || !activeChatPhone) return;
+    setSendingChat(true);
+    try {
+      const db = await getDatabase();
+      await sendChatMessage(db, activeQuarryId, activeChatPhone, 'owner', user?.name || 'Quarry Owner', chatInput.trim());
+      setChatInput('');
+      await loadChatMessages(activeChatPhone);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to send message.');
+    } finally {
+      setSendingChat(false);
+    }
+  };
+
+  const handleAttachEwayBill = async (consignmentId: number) => {
+    setDocConsignmentId(consignmentId);
+    setDocModalVisible(true);
+  };
+
+  const handleSaveDoc = async () => {
+    if (!docConsignmentId || !docName.trim()) return;
+    setSavingDoc(true);
+    try {
+      const db = await getDatabase();
+      await saveConsignmentDocument(db, docConsignmentId, activeQuarryId, docName.trim(), 'eWay Bill', docContent.trim());
+      Alert.alert('Legal Document Attached 📄', 'eWay Bill / Transport Document attached successfully! The assigned driver can view it in their portal.');
+      setDocModalVisible(false);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to attach document.');
+    } finally {
+      setSavingDoc(false);
     }
   };
 
@@ -213,6 +301,16 @@ export default function EnquiriesScreen() {
 
                 {/* Actions */}
                 <View style={styles.cardActions}>
+                  {e.customer_phone ? (
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { backgroundColor: '#E3F2FD' }]}
+                      onPress={() => openChatModal(e.customer_phone, e.customer_name)}
+                    >
+                      <Ionicons name="chatbubbles-outline" size={16} color="#1565C0" />
+                      <Text style={[styles.actionText, { color: '#1565C0' }]}>Chat with Customer</Text>
+                    </TouchableOpacity>
+                  ) : null}
+
                   {e.status === 'pending' && (
                     <TouchableOpacity
                       style={[styles.actionBtn, { backgroundColor: '#DCFCE7' }]}
@@ -237,17 +335,39 @@ export default function EnquiriesScreen() {
                   )}
                   {e.status === 'assigned' && (
                     <TouchableOpacity
-                      style={[styles.actionBtn, { backgroundColor: '#EFF6FF', flex: 1 }]}
-                      onPress={() => router.push('/live-tracking')}
+                      style={[styles.actionBtn, { backgroundColor: '#FFF3E0' }]}
+                      onPress={() => handleAttachEwayBill(e.id)}
                     >
-                      <Ionicons name="map-outline" size={16} color="#1D4ED8" />
-                      <Text style={[styles.actionText, { color: '#1D4ED8' }]}>Track Live GPS</Text>
+                      <Ionicons name="document-text-outline" size={16} color="#E65100" />
+                      <Text style={[styles.actionText, { color: '#E65100' }]}>Attach eWay Bill</Text>
                     </TouchableOpacity>
                   )}
                 </View>
               </View>
             );
           })}
+
+          {/* Active Customer Chats */}
+          {chats.length > 0 && (
+            <View style={{ marginTop: 24 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.textTertiary, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>Customer Live Chats ({chats.length})</Text>
+              {chats.map(c => (
+                <TouchableOpacity key={c.customer_phone} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, padding: 12, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: Colors.borderLight, gap: 10 }} onPress={() => openChatModal(c.customer_phone, c.customer_name)}>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#E3F2FD', alignItems: 'center', justifyContent: 'center' }}>
+                    <Ionicons name="person" size={18} color="#1565C0" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: Colors.navy }}>{c.customer_name}</Text>
+                    <Text style={{ fontSize: 12, color: Colors.textSecondary }}>Phone: {c.customer_phone}</Text>
+                  </View>
+                  <View style={{ backgroundColor: '#E3F2FD', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Ionicons name="chatbubbles" size={14} color="#1565C0" />
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#1565C0' }}>Open Chat</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </ScrollView>
       )}
 
@@ -313,6 +433,84 @@ export default function EnquiriesScreen() {
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <Button title="Cancel" onPress={() => setAssignModalVisible(false)} variant="ghost" style={{ flex: 1 }} />
               <Button title="Assign Now" onPress={handleAssignDriver} loading={saving} style={{ flex: 1 }} />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Live Chat Modal */}
+      <Modal visible={chatModalVisible} animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <View style={[styles.dialog, { height: 500 }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, borderBottomWidth: 1, borderBottomColor: Colors.borderLight, paddingBottom: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: Colors.navy }}>Chat with {activeChatName}</Text>
+                <Text style={{ fontSize: 11, color: Colors.textSecondary }}>Mobile: {activeChatPhone}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setChatModalVisible(false)}>
+                <Ionicons name="close" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ flex: 1, paddingVertical: 8 }} showsVerticalScrollIndicator={false}>
+              {chatMessages.length === 0 ? (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Ionicons name="chatbubbles-outline" size={30} color={Colors.textDisabled} />
+                  <Text style={{ fontSize: 12, color: Colors.textSecondary, marginTop: 6, textAlign: 'center' }}>
+                    No messages yet. Send a message to start negotiating rates!
+                  </Text>
+                </View>
+              ) : (
+                chatMessages.map((msg) => {
+                  const isOwner = msg.sender === 'owner';
+                  return (
+                    <View key={msg.id} style={[{ marginBottom: 8, maxWidth: '80%', padding: 10, borderRadius: 10 }, isOwner ? { alignSelf: 'flex-end', backgroundColor: Colors.primarySurface } : { alignSelf: 'flex-start', backgroundColor: Colors.backgroundSecondary }]}>
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: isOwner ? Colors.primary : Colors.text, marginBottom: 2 }}>{msg.sender_name}</Text>
+                      <Text style={{ fontSize: 13, color: Colors.text }}>{msg.text}</Text>
+                      <Text style={{ fontSize: 9, color: Colors.textTertiary, alignSelf: 'flex-end', marginTop: 4 }}>
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', gap: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.borderLight }}>
+              <Input
+                value={chatInput}
+                onChangeText={setChatInput}
+                placeholder="Type reply to customer..."
+                style={{ flex: 1 }}
+                onSubmitEditing={handleSendOwnerMessage}
+              />
+              <TouchableOpacity style={{ width: 42, height: 42, borderRadius: 8, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: 6 }} onPress={handleSendOwnerMessage} disabled={sendingChat}>
+                {sendingChat ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="send" size={16} color="#FFF" />}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Attach eWay Bill Modal */}
+      <Modal visible={docModalVisible} animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <View style={styles.dialog}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: Colors.navy }}>Attach Transport eWay Bill</Text>
+              <TouchableOpacity onPress={() => setDocModalVisible(false)}>
+                <Ionicons name="close" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ gap: 12 }}>
+              <Input label="Document Name / Title" value={docName} onChangeText={setDocName} placeholder="eWay Bill #EW-98231" />
+              <Input label="Document Content / Govt Reg Details" value={docContent} onChangeText={setDocContent} placeholder="eWay Bill details, GSTIN, Vehicle No..." multiline numberOfLines={3} />
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
+              <Button title="Cancel" onPress={() => setDocModalVisible(false)} variant="ghost" style={{ flex: 1 }} />
+              <Button title="Attach Document" onPress={handleSaveDoc} loading={savingDoc} style={{ flex: 1 }} />
             </View>
           </View>
         </View>

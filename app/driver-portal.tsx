@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, TextInput,
   Linking, Alert, ActivityIndicator, Platform, RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -9,7 +9,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
-import { getDatabase, getDriverTrips, getConsignments, saveConsignment } from '../src/database/db';
+import {
+  getDatabase, getDriverTrips, getConsignments, saveConsignment,
+  getDriverRateCard, saveDriverRateCard, getConsignmentDocuments,
+} from '../src/database/db';
 
 export default function DriverPortalScreen() {
   const router = useRouter();
@@ -23,11 +26,31 @@ export default function DriverPortalScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Rate Card State
+  const [rateModalVisible, setModalRateVisible] = useState(false);
+  const [ratePerKm, setRatePerKm] = useState('45');
+  const [minCharge, setMinCharge] = useState('1200');
+  const [loadingCharge, setLoadingCharge] = useState('500');
+  const [waitingCharge, setWaitingCharge] = useState('200');
+  const [savingRate, setSavingRate] = useState(false);
+
+  // Legal Docs State
+  const [docModalVisible, setDocModalVisible] = useState(false);
+  const [currentDocs, setCurrentDocs] = useState([]);
+  const [selectedTrip, setSelectedTrip] = useState(null);
+
   const loadData = useCallback(async () => {
     try {
       const db = await getDatabase();
       const list = await getDriverTrips(db, driverId);
       setConsignments(list);
+      const rates = await getDriverRateCard(db, driverId);
+      if (rates) {
+        setRatePerKm((rates.rate_per_km || 45).toString());
+        setMinCharge((rates.min_charge || 1200).toString());
+        setLoadingCharge((rates.loading_charge || 500).toString());
+        setWaitingCharge((rates.waiting_charge_per_hr || 200).toString());
+      }
     } catch (e) {
       console.error('Driver portal load error:', e);
     } finally {
@@ -35,6 +58,37 @@ export default function DriverPortalScreen() {
       setRefreshing(false);
     }
   }, [driverId]);
+
+  const handleSaveRateCard = async () => {
+    setSavingRate(true);
+    try {
+      const db = await getDatabase();
+      await saveDriverRateCard(db, driverId, {
+        rate_per_km: parseFloat(ratePerKm) || 45,
+        min_charge: parseFloat(minCharge) || 1200,
+        loading_charge: parseFloat(loadingCharge) || 500,
+        waiting_charge_per_hr: parseFloat(waitingCharge) || 200,
+      });
+      Alert.alert('Rate Card Updated 🚚', 'Your per-kilometer pricing and charges have been saved!');
+      setModalRateVisible(false);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save rate card.');
+    } finally {
+      setSavingRate(false);
+    }
+  };
+
+  const handleViewDocs = async (trip: any) => {
+    setSelectedTrip(trip);
+    try {
+      const db = await getDatabase();
+      const docs = await getConsignmentDocuments(db, trip.id, trip.quarry_id || 1);
+      setCurrentDocs(docs);
+      setDocModalVisible(true);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to load transport documents.');
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -70,6 +124,10 @@ export default function DriverPortalScreen() {
           <Text style={styles.headerTitle}>{driverName}</Text>
           <Text style={styles.headerSub}>Vehicle: {vehicleNo}</Text>
         </View>
+        <TouchableOpacity style={[styles.refreshBtn, { backgroundColor: '#E3F2FD', paddingHorizontal: 10, width: 'auto', flexDirection: 'row', gap: 4 }]} onPress={() => setModalRateVisible(true)}>
+          <Ionicons name="pricetag-outline" size={16} color="#1565C0" />
+          <Text style={{ fontSize: 12, fontWeight: '700', color: '#1565C0' }}>Rate Card</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.refreshBtn} onPress={() => { setRefreshing(true); loadData(); }}>
           <Ionicons name="refresh" size={18} color="#1565C0" />
         </TouchableOpacity>
@@ -144,6 +202,11 @@ export default function DriverPortalScreen() {
                   </View>
                 ) : null}
 
+                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.primarySurface, padding: 8, borderRadius: 8, marginTop: 4 }} onPress={() => handleViewDocs(c)}>
+                  <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: Colors.primary }}>View Transport Docs (eWay Bill)</Text>
+                </TouchableOpacity>
+
                 {/* Status Action Buttons */}
                 <View style={styles.actionRow}>
                   {c.status === 'assigned' && (
@@ -176,6 +239,86 @@ export default function DriverPortalScreen() {
           )}
         </ScrollView>
       )}
+
+      {/* Rate Card Modal */}
+      <Modal visible={rateModalVisible} animationType="slide" transparent>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <View style={{ width: '100%', maxWidth: 450, backgroundColor: Colors.surface, borderRadius: 16, padding: 20 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.borderLight, paddingBottom: 10 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: Colors.navy }}>My Driver Rate Card (Kilometers Pricing)</Text>
+              <TouchableOpacity onPress={() => setModalRateVisible(false)}>
+                <Ionicons name="close" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ gap: 12 }}>
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: Colors.text, marginBottom: 4 }}>Rate Per Kilometer (₹/km)</Text>
+                <TextInput style={{ height: 44, borderWidth: 1, borderColor: Colors.border, borderRadius: 8, paddingHorizontal: 12, fontSize: 14, color: Colors.text }} value={ratePerKm} onChangeText={setRatePerKm} keyboardType="numeric" placeholder="45" />
+              </View>
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: Colors.text, marginBottom: 4 }}>Minimum Trip Charge (₹)</Text>
+                <TextInput style={{ height: 44, borderWidth: 1, borderColor: Colors.border, borderRadius: 8, paddingHorizontal: 12, fontSize: 14, color: Colors.text }} value={minCharge} onChangeText={setMinCharge} keyboardType="numeric" placeholder="1200" />
+              </View>
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: Colors.text, marginBottom: 4 }}>Loading / Unloading Charge (₹)</Text>
+                <TextInput style={{ height: 44, borderWidth: 1, borderColor: Colors.border, borderRadius: 8, paddingHorizontal: 12, fontSize: 14, color: Colors.text }} value={loadingCharge} onChangeText={setLoadingCharge} keyboardType="numeric" placeholder="500" />
+              </View>
+              <View>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: Colors.text, marginBottom: 4 }}>Waiting Charge (₹ / hour)</Text>
+                <TextInput style={{ height: 44, borderWidth: 1, borderColor: Colors.border, borderRadius: 8, paddingHorizontal: 12, fontSize: 14, color: Colors.text }} value={waitingCharge} onChangeText={setWaitingCharge} keyboardType="numeric" placeholder="200" />
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 18, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight }}>
+              <TouchableOpacity style={{ flex: 1, height: 44, borderRadius: 8, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' }} onPress={() => setModalRateVisible(false)}>
+                <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.textSecondary }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={{ flex: 1, height: 44, borderRadius: 8, backgroundColor: '#1565C0', alignItems: 'center', justifyContent: 'center' }} onPress={handleSaveRateCard} disabled={savingRate}>
+                {savingRate ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={{ fontSize: 14, fontWeight: '700', color: '#FFF' }}>Save Rate Card</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Legal Transport Docs Modal */}
+      <Modal visible={docModalVisible} animationType="slide" transparent>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <View style={{ width: '100%', maxWidth: 450, backgroundColor: Colors.surface, borderRadius: 16, padding: 20 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.borderLight, paddingBottom: 10 }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: Colors.navy }}>Transport Legal Documents</Text>
+              <TouchableOpacity onPress={() => setDocModalVisible(false)}>
+                <Ionicons name="close" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {currentDocs.length === 0 ? (
+              <View style={{ padding: 24, alignItems: 'center' }}>
+                <Ionicons name="document-outline" size={36} color={Colors.textDisabled} />
+                <Text style={{ fontSize: 13, color: Colors.textSecondary, marginTop: 8, textAlign: 'center' }}>
+                  No legal documents (eWay Bill / Delivery Challan) attached for this trip yet.
+                </Text>
+                <Text style={{ fontSize: 11, color: Colors.textTertiary, marginTop: 4, textAlign: 'center' }}>
+                  Quarry Owner can attach official eWay bills from their portal.
+                </Text>
+              </View>
+            ) : (
+              currentDocs.map(doc => (
+                <View key={doc.id} style={{ backgroundColor: Colors.background, padding: 12, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: Colors.borderLight }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: Colors.navy }}>{doc.doc_name}</Text>
+                  <Text style={{ fontSize: 12, color: Colors.textSecondary, marginTop: 2 }}>Type: {doc.doc_type}</Text>
+                  <Text style={{ fontSize: 11, color: Colors.textTertiary, marginTop: 4 }}>Content: {doc.doc_content}</Text>
+                </View>
+              ))
+            )}
+
+            <TouchableOpacity style={{ height: 44, borderRadius: 8, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: 14 }} onPress={() => setDocModalVisible(false)}>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#FFF' }}>Close Documents</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
