@@ -1356,50 +1356,17 @@ export default function BillFormScreen() {
       }
 
       Alert.alert(
-        'Success',
-        `Bill "${billNumber}" saved and shared successfully.`,
+        isEditing ? 'Bill Updated & Versioned! 📄' : 'Bill Saved & Auto-Archived! 📄',
+        `Bill "${billNumber}" for ${customerName || 'Party'} has been saved successfully.\n\nFile saved in background: ${pdfResult.fileName || 'Auto-Saved'}\n\nVersion history updated.`,
         [
           {
-            text: 'Create Another',
-            onPress: async () => {
-              try {
-                setCustomerPhone('');
-                setCustomerAddress('');
-                const db = await getDatabase();
-                const nextBn = await getNextBillNumber(db);
-                const hData = {};
-                headerFields.forEach(f => { 
-                  const norm = normalizeKey(f.name);
-                  if (f.type === 'date' || f.type === 'datetime') {
-                    hData[f.name] = new Date().toISOString();
-                  } else if (norm === 'bn' || norm === 'billnumber' || norm === 'billno') {
-                    hData[f.name] = nextBn;
-                  } else if (companyProfile && (norm === 'shopname' || norm === 'companyname')) {
-                    hData[f.name] = companyProfile.name || '';
-                  } else if (companyProfile && (norm === 'shoplocation' || norm === 'shopaddress' || norm === 'address')) {
-                    hData[f.name] = companyProfile.location || companyProfile.address || '';
-                  } else if (companyProfile && (norm === 'shopnumber' || norm === 'shopphone' || norm === 'phone')) {
-                    hData[f.name] = companyProfile.phone || '';
-                  } else {
-                    hData[f.name] = ''; 
-                  }
-                });
-                setHeaderData(hData);
-                const rowInit = {};
-                tableFields.forEach(f => { 
-                  if (f.type === 'date' || f.type === 'datetime' || f.type === 'time') {
-                    rowInit[f.name] = new Date().toISOString();
-                  } else {
-                    rowInit[f.name] = ''; 
-                  }
-                });
-                setRowData([{ ...rowInit }]);
-              } catch (err) {
-                console.error('Error resetting form:', err);
-              }
-            }
+            text: 'View Invoice',
+            onPress: () => router.replace(`/bill-preview/${billId}`),
           },
-          { text: 'OK' }
+          {
+            text: 'View History & Bills',
+            onPress: () => router.replace('/(tabs)/history'),
+          },
         ]
       );
     } catch (error) {

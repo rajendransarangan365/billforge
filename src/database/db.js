@@ -556,15 +556,39 @@ export async function getBillById(db, id, quarryId) {
 
 export async function saveBill(db, bill) {
   const qid = bill.quarry_id || bill.company_id || 1;
+  const headerStr = typeof bill.header_data_json === 'string' ? bill.header_data_json : JSON.stringify(bill.header_data_json || bill.headerData || {});
+  const rowStr = typeof bill.row_data_json === 'string' ? bill.row_data_json : JSON.stringify(bill.row_data_json || bill.rowData || []);
+  const totalAmt = parseFloat(bill.total_amount) || 0;
+
   if (IS_WEB) {
     const list = webGet(qKey(qid, 'bills')) || [];
     if (bill.id) {
       const idx = list.findIndex(b => b.id === parseInt(bill.id));
       if (idx !== -1) {
-        list[idx] = { ...list[idx], template_id: bill.template_id, bill_number: bill.bill_number, customer_name: bill.customer_name || '',
-          header_data_json: typeof bill.header_data_json === 'string' ? bill.header_data_json : JSON.stringify(bill.header_data_json || {}),
-          row_data_json: typeof bill.row_data_json === 'string' ? bill.row_data_json : JSON.stringify(bill.row_data_json || []),
-          total_amount: parseFloat(bill.total_amount) || 0 };
+        const existing = list[idx];
+        const currentVersion = existing.version || 1;
+        const pastVersions = existing.versions || [];
+        pastVersions.push({
+          version: currentVersion,
+          total_amount: existing.total_amount,
+          customer_name: existing.customer_name,
+          header_data_json: existing.header_data_json,
+          row_data_json: existing.row_data_json,
+          saved_at: existing.updated_at || existing.created_at || new Date().toISOString(),
+        });
+
+        list[idx] = {
+          ...existing,
+          template_id: bill.template_id || existing.template_id,
+          bill_number: bill.bill_number || existing.bill_number,
+          customer_name: bill.customer_name || existing.customer_name || '',
+          header_data_json: headerStr,
+          row_data_json: rowStr,
+          total_amount: totalAmt,
+          version: currentVersion + 1,
+          versions: pastVersions,
+          updated_at: new Date().toISOString(),
+        };
       }
       webSet(qKey(qid, 'bills'), list);
       return bill.id;
@@ -573,21 +597,102 @@ export async function saveBill(db, bill) {
     list.push({
       id: nextId, template_id: bill.template_id, quarry_id: qid, bill_number: bill.bill_number,
       customer_name: bill.customer_name || '',
-      header_data_json: typeof bill.header_data_json === 'string' ? bill.header_data_json : JSON.stringify(bill.header_data_json || {}),
-      row_data_json: typeof bill.row_data_json === 'string' ? bill.row_data_json : JSON.stringify(bill.row_data_json || []),
-      total_amount: parseFloat(bill.total_amount) || 0, pdf_uri: '', created_at: new Date().toISOString(),
+      header_data_json: headerStr,
+      row_data_json: rowStr,
+      total_amount: totalAmt, pdf_uri: bill.pdf_uri || '', created_at: new Date().toISOString(),
+      status: 'active', version: 1, versions: [],
     });
     webSet(qKey(qid, 'bills'), list);
     return nextId;
   }
+
   if (bill.id) {
-    await db.runAsync('UPDATE bills SET template_id=?, bill_number=?, customer_name=?, header_data_json=?, row_data_json=?, total_amount=? WHERE id=?',
-      [bill.template_id, bill.bill_number, bill.customer_name || '', JSON.stringify(bill.header_data_json || {}), JSON.stringify(bill.row_data_json || []), bill.total_amount || 0, bill.id]);
+    await db.runAsync(
+      'UPDATE bills SET template_id=?, bill_number=?, customer_name=?, header_data_json=?, row_data_json=?, total_amount=? WHERE id=?',
+      [bill.template_id, bill.bill_number, bill.customer_name || '', headerStr, rowStr, totalAmt, bill.id]
+    );
     return bill.id;
   }
-  const r = await db.runAsync('INSERT INTO bills (template_id, quarry_id, bill_number, customer_name, header_data_json, row_data_json, total_amount) VALUES (?,?,?,?,?,?,?)',
-    [bill.template_id, qid, bill.bill_number, bill.customer_name || '', JSON.stringify(bill.header_data_json || {}), JSON.stringify(bill.row_data_json || []), bill.total_amount || 0]);
+  const r = await db.runAsync(
+    'INSERT INTO bills (template_id, quarry_id, bill_number, customer_name, header_data_json, row_data_json, total_amount, status) VALUES (?,?,?,?,?,?,?,?)',
+    [bill.template_id, qid, bill.bill_number, bill.customer_name || '', headerStr, rowStr, totalAmt, 'active']
+  );
   return r.lastInsertRowId;
+}
+
+export async function voidBill(db, id, quarryId = 1) {
+  if (IS_WEB) {
+    const list = webGet(qKey(quarryId, 'bills')) || [];
+    const idx = list.findIndex(b => b.id === parseInt(id));
+    if (idx !== -1) {
+      list[idx].status = 'voided';
+      list[idx].voided_at = new Date().toISOString();
+      webSet(qKey(quarryId, 'bills'), list);
+    }
+    return;
+  }
+  await db.runAsync('UPDATE bills SET status = "voided" WHERE id = ?', [id]);
+}
+
+export async function restoreBill(db, id, quarryId = 1) {
+  if (IS_WEB) {
+    const list = webGet(qKey(quarryId, 'bills')) || [];
+    const idx = list.findIndex(b => b.id === parseInt(id));
+    if (idx !== -1) {
+      list[idx].status = 'active';
+      delete list[idx].voided_at;
+      webSet(qKey(quarryId, 'bills'), list);
+    }
+    return;
+  }
+  await db.runAsync('UPDATE bills SET status = "active" WHERE id = ?', [id]);
+}
+
+export async function deleteBillsBulk(db, ids = [], quarryId = 1) {
+  const numericIds = ids.map(i => parseInt(i));
+  if (IS_WEB) {
+    const list = webGet(qKey(quarryId, 'bills')) || [];
+    const filtered = list.filter(b => !numericIds.includes(b.id));
+    webSet(qKey(quarryId, 'bills'), filtered);
+    const payments = webGet(qKey(quarryId, 'payments')) || [];
+    webSet(qKey(quarryId, 'payments'), payments.filter(p => !numericIds.includes(p.bill_id)));
+    return;
+  }
+  for (const id of numericIds) {
+    await db.runAsync('DELETE FROM payments WHERE bill_id = ?', [id]);
+    await db.runAsync('DELETE FROM bills WHERE id = ?', [id]);
+  }
+}
+
+export async function restoreBillVersion(db, id, targetVersionNum, quarryId = 1) {
+  if (IS_WEB) {
+    const list = webGet(qKey(quarryId, 'bills')) || [];
+    const idx = list.findIndex(b => b.id === parseInt(id));
+    if (idx !== -1) {
+      const bill = list[idx];
+      const targetSnap = (bill.versions || []).find(v => v.version === targetVersionNum);
+      if (targetSnap) {
+        const currentVersion = bill.version || 1;
+        bill.versions.push({
+          version: currentVersion,
+          total_amount: bill.total_amount,
+          customer_name: bill.customer_name,
+          header_data_json: bill.header_data_json,
+          row_data_json: bill.row_data_json,
+          saved_at: new Date().toISOString(),
+        });
+        bill.header_data_json = targetSnap.header_data_json;
+        bill.row_data_json = targetSnap.row_data_json;
+        bill.customer_name = targetSnap.customer_name;
+        bill.total_amount = targetSnap.total_amount;
+        bill.version = currentVersion + 1;
+        bill.updated_at = new Date().toISOString();
+        webSet(qKey(quarryId, 'bills'), list);
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 export async function updateBillPdfUri(db, billId, pdfUri, quarryId) {

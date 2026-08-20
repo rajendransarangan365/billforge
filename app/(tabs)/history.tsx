@@ -12,7 +12,8 @@ import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card, EmptyState, Button, Input } from '../../src/components';
 import {
   getDatabase, getBills, deleteBill, getPaymentsForBill,
-  savePayment, getAllPayments,
+  savePayment, getAllPayments, voidBill, restoreBill,
+  deleteBillsBulk, restoreBillVersion,
 } from '../../src/database/db';
 import { useAuth } from '../../src/context/AuthContext';
 
@@ -195,6 +196,9 @@ function PaymentModal({ bill, visible, onClose, onSaved }) {
 }
 
 const pm = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalBox: { width: '100%', maxWidth: 500, maxHeight: '80%', backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, overflow: 'hidden' },
+  verCard: { padding: 12, borderRadius: 10, borderWidth: 1, borderColor: Colors.borderLight, backgroundColor: Colors.surface, marginBottom: 10 },
   container: { flex: 1, backgroundColor: Colors.background },
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -217,25 +221,104 @@ const pm = StyleSheet.create({
   histDate: { ...Typography.caption, color: Colors.textTertiary, marginTop: 1 },
 });
 
+// ─── Version History Modal ───────────────────────────────────────────────────
+function VersionHistoryModal({ bill, visible, onClose, onRestoreVersion }) {
+  if (!bill) return null;
+  const versions = bill.versions || [];
+  const currentVersion = bill.version || 1;
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={pm.overlay}>
+        <View style={pm.modalBox}>
+          <View style={pm.header}>
+            <View style={{ flex: 1 }}>
+              <Text style={pm.title}>Version History — #{bill.bill_number}</Text>
+              <Text style={pm.sub}>{bill.customer_name || 'Party'} · Current Version: v{currentVersion}</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} style={pm.closeBtn}>
+              <Ionicons name="close" size={22} color={Colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={{ padding: 16 }} showsVerticalScrollIndicator={false}>
+            {/* Current Active Version */}
+            <View style={[pm.verCard, { borderColor: Colors.primary, backgroundColor: '#EBF5FB' }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ fontSize: 14, fontWeight: '800', color: Colors.primary }}>v{currentVersion} (Current Active Version)</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: Colors.primary }}>{fmtCurrency(bill.total_amount)}</Text>
+              </View>
+              <Text style={{ fontSize: 11, color: Colors.textSecondary, marginTop: 4 }}>Last Saved: {fmtDate(bill.updated_at || bill.created_at)}</Text>
+            </View>
+
+            {versions.length === 0 ? (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <Text style={{ fontSize: 12, color: Colors.textSecondary }}>No earlier version snapshots recorded for this bill.</Text>
+              </View>
+            ) : (
+              versions.map((v, idx) => (
+                <View key={idx} style={pm.verCard}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.navy }}>v{v.version || (idx + 1)} (Previous Snapshot)</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: Colors.navy }}>{fmtCurrency(v.total_amount)}</Text>
+                  </View>
+                  <Text style={{ fontSize: 11, color: Colors.textSecondary, marginTop: 2 }}>Saved on: {fmtDate(v.saved_at)}</Text>
+                  <TouchableOpacity
+                    style={{ marginTop: 8, alignSelf: 'flex-start', backgroundColor: '#F1F5F9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#CBD5E1' }}
+                    onPress={() => onRestoreVersion(v.version)}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.primary }}>Revert to v{v.version}</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // ─── Bill Card ────────────────────────────────────────────────────────────────
-function BillCard({ bill, paidMap, onEdit, onPayment, onDelete, onViewPdf, expanded, onToggle }) {
+function BillCard({
+  bill, paidMap, onEdit, onPayment, onVoid, onRestore, onDelete, onViewPdf, onViewVersions,
+  expanded, onToggle, isRecycleBin, isSelected, onSelectToggle,
+}) {
   const totalPaid = paidMap[bill.id] || 0;
   const status = getPaymentStatus(bill.total_amount || 0, totalPaid);
   const cfg = STATUS_CONFIG[status];
   const balance = (bill.total_amount || 0) - totalPaid;
   const pct = bill.total_amount > 0 ? Math.min(100, (totalPaid / bill.total_amount) * 100) : 0;
+  const versionNum = bill.version || 1;
 
   return (
-    <View style={bc.card}>
+    <View style={[bc.card, isRecycleBin && { borderColor: '#FCA5A5', backgroundColor: '#FFF5F5' }]}>
       {/* Top row */}
       <TouchableOpacity style={bc.topRow} onPress={onToggle} activeOpacity={0.8}>
+        {isRecycleBin && (
+          <TouchableOpacity onPress={onSelectToggle} style={{ paddingRight: 8, justifyContent: 'center' }}>
+            <Ionicons name={isSelected ? "checkbox" : "square-outline"} size={22} color={isSelected ? Colors.danger : Colors.textTertiary} />
+          </TouchableOpacity>
+        )}
         <View style={bc.leftCol}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <Text style={bc.customerName} numberOfLines={1}>{bill.customer_name || 'Unknown Party'}</Text>
-            <View style={[bc.statusBadge, { backgroundColor: cfg.bg, borderColor: cfg.border }]}>
-              <Text style={[bc.statusText, { color: cfg.text }]}>{cfg.label}</Text>
-            </View>
+            {!isRecycleBin ? (
+              <View style={[bc.statusBadge, { backgroundColor: cfg.bg, borderColor: cfg.border }]}>
+                <Text style={[bc.statusText, { color: cfg.text }]}>{cfg.label}</Text>
+              </View>
+            ) : (
+              <View style={[bc.statusBadge, { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }]}>
+                <Text style={[bc.statusText, { color: '#DC2626' }]}>🚫 VOIDED</Text>
+              </View>
+            )}
+
+            {/* Version Badge */}
+            <TouchableOpacity onPress={onViewVersions} style={{ backgroundColor: '#E0F2FE', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', color: '#0369A1' }}>v{versionNum} {versionNum > 1 ? '• History' : ''}</Text>
+            </TouchableOpacity>
           </View>
+
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
             <Text style={bc.meta}>#{bill.bill_number}</Text>
             <Text style={bc.meta}>·</Text>
@@ -243,6 +326,7 @@ function BillCard({ bill, paidMap, onEdit, onPayment, onDelete, onViewPdf, expan
             {bill.template_name ? <><Text style={bc.meta}>·</Text><Text style={bc.meta}>{bill.template_name}</Text></> : null}
           </View>
         </View>
+
         <View style={bc.rightCol}>
           <Text style={bc.amount}>{fmtCurrency(bill.total_amount)}</Text>
           <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textTertiary} style={{ marginTop: 4 }} />
@@ -250,35 +334,54 @@ function BillCard({ bill, paidMap, onEdit, onPayment, onDelete, onViewPdf, expan
       </TouchableOpacity>
 
       {/* Progress bar */}
-      <View style={bc.progressTrack}>
-        <View style={[bc.progressFill, { width: `${pct}%`, backgroundColor: status === 'paid' ? '#16A34A' : status === 'partial' ? '#EAB308' : '#E5E7EB' }]} />
-      </View>
+      {!isRecycleBin && (
+        <View style={bc.progressTrack}>
+          <View style={[bc.progressFill, { width: `${pct}%`, backgroundColor: status === 'paid' ? '#16A34A' : status === 'partial' ? '#EAB308' : '#E5E7EB' }]} />
+        </View>
+      )}
 
       {/* Amount row */}
-      <View style={bc.amtRow}>
-        <Text style={bc.amtLabel}>Paid: <Text style={{ color: '#16A34A', fontWeight: '600' }}>{fmtCurrency(totalPaid)}</Text></Text>
-        {balance > 0 ? <Text style={bc.amtLabel}>Balance: <Text style={{ color: '#DC2626', fontWeight: '600' }}>{fmtCurrency(balance)}</Text></Text> : null}
-      </View>
+      {!isRecycleBin && (
+        <View style={bc.amtRow}>
+          <Text style={bc.amtLabel}>Paid: <Text style={{ color: '#16A34A', fontWeight: '600' }}>{fmtCurrency(totalPaid)}</Text></Text>
+          {balance > 0 ? <Text style={bc.amtLabel}>Balance: <Text style={{ color: '#DC2626', fontWeight: '600' }}>{fmtCurrency(balance)}</Text></Text> : null}
+        </View>
+      )}
 
       {/* Expanded actions */}
       {expanded && (
         <View style={bc.actions}>
-          <TouchableOpacity style={bc.actionBtn} onPress={onEdit}>
-            <Ionicons name="create-outline" size={18} color={Colors.primary} />
-            <Text style={[bc.actionLabel, { color: Colors.primary }]}>Edit</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={bc.actionBtn} onPress={onViewPdf}>
-            <Ionicons name="document-text-outline" size={18} color="#7C3AED" />
-            <Text style={[bc.actionLabel, { color: '#7C3AED' }]}>PDF</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={bc.actionBtn} onPress={onPayment}>
-            <Ionicons name="cash-outline" size={18} color="#16A34A" />
-            <Text style={[bc.actionLabel, { color: '#16A34A' }]}>Payment</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={bc.actionBtn} onPress={onDelete}>
-            <Ionicons name="trash-outline" size={18} color={Colors.danger || '#DC2626'} />
-            <Text style={[bc.actionLabel, { color: Colors.danger || '#DC2626' }]}>Delete</Text>
-          </TouchableOpacity>
+          {!isRecycleBin ? (
+            <>
+              <TouchableOpacity style={bc.actionBtn} onPress={onEdit}>
+                <Ionicons name="create-outline" size={18} color={Colors.primary} />
+                <Text style={[bc.actionLabel, { color: Colors.primary }]}>Edit (Prefill)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={bc.actionBtn} onPress={onViewPdf}>
+                <Ionicons name="document-text-outline" size={18} color="#7C3AED" />
+                <Text style={[bc.actionLabel, { color: '#7C3AED' }]}>View PDF</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={bc.actionBtn} onPress={onPayment}>
+                <Ionicons name="cash-outline" size={18} color="#16A34A" />
+                <Text style={[bc.actionLabel, { color: '#16A34A' }]}>Payment</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={bc.actionBtn} onPress={onVoid}>
+                <Ionicons name="ban-outline" size={18} color="#D97706" />
+                <Text style={[bc.actionLabel, { color: '#D97706' }]}>Void Bill</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity style={bc.actionBtn} onPress={onRestore}>
+                <Ionicons name="refresh-outline" size={18} color="#16A34A" />
+                <Text style={[bc.actionLabel, { color: '#16A34A' }]}>Restore</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={bc.actionBtn} onPress={onDelete}>
+                <Ionicons name="trash-outline" size={18} color={Colors.danger || '#DC2626'} />
+                <Text style={[bc.actionLabel, { color: Colors.danger || '#DC2626' }]}>Delete</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       )}
     </View>
@@ -316,6 +419,9 @@ export default function HistoryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { quarryId } = useAuth();
+  const activeQuarryId = quarryId || 1;
+
+  const [mainTab, setMainTab] = useState<'active' | 'recycle'>('active');
   const [bills, setBills] = useState([]);
   const [filteredBills, setFilteredBills] = useState([]);
   const [paidMap, setPaidMap] = useState({});
@@ -325,31 +431,35 @@ export default function HistoryScreen() {
   const [expandedId, setExpandedId] = useState(null);
   const [paymentBill, setPaymentBill] = useState(null);
 
+  // Version history modal & selection state
+  const [versionModalBill, setVersionModalBill] = useState(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
   const loadBills = useCallback(async () => {
     try {
       setLoading(true);
       const db = await getDatabase();
-      const list = await getBills(db, quarryId);
-      const allPayments = await getAllPayments(db);
-      // Build paidMap: bill_id -> total paid
+      const list = await getBills(db, activeQuarryId);
+      const allPayments = await getAllPayments(db, activeQuarryId);
       const pm = {};
       for (const p of allPayments) {
         pm[p.bill_id] = (pm[p.bill_id] || 0) + (p.amount || 0);
       }
       setBills(list);
       setPaidMap(pm);
-      applyFilters(list, searchQuery, activeFilter);
+      applyFilters(list, searchQuery, activeFilter, mainTab);
     } catch (error) {
       console.error('Error loading bills:', error);
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, activeFilter]);
+  }, [searchQuery, activeFilter, activeQuarryId, mainTab]);
 
   useFocusEffect(useCallback(() => { loadBills(); }, [loadBills]));
 
-  const applyFilters = (list, query, filter) => {
-    let result = list.filter(b => matchesFilter(b, filter));
+  const applyFilters = (list, query, filter, tab) => {
+    let result = list.filter(b => (tab === 'recycle' ? b.status === 'voided' : b.status !== 'voided'));
+    result = result.filter(b => matchesFilter(b, filter));
     if (query.trim()) {
       const lower = query.toLowerCase();
       result = result.filter(b =>
@@ -363,25 +473,32 @@ export default function HistoryScreen() {
 
   const handleSearch = (q) => {
     setSearchQuery(q);
-    applyFilters(bills, q, activeFilter);
+    applyFilters(bills, q, activeFilter, mainTab);
   };
 
   const handleFilter = (f) => {
     setActiveFilter(f);
-    applyFilters(bills, searchQuery, f);
+    applyFilters(bills, searchQuery, f, mainTab);
   };
 
-  const handleDelete = (bill) => {
+  const handleSwitchTab = (tab: 'active' | 'recycle') => {
+    setMainTab(tab);
+    setSelectedIds([]);
+    applyFilters(bills, searchQuery, activeFilter, tab);
+  };
+
+  const handleVoidBill = async (bill) => {
     Alert.alert(
-      'Delete Bill',
-      `Delete bill for "${bill.customer_name || bill.bill_number}"? This cannot be undone.`,
+      'Void Bill 🚫',
+      `Move bill #${bill.bill_number} for "${bill.customer_name}" to Recycle Bin?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete', style: 'destructive',
+          text: 'Void Bill',
+          style: 'destructive',
           onPress: async () => {
             const db = await getDatabase();
-            await deleteBill(db, bill.id);
+            await voidBill(db, bill.id, activeQuarryId);
             await loadBills();
           },
         },
@@ -389,9 +506,77 @@ export default function HistoryScreen() {
     );
   };
 
+  const handleRestoreBill = async (bill) => {
+    const db = await getDatabase();
+    await restoreBill(db, bill.id, activeQuarryId);
+    Alert.alert('Restored 🔄', `Bill #${bill.bill_number} restored to Active Invoices.`);
+    await loadBills();
+  };
+
+  const handleDeletePermanent = (bill) => {
+    Alert.alert(
+      'Permanently Delete',
+      `Permanently delete bill #${bill.bill_number}? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Permanently',
+          style: 'destructive',
+          onPress: async () => {
+            const db = await getDatabase();
+            await deleteBill(db, bill.id, activeQuarryId);
+            await loadBills();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleBulkRestore = async () => {
+    if (selectedIds.length === 0) return;
+    const db = await getDatabase();
+    for (const id of selectedIds) {
+      await restoreBill(db, id, activeQuarryId);
+    }
+    Alert.alert('Restored 🔄', `${selectedIds.length} bills restored to Active Invoices.`);
+    setSelectedIds([]);
+    await loadBills();
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    Alert.alert(
+      'Delete Selected Bills 🗑️',
+      `Permanently delete ${selectedIds.length} voided bills? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Permanently',
+          style: 'destructive',
+          onPress: async () => {
+            const db = await getDatabase();
+            await deleteBillsBulk(db, selectedIds, activeQuarryId);
+            setSelectedIds([]);
+            await loadBills();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRevertVersion = async (versionNum: number) => {
+    if (!versionModalBill) return;
+    const db = await getDatabase();
+    const success = await restoreBillVersion(db, versionModalBill.id, versionNum, activeQuarryId);
+    if (success) {
+      Alert.alert('Version Restored 🔄', `Reverted bill #${versionModalBill.bill_number} to Version v${versionNum}.`);
+      setVersionModalBill(null);
+      await loadBills();
+    }
+  };
+
   const handleEdit = (bill) => {
-    // Navigate to bill form with bill data for editing
-    router.push({ pathname: '/bill-form/[templateId]', params: { templateId: bill.template_id, editBillId: bill.id } });
+    router.push({ pathname: '/bill-form/[templateId]', params: { templateId: bill.template_id || 1, editBillId: bill.id } });
   };
 
   const handleViewPdf = (bill) => {
@@ -402,8 +587,10 @@ export default function HistoryScreen() {
     }
   };
 
-  // Stats
-  const totalRevenue = bills.reduce((s, b) => s + (b.total_amount || 0), 0);
+  const activeBillsList = bills.filter(b => b.status !== 'voided');
+  const voidedBillsList = bills.filter(b => b.status === 'voided');
+
+  const totalRevenue = activeBillsList.reduce((s, b) => s + (b.total_amount || 0), 0);
   const totalPaidAll = Object.values(paidMap).reduce((s, v) => s + v, 0);
   const totalPending = totalRevenue - totalPaidAll;
 
@@ -422,7 +609,7 @@ export default function HistoryScreen() {
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Bill Management</Text>
-          <Text style={styles.headerSub}>{bills.length} bill{bills.length !== 1 ? 's' : ''} saved</Text>
+          <Text style={styles.headerSub}>{activeBillsList.length} active bills · {voidedBillsList.length} in recycle bin</Text>
         </View>
         <TouchableOpacity style={styles.ledgerBtn} onPress={() => router.push('/ledger')}>
           <Ionicons name="book-outline" size={18} color="#7C3AED" />
@@ -430,21 +617,72 @@ export default function HistoryScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Stats bar */}
-      <View style={styles.statsRow}>
-        <View style={[styles.statPill, { backgroundColor: '#EFF6FF' }]}>
-          <Text style={styles.statLabel}>Revenue</Text>
-          <Text style={[styles.statVal, { color: Colors.primary }]}>{fmtCurrency(totalRevenue)}</Text>
-        </View>
-        <View style={[styles.statPill, { backgroundColor: '#F0FDF4' }]}>
-          <Text style={styles.statLabel}>Collected</Text>
-          <Text style={[styles.statVal, { color: '#16A34A' }]}>{fmtCurrency(totalPaidAll)}</Text>
-        </View>
-        <View style={[styles.statPill, { backgroundColor: totalPending > 0 ? '#FEF2F2' : '#F0FDF4' }]}>
-          <Text style={styles.statLabel}>Pending</Text>
-          <Text style={[styles.statVal, { color: totalPending > 0 ? '#DC2626' : '#16A34A' }]}>{fmtCurrency(totalPending)}</Text>
-        </View>
+      {/* Main Segment Switcher (Active Invoices vs Recycle Bin) */}
+      <View style={{ flexDirection: 'row', paddingHorizontal: Spacing.lg, paddingTop: 10, gap: 10 }}>
+        <TouchableOpacity
+          style={[{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: Colors.borderLight, backgroundColor: Colors.surface }, mainTab === 'active' && { backgroundColor: Colors.primary, borderColor: Colors.primary }]}
+          onPress={() => handleSwitchTab('active')}
+        >
+          <Text style={[{ fontSize: 13, fontWeight: '700', color: Colors.textSecondary }, mainTab === 'active' && { color: '#FFF' }]}>
+            📄 Active Invoices ({activeBillsList.length})
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: Colors.borderLight, backgroundColor: Colors.surface }, mainTab === 'recycle' && { backgroundColor: Colors.danger, borderColor: Colors.danger }]}
+          onPress={() => handleSwitchTab('recycle')}
+        >
+          <Text style={[{ fontSize: 13, fontWeight: '700', color: Colors.textSecondary }, mainTab === 'recycle' && { color: '#FFF' }]}>
+            🗑️ Recycle Bin ({voidedBillsList.length})
+          </Text>
+        </TouchableOpacity>
       </View>
+
+      {/* Stats bar */}
+      {mainTab === 'active' && (
+        <View style={styles.statsRow}>
+          <View style={[styles.statPill, { backgroundColor: '#EFF6FF' }]}>
+            <Text style={styles.statLabel}>Revenue</Text>
+            <Text style={[styles.statVal, { color: Colors.primary }]}>{fmtCurrency(totalRevenue)}</Text>
+          </View>
+          <View style={[styles.statPill, { backgroundColor: '#F0FDF4' }]}>
+            <Text style={styles.statLabel}>Collected</Text>
+            <Text style={[styles.statVal, { color: '#16A34A' }]}>{fmtCurrency(totalPaidAll)}</Text>
+          </View>
+          <View style={[styles.statPill, { backgroundColor: totalPending > 0 ? '#FEF2F2' : '#F0FDF4' }]}>
+            <Text style={styles.statLabel}>Pending</Text>
+            <Text style={[styles.statVal, { color: totalPending > 0 ? '#DC2626' : '#16A34A' }]}>{fmtCurrency(totalPending)}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Bulk Action Bar on Recycle Bin */}
+      {mainTab === 'recycle' && voidedBillsList.length > 0 && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.lg, paddingVertical: 8, backgroundColor: '#FFF5F5' }}>
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+            onPress={() => {
+              if (selectedIds.length === filteredBills.length) setSelectedIds([]);
+              else setSelectedIds(filteredBills.map(b => b.id));
+            }}
+          >
+            <Ionicons name={selectedIds.length === filteredBills.length && filteredBills.length > 0 ? "checkbox" : "square-outline"} size={20} color={Colors.danger} />
+            <Text style={{ fontSize: 12, fontWeight: '700', color: Colors.danger }}>
+              {selectedIds.length === filteredBills.length && filteredBills.length > 0 ? "Deselect All" : "Select All"} ({selectedIds.length})
+            </Text>
+          </TouchableOpacity>
+
+          {selectedIds.length > 0 && (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity style={{ backgroundColor: '#16A34A', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 }} onPress={handleBulkRestore}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: '#FFF' }}>Restore ({selectedIds.length})</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={{ backgroundColor: Colors.danger, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 }} onPress={handleBulkDelete}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: '#FFF' }}>Delete Permanently ({selectedIds.length})</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
 
       {/* Search */}
       <View style={styles.searchWrap}>
@@ -482,9 +720,9 @@ export default function HistoryScreen() {
       {filteredBills.length === 0 ? (
         <View style={styles.emptyWrap}>
           <EmptyState
-            icon="receipt-outline"
-            title="No bills found"
-            description={searchQuery || activeFilter !== 'All' ? 'Try changing your search or filter' : 'Create your first bill to see it here'}
+            icon={mainTab === 'recycle' ? "trash-outline" : "receipt-outline"}
+            title={mainTab === 'recycle' ? "Recycle Bin is empty" : "No active bills found"}
+            description={searchQuery || activeFilter !== 'All' ? 'Try changing your search or filter' : mainTab === 'recycle' ? 'Voided bills will appear here' : 'Create your first bill to see it here'}
           />
         </View>
       ) : (
@@ -495,11 +733,20 @@ export default function HistoryScreen() {
               bill={bill}
               paidMap={paidMap}
               expanded={expandedId === bill.id}
+              isRecycleBin={mainTab === 'recycle'}
+              isSelected={selectedIds.includes(bill.id)}
+              onSelectToggle={() => {
+                if (selectedIds.includes(bill.id)) setSelectedIds(selectedIds.filter(i => i !== bill.id));
+                else setSelectedIds([...selectedIds, bill.id]);
+              }}
               onToggle={() => setExpandedId(expandedId === bill.id ? null : bill.id)}
               onEdit={() => handleEdit(bill)}
               onViewPdf={() => handleViewPdf(bill)}
+              onViewVersions={() => setVersionModalBill(bill)}
               onPayment={() => setPaymentBill(bill)}
-              onDelete={() => handleDelete(bill)}
+              onVoid={() => handleVoidBill(bill)}
+              onRestore={() => handleRestoreBill(bill)}
+              onDelete={() => handleDeletePermanent(bill)}
             />
           ))}
           <View style={{ height: 20 }} />
@@ -512,6 +759,14 @@ export default function HistoryScreen() {
         visible={!!paymentBill}
         onClose={() => setPaymentBill(null)}
         onSaved={loadBills}
+      />
+
+      {/* Version History Modal */}
+      <VersionHistoryModal
+        bill={versionModalBill}
+        visible={!!versionModalBill}
+        onClose={() => setVersionModalBill(null)}
+        onRestoreVersion={handleRevertVersion}
       />
     </View>
   );

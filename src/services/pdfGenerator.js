@@ -45,24 +45,32 @@ export async function generatePDF({
     });
 
     if (Platform.OS === 'web') {
-      const targetWindow = printWindow || window.open('', '_blank');
-      if (targetWindow) {
-        targetWindow.document.open();
-        targetWindow.document.write(html);
-        targetWindow.document.close();
-        
-        setTimeout(() => {
-          try {
-            targetWindow.focus();
-            targetWindow.print();
-          } catch (e) {
-            console.error('Error printing in new window:', e);
-          }
-        }, 500);
-      } else {
-        alert('Please allow popups to print and generate the PDF.');
+      const bn = headerData.BN || headerData.billnumber || '0001';
+      const cust = (headerData.partyname || headerData.customername || 'Party').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '_');
+      const fileName = `${cust}_BN${bn}_${timestamp}.html`;
+
+      // Close placeholder window if open
+      if (printWindow && !printWindow.closed) {
+        try { printWindow.close(); } catch (e) {}
       }
-      return { uri: 'web-print', success: true };
+
+      // Silent Background Auto-Save
+      try {
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.error('Silent auto-save error:', e);
+      }
+
+      return { uri: 'web-auto-saved', fileName, success: true };
     }
 
     const { uri } = await Print.printToFileAsync({
