@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 const ADMIN_NAV = [
   { title: 'PLATFORM MANAGEMENT', items: [
     { route: '/admin-portal', icon: 'shield-checkmark-outline', activeIcon: 'shield-checkmark', label: 'Quarry Registry' },
+    { route: '/messages', icon: 'logo-whatsapp', activeIcon: 'logo-whatsapp', label: 'Messages & WhatsApp' },
     { route: '/(tabs)', icon: 'grid-outline', activeIcon: 'grid', label: 'Platform Overview' },
   ]},
   { title: 'ACCOUNT', items: [
@@ -27,6 +28,7 @@ const OWNER_NAV = [
     { route: '/(tabs)/materials', icon: 'cube-outline', activeIcon: 'cube', label: 'Material Catalog' },
   ]},
   { title: 'QUARRY OPERATIONS', items: [
+    { route: '/messages', icon: 'logo-whatsapp', activeIcon: 'logo-whatsapp', label: 'Messages & Live Chat' },
     { route: '/customers', icon: 'people-outline', activeIcon: 'people', label: 'Customer Directory' },
     { route: '/drivers', icon: 'car-sport-outline', activeIcon: 'car-sport', label: 'Transport & Drivers' },
     { route: '/driver-marketplace', icon: 'navigate-circle-outline', activeIcon: 'navigate-circle', label: 'Lorry Marketplace' },
@@ -44,6 +46,7 @@ const DRIVER_NAV = [
   { title: 'MY TRIPS', items: [
     { route: '/driver-portal', icon: 'navigate-outline', activeIcon: 'navigate', label: 'Active Trips' },
     { route: '/driver-marketplace', icon: 'navigate-circle-outline', activeIcon: 'navigate-circle', label: 'Delivery Orders Feed' },
+    { route: '/messages', icon: 'logo-whatsapp', activeIcon: 'logo-whatsapp', label: 'Messages & WhatsApp' },
   ]},
   { title: 'ACCOUNT', items: [
     { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },
@@ -53,6 +56,7 @@ const DRIVER_NAV = [
 const CUSTOMER_NAV = [
   { title: 'MARKETPLACE', items: [
     { route: '/customer-marketplace', icon: 'storefront-outline', activeIcon: 'storefront', label: 'Browse Quarries' },
+    { route: '/messages', icon: 'logo-whatsapp', activeIcon: 'logo-whatsapp', label: 'Messages & WhatsApp' },
   ]},
   { title: 'ACCOUNT', items: [
     { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },

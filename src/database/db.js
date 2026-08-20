@@ -1416,12 +1416,182 @@ export async function getDriverRateCard(db, driverId) {
   return { rate_per_km: 45, min_charge: 1200, loading_charge: 500, waiting_charge_per_hr: 200 };
 }
 
-export async function saveDriverRateCard(db, driverId, rateCard) {
+// ═══════════════════════════════════════════════════════════════════════════════
+// UNIVERSAL MESSAGING SYSTEM (Owner, Admin, Driver, Customer WhatsApp-style)
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function getUniversalContacts(db, currentRole, currentQuarryId) {
   if (IS_WEB) {
-    webSet(`bf_driver_rate_${driverId}`, rateCard);
-    return true;
+    const contacts = [];
+
+    // 1. Platform Admin Contact
+    contacts.push({
+      id: 'contact_admin',
+      role: 'admin',
+      name: 'Platform Administrator',
+      subtext: 'BillForge Admin & Technical Support',
+      phone: '1234567890',
+      avatarIcon: 'shield-checkmark',
+      badgeBg: '#FFF3E0',
+      badgeColor: '#E65100',
+    });
+
+    // 2. Quarry Owners Contacts
+    const quarries = webGet('bf_quarries') || [];
+    const activeQuarries = quarries.filter(q => q.status === 'active');
+    if (activeQuarries.length === 0) {
+      contacts.push({
+        id: 'contact_quarry_1',
+        quarry_id: 1,
+        role: 'quarry_owner',
+        name: 'Demo Quarry & Crushers',
+        subtext: 'Quarry Owner • Madukkarai, Coimbatore',
+        phone: '9894698049',
+        avatarIcon: 'business',
+        badgeBg: '#E8F5E9',
+        badgeColor: '#2E7D32',
+      });
+    } else {
+      for (const q of activeQuarries) {
+        contacts.push({
+          id: `contact_quarry_${q.id}`,
+          quarry_id: q.id,
+          role: 'quarry_owner',
+          name: q.name,
+          subtext: `Quarry Owner • ${q.location || 'Tamil Nadu'}`,
+          phone: q.phone || '9894698049',
+          avatarIcon: 'business',
+          badgeBg: '#E8F5E9',
+          badgeColor: '#2E7D32',
+        });
+      }
+    }
+
+    // 3. Drivers Contacts
+    const drivers = webGet('bf_drivers') || [];
+    if (drivers.length === 0) {
+      contacts.push(
+        {
+          id: 'contact_driver_101',
+          driver_id: 101,
+          role: 'driver',
+          name: 'Murali Transports (TN 38 AB 1234)',
+          subtext: 'In-House Quarry Fleet Driver',
+          phone: '9876543210',
+          avatarIcon: 'car-sport',
+          badgeBg: '#E3F2FD',
+          badgeColor: '#1565C0',
+        },
+        {
+          id: 'contact_driver_102',
+          driver_id: 102,
+          role: 'driver',
+          name: 'Selvam Logistics (TN 37 C 9988)',
+          subtext: 'Private Freelance Transporter',
+          phone: '9123456789',
+          avatarIcon: 'car-sport',
+          badgeBg: '#F3E8FF',
+          badgeColor: '#7C3AED',
+        }
+      );
+    } else {
+      for (const d of drivers) {
+        contacts.push({
+          id: `contact_driver_${d.id}`,
+          driver_id: d.id,
+          role: 'driver',
+          name: `${d.name} (${d.vehicle_no || 'Lorry'})`,
+          subtext: d.category === 'private' ? 'Private Freelance Transporter' : 'In-House Quarry Driver',
+          phone: d.phone,
+          avatarIcon: 'car-sport',
+          badgeBg: '#E3F2FD',
+          badgeColor: '#1565C0',
+        });
+      }
+    }
+
+    // 4. Customers Contacts
+    const customers = webGet('bf_customers') || [];
+    if (customers.length === 0) {
+      contacts.push(
+        {
+          id: 'contact_customer_1',
+          role: 'customer',
+          name: 'Kovai Builders & Developers',
+          subtext: 'Customer / Buyer • 9123456789',
+          phone: '9123456789',
+          avatarIcon: 'person',
+          badgeBg: '#E8F5E9',
+          badgeColor: '#2E7D32',
+        },
+        {
+          id: 'contact_customer_2',
+          role: 'customer',
+          name: 'Sarangan Constructions',
+          subtext: 'Customer / Buyer • 9894698049',
+          phone: '9894698049',
+          avatarIcon: 'person',
+          badgeBg: '#E8F5E9',
+          badgeColor: '#2E7D32',
+        }
+      );
+    } else {
+      for (const c of customers) {
+        contacts.push({
+          id: `contact_customer_${c.id}`,
+          role: 'customer',
+          name: c.name,
+          subtext: `Customer / Buyer • ${c.phone || ''}`,
+          phone: c.phone || '9894698049',
+          avatarIcon: 'person',
+          badgeBg: '#F3E8FF',
+          badgeColor: '#7C3AED',
+        });
+      }
+    }
+
+    return contacts;
   }
-  return true;
+  return [];
+}
+
+export async function getUniversalMessages(db, contactId) {
+  if (IS_WEB) {
+    const key = `bf_msg_thread_${contactId}`;
+    const list = webGet(key);
+    if (list && list.length > 0) return list;
+    
+    // Initial welcome message for the thread
+    const welcomeMsgs = [
+      {
+        id: `msg-welcome-${contactId}`,
+        sender_role: 'system',
+        sender_name: 'BillForge Live Connect',
+        text: '👋 Start direct communication! Type a message below or tap the WhatsApp button to chat directly on WhatsApp.',
+        timestamp: new Date().toISOString(),
+      }
+    ];
+    webSet(key, welcomeMsgs);
+    return welcomeMsgs;
+  }
+  return [];
+}
+
+export async function sendUniversalMessage(db, contactId, senderRole, senderName, text) {
+  if (IS_WEB) {
+    const key = `bf_msg_thread_${contactId}`;
+    const list = webGet(key) || [];
+    const newMsg = {
+      id: `msg-${Date.now()}`,
+      sender_role: senderRole,
+      sender_name: senderName,
+      text,
+      timestamp: new Date().toISOString(),
+    };
+    list.push(newMsg);
+    webSet(key, list);
+    return newMsg;
+  }
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
