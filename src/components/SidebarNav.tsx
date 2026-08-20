@@ -63,11 +63,17 @@ const CUSTOMER_NAV = [
   ]},
 ];
 
+import { useWindowDimensions } from 'react-native';
+
 export function SidebarNav() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, role, quarryId } = useAuth();
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
+
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   // Hide navigation bar ONLY on the root Product Landing Page
   if (pathname === '/' || pathname === '' || pathname === '/index') {
@@ -94,6 +100,54 @@ export function SidebarNav() {
     : role === 'driver' ? (user?.name || 'Driver')
     : role === 'customer' ? (user?.phone || 'Customer')
     : (user?.name || user?.owner_name || 'Quarry Owner');
+
+  // Mobile Top Navigation Bar with Hamburger Drawer Toggle
+  if (isMobile) {
+    return (
+      <View style={mobileStyles.topMobileWrap}>
+        <View style={mobileStyles.topMobileBar}>
+          <TouchableOpacity style={mobileStyles.menuBtn} onPress={() => setMobileDrawerOpen(!mobileDrawerOpen)}>
+            <Ionicons name={mobileDrawerOpen ? 'close' : 'menu'} size={24} color={Colors.navy} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={mobileStyles.mobileBrand}>{brandName}</Text>
+            <Text style={mobileStyles.mobileSub} numberOfLines={1}>{subLabel}</Text>
+          </View>
+          <TouchableOpacity style={mobileStyles.roleSwitchBtn} onPress={() => router.push('/select-role')}>
+            <Ionicons name="swap-horizontal" size={18} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
+
+        {mobileDrawerOpen && (
+          <View style={mobileStyles.drawerOverlay}>
+            <ScrollView style={mobileStyles.drawerScroll} showsVerticalScrollIndicator={false}>
+              {navSections.map((section, sIdx) => (
+                <View key={section.title || sIdx} style={{ marginBottom: 14 }}>
+                  <Text style={mobileStyles.sectionHeader}>{section.title}</Text>
+                  {section.items.map((item) => {
+                    const active = isCurrentRoute(item.route);
+                    return (
+                      <TouchableOpacity
+                        key={item.route}
+                        style={[mobileStyles.navItem, active && mobileStyles.navItemActive]}
+                        onPress={() => {
+                          setMobileDrawerOpen(false);
+                          router.push(item.route);
+                        }}
+                      >
+                        <Ionicons name={active ? item.activeIcon : item.icon} size={20} color={active ? Colors.primary : Colors.textSecondary} />
+                        <Text style={[mobileStyles.navText, active && mobileStyles.navTextActive]}>{item.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
@@ -165,6 +219,22 @@ const styles = StyleSheet.create({
   activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.primary },
   sidebarFooter: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight, backgroundColor: Colors.background, gap: 8 },
   userStatusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.success },
-  userStatusText: { fontSize: 11, fontWeight: '700', color: Colors.text },
-  userRoleText: { fontSize: 10, color: Colors.textTertiary },
+  userStatusText: { fontSize: 12, fontWeight: '700', color: Colors.navy },
+  userRoleText: { fontSize: 10, color: Colors.textSecondary },
+});
+
+const mobileStyles = StyleSheet.create({
+  topMobileWrap: { width: '100%', backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight, zIndex: 999 },
+  topMobileBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 56, gap: 12 },
+  menuBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.borderLight },
+  mobileBrand: { fontSize: 16, fontWeight: '800', color: Colors.navy },
+  mobileSub: { fontSize: 11, color: Colors.textSecondary },
+  roleSwitchBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
+  drawerOverlay: { backgroundColor: Colors.surface, borderTopWidth: 1, borderTopColor: Colors.borderLight, padding: 14, maxHeight: 380 },
+  drawerScroll: { flex: 1 },
+  sectionHeader: { fontSize: 10, fontWeight: '800', color: Colors.textTertiary, letterSpacing: 1, marginBottom: 8 },
+  navItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4, gap: 12 },
+  navItemActive: { backgroundColor: Colors.primarySurface },
+  navText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
+  navTextActive: { color: Colors.primary, fontWeight: '700' },
 });

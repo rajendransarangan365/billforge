@@ -1330,35 +1330,48 @@ export async function resetQuarryPassword(db, quarryId, newTempPassword) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // CHAT CONVERSATIONS (Customer <-> Quarry Owner)
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function getChatMessages(db, quarryId, customerPhone) {
+export async function getChatMessages(db, quarryId = 1, customerPhone = '9894698049') {
+  const qid = parseInt(quarryId) || 1;
+  const phone = (customerPhone || '9894698049').trim();
   if (IS_WEB) {
-    const key = `bf_chat_${quarryId}_${customerPhone}`;
-    return webGet(key) || [];
+    const key = `bf_chat_${qid}_${phone}`;
+    const msgs = webGet(key) || [];
+    if (msgs.length === 0) {
+      // Fallback: check across all quarries if phone thread exists
+      const quarries = webGet('bf_quarries') || [];
+      for (const q of quarries) {
+        const foundMsgs = webGet(`bf_chat_${q.id}_${phone}`);
+        if (foundMsgs && foundMsgs.length > 0) return foundMsgs;
+      }
+    }
+    return msgs;
   }
   return [];
 }
 
-export async function sendChatMessage(db, quarryId, customerPhone, sender, senderName, text) {
+export async function sendChatMessage(db, quarryId = 1, customerPhone = '9894698049', sender = 'customer', senderName = 'Customer', text = '') {
+  const qid = parseInt(quarryId) || 1;
+  const phone = (customerPhone || '9894698049').trim();
   if (IS_WEB) {
-    const key = `bf_chat_${quarryId}_${customerPhone}`;
+    const key = `bf_chat_${qid}_${phone}`;
     const list = webGet(key) || [];
     const msg = {
       id: `msg-${Date.now()}`,
-      quarry_id: quarryId,
-      customer_phone: customerPhone,
+      quarry_id: qid,
+      customer_phone: phone,
       sender,
-      sender_name: senderName,
+      sender_name: senderName || (sender === 'owner' ? 'Quarry Owner' : 'Customer'),
       text,
       timestamp: new Date().toISOString(),
     };
     list.push(msg);
     webSet(key, list);
 
-    const chatsKey = qKey(quarryId, 'chats_index');
+    const chatsKey = qKey(qid, 'chats_index');
     const index = webGet(chatsKey) || [];
-    const existingChat = index.find(c => c.customer_phone === customerPhone);
+    const existingChat = index.find(c => c.customer_phone === phone);
     if (!existingChat) {
-      index.push({ customer_phone: customerPhone, customer_name: senderName, last_updated: new Date().toISOString() });
+      index.push({ customer_phone: phone, customer_name: senderName || 'Customer', last_updated: new Date().toISOString() });
     } else {
       existingChat.last_updated = new Date().toISOString();
       if (senderName) existingChat.customer_name = senderName;
@@ -1366,18 +1379,18 @@ export async function sendChatMessage(db, quarryId, customerPhone, sender, sende
     webSet(chatsKey, index);
 
     // Auto sync with enquiries list for Quarry Owner visibility
-    const enquiriesKey = qKey(quarryId, 'enquiries');
+    const enquiriesKey = qKey(qid, 'enquiries');
     const enquiries = webGet(enquiriesKey) || [];
-    const existingEnq = enquiries.find(e => e.customer_phone === customerPhone);
+    const existingEnq = enquiries.find(e => e.customer_phone === phone);
     if (existingEnq) {
       existingEnq.material_name = `Live Chat: "${text.slice(0, 25)}..."`;
       existingEnq.created_at = new Date().toISOString();
     } else {
       enquiries.push({
         id: Date.now(),
-        quarry_id: quarryId,
+        quarry_id: qid,
         customer_name: senderName || 'Chat Customer',
-        customer_phone: customerPhone,
+        customer_phone: phone,
         material_name: `Live Chat: "${text.slice(0, 25)}..."`,
         quantity: 1,
         unit_type: 'unit',
@@ -1554,41 +1567,89 @@ export async function getUniversalContacts(db, currentRole, currentQuarryId) {
   return [];
 }
 
-export async function getUniversalMessages(db, contactId) {
+export function getSharedThreadKey(contact, currentUser) {
+  if (!contact) return 'bf_msg_thread_general';
+  
+  // Extract identifiers
+  let id1 = 'user';
+  if (currentUser) {
+    id1 = currentUser.quarryId ? `quarry_${currentUser.quarryId}` : (currentUser.phone ? `phone_${currentUser.phone}` : `user_${currentUser.id || 1}`);
+  }
+
+  let id2 = contact.quarry_id ? `quarry_${contact.quarry_id}` : (contact.phone ? `phone_${contact.phone}` : (contact.driver_id ? `driver_${contact.driver_id}` : contact.id));
+
+  // If one is quarry and one is phone (customer/driver):
+  if (contact.phone && currentUser?.quarryId) {
+    return `bf_chat_${currentUser.quarryId}_${contact.phone}`;
+  }
+  if (contact.quarry_id && currentUser?.phone) {
+    return `bf_chat_${contact.quarry_id}_${currentUser.phone}`;
+  }
+
+  // Sort both IDs alphabetically to ensure 100% symmetry
+  const pair = [String(id1), String(id2)].sort();
+  return `bf_msg_thread_${pair.join('_')}`;
+}
+
+export async function getUniversalMessages(db, contact, currentUser) {
   if (IS_WEB) {
-    const key = `bf_msg_thread_${contactId}`;
-    const list = webGet(key);
-    if (list && list.length > 0) return list;
-    
-    // Initial welcome message for the thread
+    const threadKey = typeof contact === 'string' ? `bf_msg_thread_${contact}` : getSharedThreadKey(contact, currentUser);
+    const msgs = webGet(threadKey) || [];
+    if (msgs.length > 0) return msgs;
+
+    // Check fallback legacy keys if empty
+    if (typeof contact === 'object' && contact) {
+      const fallbackKey = contact.quarry_id && currentUser?.phone
+        ? `bf_chat_${contact.quarry_id}_${currentUser.phone}`
+        : contact.phone && currentUser?.quarryId
+        ? `bf_chat_${currentUser.quarryId}_${contact.phone}`
+        : null;
+      if (fallbackKey) {
+        const fall = webGet(fallbackKey);
+        if (fall && fall.length > 0) return fall;
+      }
+    }
+
     const welcomeMsgs = [
       {
-        id: `msg-welcome-${contactId}`,
+        id: `msg-welcome-${Date.now()}`,
         sender_role: 'system',
         sender_name: 'BillForge Live Connect',
         text: '👋 Start direct communication! Type a message below or tap the WhatsApp button to chat directly on WhatsApp.',
         timestamp: new Date().toISOString(),
       }
     ];
-    webSet(key, welcomeMsgs);
+    webSet(threadKey, welcomeMsgs);
     return welcomeMsgs;
   }
   return [];
 }
 
-export async function sendUniversalMessage(db, contactId, senderRole, senderName, text) {
+export async function sendUniversalMessage(db, contact, senderRole, senderName, text, currentUser) {
   if (IS_WEB) {
-    const key = `bf_msg_thread_${contactId}`;
-    const list = webGet(key) || [];
+    const threadKey = typeof contact === 'string' ? `bf_msg_thread_${contact}` : getSharedThreadKey(contact, currentUser);
+    const list = webGet(threadKey) || [];
     const newMsg = {
       id: `msg-${Date.now()}`,
       sender_role: senderRole,
       sender_name: senderName,
+      sender: senderRole === 'quarry_owner' ? 'owner' : senderRole === 'customer' ? 'customer' : 'driver',
       text,
       timestamp: new Date().toISOString(),
     };
     list.push(newMsg);
-    webSet(key, list);
+    webSet(threadKey, list);
+
+    // Also sync if it's a customer <-> quarry chat
+    if (typeof contact === 'object' && contact) {
+      const targetQuarryId = contact.quarry_id || currentUser?.quarryId;
+      const targetPhone = contact.phone || currentUser?.phone;
+      if (targetQuarryId && targetPhone) {
+        const legacyKey = `bf_chat_${targetQuarryId}_${targetPhone}`;
+        webSet(legacyKey, list);
+      }
+    }
+
     return newMsg;
   }
   return null;

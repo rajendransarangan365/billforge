@@ -13,13 +13,18 @@ import {
   getDatabase, getUniversalContacts, getUniversalMessages, sendUniversalMessage,
 } from '../src/database/db';
 
+import { useWindowDimensions } from 'react-native';
+
 export default function MessagesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, role, quarryId } = useAuth();
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
 
   const [contacts, setContacts] = useState([]);
   const [activeContact, setActiveContact] = useState(null);
+  const [showMobileChat, setShowMobileChat] = useState(false);
   const [messages, setMessages] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -49,20 +54,26 @@ export default function MessagesScreen() {
     loadContacts();
   }, [loadContacts]);
 
-  const loadMessages = useCallback(async (contactId) => {
-    if (!contactId) return;
+  const currentUserObj = { role: myRole, quarryId, phone: user?.phone };
+
+  const loadMessages = useCallback(async (targetContact) => {
+    if (!targetContact) return;
     try {
       const db = await getDatabase();
-      const list = await getUniversalMessages(db, contactId);
+      const list = await getUniversalMessages(db, targetContact, currentUserObj);
       setMessages(list);
     } catch (e) {
       console.error('Error loading messages:', e);
     }
-  }, []);
+  }, [myRole, quarryId, user?.phone]);
 
   useEffect(() => {
     if (activeContact) {
-      loadMessages(activeContact.id);
+      loadMessages(activeContact);
+      const interval = setInterval(() => {
+        loadMessages(activeContact);
+      }, 2000);
+      return () => clearInterval(interval);
     }
   }, [activeContact, loadMessages]);
 
@@ -71,9 +82,9 @@ export default function MessagesScreen() {
     setSending(true);
     try {
       const db = await getDatabase();
-      await sendUniversalMessage(db, activeContact.id, myRole, myName, chatInput.trim());
+      await sendUniversalMessage(db, activeContact, myRole, myName, chatInput.trim(), currentUserObj);
       setChatInput('');
-      await loadMessages(activeContact.id);
+      await loadMessages(activeContact);
     } catch (e) {
       Alert.alert('Error', 'Failed to send message.');
     } finally {
@@ -98,6 +109,13 @@ export default function MessagesScreen() {
     return matchesSearch && c.role === roleFilter;
   });
 
+  const handleSelectContact = (c) => {
+    setActiveContact(c);
+    if (isMobile) {
+      setShowMobileChat(true);
+    }
+  };
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       {/* Top Bar Header */}
@@ -120,89 +138,97 @@ export default function MessagesScreen() {
 
       <View style={styles.container}>
         {/* Left Contacts Sidebar */}
-        <View style={styles.sidebar}>
-          {/* Search Input */}
-          <View style={styles.searchBox}>
-            <Ionicons name="search" size={16} color={Colors.textTertiary} />
-            <TextInput
-              style={styles.searchInput}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Search contacts..."
-              placeholderTextColor={Colors.textDisabled}
-            />
-          </View>
+        {(!isMobile || !showMobileChat) && (
+          <View style={[styles.sidebar, isMobile && { width: '100%' }]}>
+            {/* Search Input */}
+            <View style={styles.searchBox}>
+              <Ionicons name="search" size={16} color={Colors.textTertiary} />
+              <TextInput
+                style={styles.searchInput}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search contacts..."
+                placeholderTextColor={Colors.textDisabled}
+              />
+            </View>
 
-          {/* Role Filter Tabs */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={{ paddingHorizontal: 12, gap: 6 }}>
-            {[
-              { id: 'all', label: 'All' },
-              { id: 'quarry_owner', label: 'Quarries 🏢' },
-              { id: 'driver', label: 'Drivers 🚛' },
-              { id: 'customer', label: 'Buyers 👷' },
-              { id: 'admin', label: 'Admin 🛡️' },
-            ].map((f) => (
-              <TouchableOpacity
-                key={f.id}
-                style={[styles.filterChip, roleFilter === f.id && styles.filterChipActive]}
-                onPress={() => setRoleFilter(f.id)}
-              >
-                <Text style={[styles.filterText, roleFilter === f.id && styles.filterTextActive]}>{f.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          {/* Contacts List */}
-          {loading ? (
-            <ActivityIndicator style={{ marginTop: 30 }} color="#2E7D32" />
-          ) : (
-            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-              {filteredContacts.map((c) => {
-                const isSelected = activeContact?.id === c.id;
-                return (
-                  <TouchableOpacity
-                    key={c.id}
-                    style={[styles.contactCard, isSelected && styles.contactCardSelected]}
-                    onPress={() => setActiveContact(c)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.avatar, { backgroundColor: c.badgeBg || '#E8F5E9' }]}>
-                      <Ionicons name={c.avatarIcon || 'person'} size={20} color={c.badgeColor || '#2E7D32'} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.contactName} numberOfLines={1}>{c.name}</Text>
-                      <Text style={styles.contactSub} numberOfLines={1}>{c.subtext}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color={isSelected ? Colors.primary : Colors.textDisabled} />
-                  </TouchableOpacity>
-                );
-              })}
+            {/* Role Filter Tabs */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={{ paddingHorizontal: 12, gap: 6 }}>
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'quarry_owner', label: 'Quarries 🏢' },
+                { id: 'driver', label: 'Drivers 🚛' },
+                { id: 'customer', label: 'Buyers 👷' },
+                { id: 'admin', label: 'Admin 🛡️' },
+              ].map((f) => (
+                <TouchableOpacity
+                  key={f.id}
+                  style={[styles.filterChip, roleFilter === f.id && styles.filterChipActive]}
+                  onPress={() => setRoleFilter(f.id)}
+                >
+                  <Text style={[styles.filterText, roleFilter === f.id && styles.filterTextActive]}>{f.label}</Text>
+                </TouchableOpacity>
+              ))}
             </ScrollView>
-          )}
-        </View>
+
+            {/* Contacts List */}
+            {loading ? (
+              <ActivityIndicator style={{ marginTop: 30 }} color="#2E7D32" />
+            ) : (
+              <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+                {filteredContacts.map((c) => {
+                  const isSelected = activeContact?.id === c.id;
+                  return (
+                    <TouchableOpacity
+                      key={c.id}
+                      style={[styles.contactCard, isSelected && styles.contactCardSelected]}
+                      onPress={() => handleSelectContact(c)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.avatar, { backgroundColor: c.badgeBg || '#E8F5E9' }]}>
+                        <Ionicons name={c.avatarIcon || 'person'} size={20} color={c.badgeColor || '#2E7D32'} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.contactName} numberOfLines={1}>{c.name}</Text>
+                        <Text style={styles.contactSub} numberOfLines={1}>{c.subtext}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={isSelected ? Colors.primary : Colors.textDisabled} />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        )}
 
         {/* Right Chat Main Area */}
-        <View style={styles.chatArea}>
-          {activeContact ? (
-            <>
-              {/* Chat Header */}
-              <View style={styles.chatHeader}>
-                <View style={[styles.avatar, { backgroundColor: activeContact.badgeBg }]}>
-                  <Ionicons name={activeContact.avatarIcon || 'person'} size={22} color={activeContact.badgeColor} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.activeTitle}>{activeContact.name}</Text>
-                  <Text style={styles.activeSub}>{activeContact.subtext} • Phone: {activeContact.phone}</Text>
-                </View>
+        {(!isMobile || showMobileChat) && (
+          <View style={[styles.chatArea, isMobile && { flex: 1, width: '100%' }]}>
+            {activeContact ? (
+              <>
+                {/* Chat Header */}
+                <View style={styles.chatHeader}>
+                  {isMobile && (
+                    <TouchableOpacity style={{ paddingRight: 8 }} onPress={() => setShowMobileChat(false)}>
+                      <Ionicons name="arrow-back" size={22} color={Colors.navy} />
+                    </TouchableOpacity>
+                  )}
+                  <View style={[styles.avatar, { backgroundColor: activeContact.badgeBg }]}>
+                    <Ionicons name={activeContact.avatarIcon || 'person'} size={22} color={activeContact.badgeColor} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.activeTitle}>{activeContact.name}</Text>
+                    <Text style={styles.activeSub}>{activeContact.subtext} • Phone: {activeContact.phone}</Text>
+                  </View>
 
-                <TouchableOpacity
-                  style={styles.openWaCardBtn}
-                  onPress={() => openWhatsAppDirect(activeContact.phone, `Hi ${activeContact.name}, reaching out via BillForge application!`)}
-                >
-                  <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
-                  <Text style={styles.openWaText}>Chat on WhatsApp</Text>
-                </TouchableOpacity>
-              </View>
+                  <TouchableOpacity
+                    style={styles.openWaCardBtn}
+                    onPress={() => openWhatsAppDirect(activeContact.phone, `Hi ${activeContact.name}, reaching out via BillForge application!`)}
+                  >
+                    <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
+                    <Text style={styles.openWaText}>Chat on WhatsApp</Text>
+                  </TouchableOpacity>
+                </View>
 
               {/* Messages Stream */}
               <ScrollView
@@ -278,8 +304,9 @@ export default function MessagesScreen() {
             </View>
           )}
         </View>
-      </View>
+      )}
     </View>
+  </View>
   );
 }
 
