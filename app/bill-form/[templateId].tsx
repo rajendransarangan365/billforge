@@ -17,6 +17,7 @@ import {
   getMaterials,
   saveCustomer,
   getCustomers,
+  getEnquiries,
   getCompanyProfile,
   getBillById,
   saveDraft,
@@ -128,6 +129,13 @@ export default function BillFormScreen() {
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [activeCustomerField, setActiveCustomerField] = useState('');
 
+  // On-the-go customer creation inside modal
+  const [showAddCustomerForm, setShowAddCustomerForm] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [newCustAddress, setNewCustAddress] = useState('');
+  const [savingNewCustomer, setSavingNewCustomer] = useState(false);
+
   useEffect(() => {
     loadTemplate();
     loadBillNumber();
@@ -157,10 +165,56 @@ export default function BillFormScreen() {
   const loadCustomers = async () => {
     try {
       const db = await getDatabase();
-      const list = await getCustomers(db);
-      setCustomers(list);
+      const list = await getCustomers(db, companyId);
+      const enquiries = await getEnquiries(db, companyId);
+
+      const combined = [...list];
+      for (const e of enquiries) {
+        if (e.customer_name && e.customer_name.trim() !== '') {
+          const exists = combined.some(c => c.name.toLowerCase() === e.customer_name.toLowerCase());
+          if (!exists) {
+            combined.push({
+              id: `enq_${e.id}`,
+              name: e.customer_name,
+              phone: e.customer_phone || '',
+              address: e.customer_address || e.pickup_address || '',
+              isEnquiry: true,
+              enquiryStatus: e.status,
+            });
+          }
+        }
+      }
+      setCustomers(combined);
     } catch (error) {
       console.error('Error loading customers:', error);
+    }
+  };
+
+  const handleCreateCustomerOnTheGo = async () => {
+    const nameToSave = newCustName.trim() || customerSearchQuery.trim();
+    if (!nameToSave) {
+      Alert.alert('Required', 'Please enter customer / party name.');
+      return;
+    }
+    setSavingNewCustomer(true);
+    try {
+      const db = await getDatabase();
+      const newCust = {
+        name: nameToSave,
+        phone: newCustPhone.trim(),
+        address: newCustAddress.trim(),
+      };
+      await saveCustomer(db, newCust, companyId);
+      await loadCustomers();
+      selectCustomer(newCust);
+      setShowAddCustomerForm(false);
+      setNewCustName('');
+      setNewCustPhone('');
+      setNewCustAddress('');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save customer.');
+    } finally {
+      setSavingNewCustomer(false);
     }
   };
 
@@ -1906,57 +1960,126 @@ export default function BillFormScreen() {
                 <Ionicons name="people-outline" size={20} color={Colors.primary} />
                 <Text style={styles.modalTitle}>Select Customer</Text>
               </View>
-              <TouchableOpacity onPress={() => setCustomerModalVisible(false)} style={styles.closeBtn}>
-                <Ionicons name="close" size={24} color={Colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ paddingHorizontal: 20, paddingBottom: 10 }}>
-              <Input
-                value={customerSearchQuery}
-                onChangeText={setCustomerSearchQuery}
-                placeholder="Search customers by name..."
-                icon="search-outline"
-              />
-            </View>
-            
-            <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
-              {customers.filter(c => 
-                c.name.toLowerCase().includes(customerSearchQuery.toLowerCase())
-              ).map((c) => (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <TouchableOpacity
-                  key={c.id}
-                  style={styles.modalItem}
-                  onPress={() => selectCustomer(c)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.primarySurface, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
+                  onPress={() => {
+                    setNewCustName(customerSearchQuery);
+                    setShowAddCustomerForm(!showAddCustomerForm);
+                  }}
                 >
-                  <View style={[styles.modalItemIconCircle, { backgroundColor: '#EBF5FB' }]}>
-                    <Ionicons name="person-outline" size={18} color={Colors.primary} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.modalItemText}>{c.name}</Text>
-                    {c.phone ? (
-                      <Text style={styles.modalItemSub}>📞 {c.phone}</Text>
-                    ) : null}
-                    {c.address ? (
-                      <Text style={styles.modalItemSub} numberOfLines={1}>📍 {c.address}</Text>
-                    ) : null}
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
-                </TouchableOpacity>
-              ))}
-
-              {customers.filter(c => 
-                c.name.toLowerCase().includes(customerSearchQuery.toLowerCase())
-              ).length === 0 && (
-                <View style={{ padding: 30, alignItems: 'center' }}>
-                  <Ionicons name="people-outline" size={48} color={Colors.textTertiary} style={{ marginBottom: 10 }} />
-                  <Text style={{ ...Typography.bodyMedium, color: Colors.textSecondary, textAlign: 'center' }}>
-                    No customers found. Type a name in the form manually to automatically save them!
+                  <Ionicons name={showAddCustomerForm ? "list" : "add-circle"} size={16} color={Colors.primary} />
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: Colors.primary }}>
+                    {showAddCustomerForm ? "View List" : "+ Add On-The-Go"}
                   </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setCustomerModalVisible(false)} style={styles.closeBtn}>
+                  <Ionicons name="close" size={24} color={Colors.text} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {showAddCustomerForm ? (
+              <View style={{ padding: 20 }}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: Colors.navy, marginBottom: 12 }}>Add Customer On-The-Go</Text>
+                <Input
+                  label="Customer / Party Name *"
+                  value={newCustName}
+                  onChangeText={setNewCustName}
+                  placeholder="e.g. Anand Construction"
+                  icon="person-outline"
+                />
+                <Input
+                  label="Phone Number (Optional)"
+                  value={newCustPhone}
+                  onChangeText={setNewCustPhone}
+                  placeholder="9876543210"
+                  keyboardType="phone-pad"
+                  icon="call-outline"
+                />
+                <Input
+                  label="Site / Delivery Address (Optional)"
+                  value={newCustAddress}
+                  onChangeText={setNewCustAddress}
+                  placeholder="Delivery address in Tiruppur..."
+                  icon="home-outline"
+                />
+                <Button
+                  title={savingNewCustomer ? "Saving..." : "Save & Select Customer"}
+                  onPress={handleCreateCustomerOnTheGo}
+                  disabled={savingNewCustomer}
+                  variant="success"
+                  fullWidth
+                  style={{ marginTop: 10 }}
+                />
+              </View>
+            ) : (
+              <>
+                <View style={{ paddingHorizontal: 20, paddingBottom: 10 }}>
+                  <Input
+                    value={customerSearchQuery}
+                    onChangeText={setCustomerSearchQuery}
+                    placeholder="Search customers or enquired parties..."
+                    icon="search-outline"
+                  />
                 </View>
-              )}
-              <View style={{ height: 40 }} />
-            </ScrollView>
+                
+                <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
+                  {customers.filter(c => 
+                    c.name.toLowerCase().includes(customerSearchQuery.toLowerCase()) ||
+                    (c.phone && c.phone.includes(customerSearchQuery))
+                  ).map((c) => (
+                    <TouchableOpacity
+                      key={c.id}
+                      style={styles.modalItem}
+                      onPress={() => selectCustomer(c)}
+                    >
+                      <View style={[styles.modalItemIconCircle, { backgroundColor: c.isEnquiry ? '#DCFCE7' : '#EBF5FB' }]}>
+                        <Ionicons name={c.isEnquiry ? "chatbubbles" : "person-outline"} size={18} color={c.isEnquiry ? "#16A34A" : Colors.primary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={styles.modalItemText}>{c.name}</Text>
+                          {c.isEnquiry && (
+                            <View style={{ backgroundColor: '#DCFCE7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '700', color: '#15803D' }}>🏷️ Agreed / Enquiry</Text>
+                            </View>
+                          )}
+                        </View>
+                        {c.phone ? (
+                          <Text style={styles.modalItemSub}>📞 {c.phone}</Text>
+                        ) : null}
+                        {c.address ? (
+                          <Text style={styles.modalItemSub} numberOfLines={1}>📍 {c.address}</Text>
+                        ) : null}
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+                    </TouchableOpacity>
+                  ))}
+
+                  {customers.filter(c => 
+                    c.name.toLowerCase().includes(customerSearchQuery.toLowerCase()) ||
+                    (c.phone && c.phone.includes(customerSearchQuery))
+                  ).length === 0 && (
+                    <View style={{ padding: 24, alignItems: 'center' }}>
+                      <Ionicons name="person-add-outline" size={40} color={Colors.textTertiary} style={{ marginBottom: 10 }} />
+                      <Text style={{ ...Typography.bodyMedium, color: Colors.textSecondary, textAlign: 'center', marginBottom: 14 }}>
+                        No existing customers match "{customerSearchQuery || 'your query'}".
+                      </Text>
+                      <Button
+                        title={customerSearchQuery ? `+ Add "${customerSearchQuery}" On-The-Go` : "+ Add New Customer On-The-Go"}
+                        onPress={() => {
+                          setNewCustName(customerSearchQuery);
+                          setShowAddCustomerForm(true);
+                        }}
+                        variant="primary"
+                      />
+                    </View>
+                  )}
+                  <View style={{ height: 40 }} />
+                </ScrollView>
+              </>
+            )}
           </View>
         </View>
       </Modal>
