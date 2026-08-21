@@ -79,9 +79,11 @@ export function SidebarNav() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
-  // Hide navigation bar ONLY on dedicated login and portal selection screens
-  const isAuthScreen = pathname.includes('login') || pathname.includes('register') || pathname === '/select-role';
-  if (isAuthScreen) {
+  // Hide navigation bar ONLY on Product Landing Page and Login/Register/Role-Select screens
+  const isLandingOrAuthPage = pathname === '/' || pathname === '' || pathname === '/index' ||
+    pathname.includes('login') || pathname.includes('register') || pathname === '/select-role';
+
+  if (isLandingOrAuthPage) {
     return null;
   }
 

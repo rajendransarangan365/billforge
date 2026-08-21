@@ -1354,10 +1354,38 @@ export async function acceptDeliveryOrder(db, orderId, quarryId, driverId, drive
 // CATALOG (cross-quarry browsing for customer portal)
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function getAllQuarryCatalogs(db) {
+  const DEFAULT_QUARRIES = [
+    { id: 1, name: 'MS Blue Metals & Aggregates', location: 'Madukkarai, Coimbatore', phone: '9894698049', owner_name: 'Sarangan', status: 'active' },
+    { id: 2, name: 'Demo Quarry & Crushers', location: 'Palladam, Tiruppur', phone: '9876543210', owner_name: 'Rajendran', status: 'active' },
+    { id: 3, name: 'Sri Laxmi Granites & Sand Depot', location: 'Pollachi, Coimbatore', phone: '9123456789', owner_name: 'Anand Kumar', status: 'active' },
+  ];
+
+  const DEFAULT_MATERIALS = [
+    { id: 101, name: 'River Sand Grade A', price: 3200, unit: 'unit', code: 'RS-01', hsn: '2505' },
+    { id: 102, name: 'M-Sand (Manufactured Sand)', price: 2600, unit: 'unit', code: 'MS-02', hsn: '2505' },
+    { id: 103, name: 'P-Sand (Plastering Sand)', price: 2900, unit: 'unit', code: 'PS-03', hsn: '2505' },
+    { id: 104, name: 'Blue Metal (20mm Jelly)', price: 2400, unit: 'unit', code: 'BM-20', hsn: '2517' },
+    { id: 105, name: 'Blue Metal (40mm Jelly)', price: 2200, unit: 'unit', code: 'BM-40', hsn: '2517' },
+    { id: 106, name: 'Quarry Dust / Crusher Dust', price: 1200, unit: 'unit', code: 'QD-06', hsn: '2517' },
+    { id: 107, name: 'Soil / Gravel Fill', price: 900, unit: 'unit', code: 'SG-07', hsn: '2505' },
+  ];
+
   if (IS_WEB) {
-    const quarries = webGet('bf_quarries') || [];
-    return quarries.filter(q => q.status === 'active').map(q => {
-      const materials = webGet(qKey(q.id, 'materials')) || [];
+    let quarries = webGet('bf_quarries') || [];
+    if (quarries.length === 0) {
+      quarries = DEFAULT_QUARRIES;
+      webSet('bf_quarries', quarries);
+    }
+
+    const activeQuarries = quarries.filter(q => q.status === 'active' || !q.status);
+    const resultList = activeQuarries.length > 0 ? activeQuarries : DEFAULT_QUARRIES;
+
+    return resultList.map(q => {
+      let materials = webGet(qKey(q.id, 'materials')) || [];
+      if (materials.length === 0) {
+        materials = DEFAULT_MATERIALS;
+        webSet(qKey(q.id, 'materials'), materials);
+      }
       return { quarry: { id: q.id, name: q.name, location: q.location, phone: q.phone }, materials };
     });
   }
