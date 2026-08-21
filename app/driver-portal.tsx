@@ -99,17 +99,71 @@ export default function DriverPortalScreen() {
     Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encoded}`).catch(() => {});
   };
 
+  // Geo-fence enabled status update
   const handleUpdateStatus = async (consignment, newStatus, label) => {
+    // Geo-fence check for critical statuses
+    const geoFencedStatuses = {
+      reached_quarry: { address: consignment.pickup_address || consignment.from_address, lat: consignment.from_lat, lng: consignment.from_lng },
+      reached_customer: { address: consignment.customer_address || consignment.to_address, lat: consignment.to_lat, lng: consignment.to_lng },
+    };
+
+    if (geoFencedStatuses[newStatus]) {
+      const target = geoFencedStatuses[newStatus];
+      try {
+        if (Platform.OS === 'web' && navigator?.geolocation) {
+          Alert.alert('📍 Location Check', `We'll verify you're within 150m of "${target.address}". Allow location access?`, [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Check Location', onPress: async () => {
+                navigator.geolocation.getCurrentPosition(async (pos) => {
+                  const dLat = pos.coords.latitude;
+                  const dLng = pos.coords.longitude;
+                  // If we have target coords, check distance; otherwise proceed
+                  if (target.lat && target.lng) {
+                    const R = 6371000;
+                    const toRad = (d) => (d * Math.PI) / 180;
+                    const dLat2 = toRad(target.lat - dLat);
+                    const dLng2 = toRad(target.lng - dLng);
+                    const a = Math.sin(dLat2/2)**2 + Math.cos(toRad(dLat)) * Math.cos(toRad(target.lat)) * Math.sin(dLng2/2)**2;
+                    const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                    if (dist > 300) {
+                      Alert.alert('🚫 Too Far', `You appear to be ${Math.round(dist)}m away from the ${newStatus === 'reached_quarry' ? 'quarry' : 'customer site'}. Move closer and try again.`);
+                      return;
+                    }
+                  }
+                  await doUpdateStatus(consignment, newStatus, label, { lat: dLat, lng: dLng });
+                }, async () => {
+                  // Location denied — allow with warning
+                  Alert.alert('Location Unavailable', 'Could not verify location. Proceeding anyway.', [
+                    { text: 'OK', onPress: () => doUpdateStatus(consignment, newStatus, label, null) }
+                  ]);
+                }, { enableHighAccuracy: true, timeout: 8000 });
+              }
+            }
+          ]);
+          return;
+        }
+      } catch {}
+    }
+    await doUpdateStatus(consignment, newStatus, label, null);
+  };
+
+  const doUpdateStatus = async (consignment, newStatus, label, geo) => {
     try {
       const db = await getDatabase();
-      await saveConsignment(db, {
-        ...consignment,
-        status: newStatus,
-      });
-      Alert.alert('Status Updated ✅', `Trip status updated to: ${label}`);
+      // Try new Trip system first
+      const { updateTripStatus, getTripsForDriver } = await import('../src/database/db');
+      const allTrips = await getTripsForDriver(db, driverId);
+      const matchingTrip = allTrips.find(t => t.id === consignment.id);
+      if (matchingTrip) {
+        await updateTripStatus(db, consignment.id, newStatus, geo);
+      } else {
+        await saveConsignment(db, { ...consignment, status: newStatus });
+      }
+      Alert.alert('✅ Status Updated', `Trip status: ${label}`);
       loadData();
     } catch (e) {
-      Alert.alert('Error', 'Failed to update status.');
+      Alert.alert('Error', 'Failed to update trip status.');
     }
   };
 

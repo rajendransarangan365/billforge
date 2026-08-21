@@ -32,10 +32,13 @@ const OWNER_NAV = [
     { route: '/messages', icon: 'logo-whatsapp', activeIcon: 'logo-whatsapp', label: 'Messages & Live Chat' },
     { route: '/customers', icon: 'people-outline', activeIcon: 'people', label: 'Customer Directory' },
     { route: '/drivers', icon: 'car-sport-outline', activeIcon: 'car-sport', label: 'Transport & Drivers' },
+    { route: '/transport-assignment', icon: 'git-network-outline', activeIcon: 'git-network', label: 'Assign Transport' },
     { route: '/driver-marketplace', icon: 'navigate-circle-outline', activeIcon: 'navigate-circle', label: 'Lorry Marketplace' },
     { route: '/enquiries', icon: 'chatbubbles-outline', activeIcon: 'chatbubbles', label: 'Enquiries' },
     { route: '/ledger', icon: 'book-outline', activeIcon: 'book', label: 'Ledger & Dues' },
     { route: '/reminders', icon: 'time-outline', activeIcon: 'time', label: 'Payment Reminders' },
+    { route: '/earnings', icon: 'cash-outline', activeIcon: 'cash', label: 'Earnings Dashboard' },
+    { route: '/material-catalog', icon: 'pricetags-outline', activeIcon: 'pricetags', label: 'Manage Catalog' },
   ]},
   { title: 'SETTINGS', items: [
     { route: '/(tabs)/profile', icon: 'business-outline', activeIcon: 'business', label: 'Company Profile' },
@@ -49,6 +52,7 @@ const DRIVER_NAV = [
     { route: '/driver-portal', icon: 'navigate-outline', activeIcon: 'navigate', label: 'Active Trips' },
     { route: '/driver-marketplace', icon: 'navigate-circle-outline', activeIcon: 'navigate-circle', label: 'Delivery Orders Feed' },
     { route: '/messages', icon: 'logo-whatsapp', activeIcon: 'logo-whatsapp', label: 'Messages & WhatsApp' },
+    { route: '/earnings', icon: 'cash-outline', activeIcon: 'cash', label: 'My Earnings' },
   ]},
   { title: 'ACCOUNT', items: [
     { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },

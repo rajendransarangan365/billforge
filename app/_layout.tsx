@@ -35,6 +35,9 @@ export default function RootLayout() {
                 <Stack.Screen name="drivers" options={{ headerShown: false }} />
                 <Stack.Screen name="reminders" options={{ headerShown: false }} />
                 <Stack.Screen name="ledger" options={{ headerShown: false }} />
+                <Stack.Screen name="transport-assignment" options={{ headerShown: false }} />
+                <Stack.Screen name="earnings" options={{ headerShown: false }} />
+                <Stack.Screen name="material-catalog" options={{ headerShown: false }} />
               </Stack>
               <MinimizedTaskbar />
             </View>

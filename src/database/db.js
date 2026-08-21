@@ -1775,3 +1775,375 @@ export async function getConsignmentDocuments(db, consignmentId, quarryId) {
   return [];
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// GEO-FENCING UTILITIES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Haversine formula — returns distance in meters between two lat/lng points
+export function calculateDistanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000; // Earth radius in meters
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+export function calculateDistanceKm(lat1, lng1, lat2, lng2) {
+  return calculateDistanceMeters(lat1, lng1, lat2, lng2) / 1000;
+}
+
+// Check if driver is within radius (default 150m) of target location
+export function isWithinGeoFence(driverLat, driverLng, targetLat, targetLng, radiusMeters = 150) {
+  if (!driverLat || !driverLng || !targetLat || !targetLng) return false;
+  const distance = calculateDistanceMeters(driverLat, driverLng, targetLat, targetLng);
+  return distance <= radiusMeters;
+}
+
+// Get current GPS position (browser Geolocation API, returns Promise)
+export function getCurrentPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator || !navigator.geolocation) {
+      reject(new Error('Geolocation is not supported by this browser.'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+      (err) => reject(new Error(`Location access denied: ${err.message}`)),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TRANSPORT REQUESTS (Enquiry → Agreed → Transport)
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function createTransportRequest(db, payload) {
+  if (IS_WEB) {
+    const requests = webGet('bf_transport_requests') || [];
+    const newId = `tr_${Date.now()}`;
+    const req = {
+      id: newId,
+      enquiry_id: payload.enquiry_id,
+      quarry_id: payload.quarry_id,
+      customer_id: payload.customer_id,
+      customer_name: payload.customer_name || '',
+      customer_phone: payload.customer_phone || '',
+      material_name: payload.material_name || '',
+      quantity: payload.quantity || 1,
+      unit_type: payload.unit_type || 'unit',
+      agreed_rate: payload.agreed_rate || 0,
+      from_lat: payload.from_lat || null,
+      from_lng: payload.from_lng || null,
+      from_address: payload.from_address || '',
+      to_lat: payload.to_lat || null,
+      to_lng: payload.to_lng || null,
+      to_address: payload.to_address || '',
+      distance_km: payload.distance_km || 0,
+      transport_mode: payload.transport_mode || 'auto', // 'auto' | 'manual' | 'own'
+      status: 'pending_assignment', // pending_assignment | assigned | in_progress | delivered
+      created_at: new Date().toISOString(),
+    };
+    requests.push(req);
+    webSet('bf_transport_requests', requests);
+    // Also broadcast via BroadcastChannel
+    try {
+      const bc = new BroadcastChannel('billforge_chat');
+      bc.postMessage({ type: 'transport_request_created', data: req });
+      bc.close();
+    } catch {}
+    return req;
+  }
+  return null;
+}
+
+export async function getTransportRequests(db, quarryId) {
+  if (IS_WEB) {
+    const requests = webGet('bf_transport_requests') || [];
+    return requests.filter(r => r.quarry_id === parseInt(quarryId));
+  }
+  return [];
+}
+
+export async function getPendingTransportRequests(db, quarryId) {
+  const all = await getTransportRequests(db, quarryId);
+  return all.filter(r => r.status === 'pending_assignment');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DRIVER AVAILABILITY & AUTO-ASSIGN
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function getAvailableDrivers(db) {
+  if (IS_WEB) {
+    const drivers = webGet('bf_drivers') || [];
+    const trips = webGet('bf_trips') || [];
+    const busyDriverIds = new Set(trips.filter(t => ['assigned', 'en_route_quarry', 'reached_quarry', 'picked_up', 'en_route_customer'].includes(t.status)).map(t => t.driver_id));
+    return drivers.filter(d => !busyDriverIds.has(d.id));
+  }
+  return [];
+}
+
+export async function autoAssignLowestCostDriver(db, fromLat, fromLng, toLat, toLng) {
+  const drivers = await getAvailableDrivers(db);
+  if (drivers.length === 0) return null;
+
+  const distanceKm = calculateDistanceKm(fromLat || 11.0, fromLng || 76.9, toLat || 11.1, toLng || 77.0);
+
+  // Calculate estimated cost for each driver
+  const scored = drivers.map(d => {
+    const rateCard = webGet(`bf_driver_ratecard_${d.id}`) || { rate_per_km: 45, min_charge: 1200 };
+    const cost = Math.max(rateCard.min_charge || 1200, (rateCard.rate_per_km || 45) * distanceKm);
+    return { ...d, estimated_cost: Math.round(cost), distance_km: Math.round(distanceKm * 10) / 10, rate_per_km: rateCard.rate_per_km || 45 };
+  });
+
+  return scored.sort((a, b) => a.estimated_cost - b.estimated_cost);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TRIPS (Full lifecycle)
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function createTrip(db, payload) {
+  if (IS_WEB) {
+    const trips = webGet('bf_trips') || [];
+    const newId = `trip_${Date.now()}`;
+    const trip = {
+      id: newId,
+      transport_request_id: payload.transport_request_id || null,
+      enquiry_id: payload.enquiry_id || null,
+      quarry_id: payload.quarry_id,
+      driver_id: payload.driver_id,
+      driver_name: payload.driver_name || '',
+      driver_phone: payload.driver_phone || '',
+      vehicle_no: payload.vehicle_no || '',
+      customer_name: payload.customer_name || '',
+      customer_phone: payload.customer_phone || '',
+      material_name: payload.material_name || '',
+      quantity: payload.quantity || 1,
+      from_address: payload.from_address || '',
+      from_lat: payload.from_lat || null,
+      from_lng: payload.from_lng || null,
+      to_address: payload.to_address || '',
+      to_lat: payload.to_lat || null,
+      to_lng: payload.to_lng || null,
+      distance_km: payload.distance_km || 0,
+      estimated_cost: payload.estimated_cost || 0,
+      status: 'assigned', // assigned | en_route_quarry | reached_quarry | picked_up | en_route_customer | reached_customer | delivered
+      payment_status: 'unpaid', // unpaid | partial | paid
+      material_payment_status: 'unpaid',
+      timestamps: {
+        assigned: new Date().toISOString(),
+        en_route_quarry: null,
+        reached_quarry: null,
+        picked_up: null,
+        en_route_customer: null,
+        reached_customer: null,
+        delivered: null,
+      },
+      created_at: new Date().toISOString(),
+    };
+    trips.push(trip);
+    webSet('bf_trips', trips);
+
+    // Update transport request status
+    const requests = webGet('bf_transport_requests') || [];
+    const rIdx = requests.findIndex(r => r.id === payload.transport_request_id);
+    if (rIdx !== -1) { requests[rIdx].status = 'assigned'; requests[rIdx].trip_id = newId; webSet('bf_transport_requests', requests); }
+
+    // Notify driver via BroadcastChannel
+    try {
+      const bc = new BroadcastChannel('billforge_chat');
+      bc.postMessage({ type: 'trip_assigned', tripId: newId, driverId: payload.driver_id });
+      bc.close();
+    } catch {}
+
+    // Seed trip chat thread
+    const chatKey = `bf_trip_chat_${newId}`;
+    const initMsg = {
+      id: `m_${Date.now()}`,
+      sender: 'system',
+      senderName: 'BillForge System',
+      text: `🚚 Trip assigned!\n\n📦 Material: ${payload.material_name} (${payload.quantity} unit)\n📍 Pickup: ${payload.from_address}\n🏠 Delivery: ${payload.to_address}\n🚗 Driver: ${payload.driver_name} (${payload.vehicle_no})\n💰 Est. Transport Cost: ₹${payload.estimated_cost}`,
+      timestamp: new Date().toISOString(),
+      status: 'delivered',
+    };
+    webSet(chatKey, [initMsg]);
+
+    return trip;
+  }
+  return null;
+}
+
+export async function updateTripStatus(db, tripId, newStatus, geo = null) {
+  if (IS_WEB) {
+    const trips = webGet('bf_trips') || [];
+    const idx = trips.findIndex(t => t.id === tripId);
+    if (idx === -1) throw new Error('Trip not found');
+    trips[idx].status = newStatus;
+    if (!trips[idx].timestamps) trips[idx].timestamps = {};
+    trips[idx].timestamps[newStatus] = new Date().toISOString();
+    if (geo) { trips[idx].driver_lat = geo.lat; trips[idx].driver_lng = geo.lng; }
+    webSet('bf_trips', trips);
+
+    // Broadcast status update
+    try {
+      const bc = new BroadcastChannel('billforge_chat');
+      bc.postMessage({ type: 'trip_status_updated', tripId, status: newStatus });
+      bc.close();
+    } catch {}
+
+    // Add status update message to trip chat
+    const statusLabels = {
+      en_route_quarry: '🚗 Driver is on the way to quarry...',
+      reached_quarry: '✅ Driver has arrived at quarry. Loading in progress...',
+      picked_up: '📦 Materials loaded! En route to delivery location...',
+      en_route_customer: '🚛 Driver is heading to your delivery site!',
+      reached_customer: '📍 Driver has arrived at delivery site!',
+      delivered: '✅ DELIVERY COMPLETE! Materials delivered successfully.',
+    };
+    if (statusLabels[newStatus]) {
+      const chatKey = `bf_trip_chat_${tripId}`;
+      const msgs = webGet(chatKey) || [];
+      msgs.push({ id: `m_${Date.now()}`, sender: 'system', senderName: 'BillForge System', text: statusLabels[newStatus], timestamp: new Date().toISOString(), status: 'delivered' });
+      webSet(chatKey, msgs);
+    }
+    return trips[idx];
+  }
+  return null;
+}
+
+export async function getTripsForDriver(db, driverId) {
+  if (IS_WEB) {
+    const trips = webGet('bf_trips') || [];
+    return trips.filter(t => String(t.driver_id) === String(driverId)).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+  return [];
+}
+
+export async function getTripsForQuarry(db, quarryId) {
+  if (IS_WEB) {
+    const trips = webGet('bf_trips') || [];
+    return trips.filter(t => String(t.quarry_id) === String(quarryId)).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+  return [];
+}
+
+export async function getTripById(db, tripId) {
+  if (IS_WEB) {
+    const trips = webGet('bf_trips') || [];
+    return trips.find(t => t.id === tripId) || null;
+  }
+  return null;
+}
+
+export async function getTripChatMessages(db, tripId) {
+  if (IS_WEB) {
+    return webGet(`bf_trip_chat_${tripId}`) || [];
+  }
+  return [];
+}
+
+export async function sendTripChatMessage(db, tripId, sender, senderName, text) {
+  if (IS_WEB) {
+    const chatKey = `bf_trip_chat_${tripId}`;
+    const msgs = webGet(chatKey) || [];
+    const msg = { id: `m_${Date.now()}`, sender, senderName, text, timestamp: new Date().toISOString(), status: 'sent' };
+    msgs.push(msg);
+    webSet(chatKey, msgs);
+    try {
+      const bc = new BroadcastChannel('billforge_chat');
+      bc.postMessage({ type: 'trip_chat', tripId, msg });
+      bc.close();
+    } catch {}
+    return msg;
+  }
+  return null;
+}
+
+export async function updateTripPaymentStatus(db, tripId, field, status) {
+  if (IS_WEB) {
+    const trips = webGet('bf_trips') || [];
+    const idx = trips.findIndex(t => t.id === tripId);
+    if (idx !== -1) { trips[idx][field] = status; webSet('bf_trips', trips); return trips[idx]; }
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EARNINGS DASHBOARDS
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function getQuarryEarnings(db, quarryId) {
+  if (IS_WEB) {
+    const bills = webGet(qKey(quarryId, 'bills')) || [];
+    const payments = webGet(qKey(quarryId, 'payments')) || [];
+    const trips = await getTripsForQuarry(db, quarryId);
+
+    const totalBilled = bills.reduce((s, b) => s + (b.total_amount || 0), 0);
+    const totalCollected = payments.reduce((s, p) => s + (p.amount || 0), 0);
+    const totalOutstanding = totalBilled - totalCollected;
+
+    const tripRevenue = trips.filter(t => t.status === 'delivered').reduce((s, t) => s + (t.estimated_cost || 0), 0);
+    const pendingTrips = trips.filter(t => !['delivered'].includes(t.status)).length;
+    const completedTrips = trips.filter(t => t.status === 'delivered').length;
+
+    return { totalBilled, totalCollected, totalOutstanding, tripRevenue, pendingTrips, completedTrips, recentBills: bills.slice(-5).reverse(), recentTrips: trips.slice(0, 5) };
+  }
+  return { totalBilled: 0, totalCollected: 0, totalOutstanding: 0, tripRevenue: 0, pendingTrips: 0, completedTrips: 0, recentBills: [], recentTrips: [] };
+}
+
+export async function getDriverEarnings(db, driverId) {
+  if (IS_WEB) {
+    const trips = await getTripsForDriver(db, driverId);
+    const completed = trips.filter(t => t.status === 'delivered');
+    const active = trips.filter(t => !['delivered'].includes(t.status));
+    const totalEarned = completed.reduce((s, t) => s + (t.estimated_cost || 0), 0);
+    const paid = completed.filter(t => t.payment_status === 'paid').reduce((s, t) => s + (t.estimated_cost || 0), 0);
+    const unpaid = totalEarned - paid;
+    const totalKm = completed.reduce((s, t) => s + (t.distance_km || 0), 0);
+    return { totalEarned, paid, unpaid, completedTrips: completed.length, activeTrips: active.length, totalKm: Math.round(totalKm * 10) / 10, recentTrips: trips.slice(0, 10) };
+  }
+  return { totalEarned: 0, paid: 0, unpaid: 0, completedTrips: 0, activeTrips: 0, totalKm: 0, recentTrips: [] };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MATERIAL CATALOG (Quarry Owner CRUD)
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function getMaterialCatalog(db, quarryId) {
+  if (IS_WEB) {
+    return webGet(qKey(quarryId, 'materials')) || [];
+  }
+  return [];
+}
+
+export async function saveMaterialListing(db, quarryId, listing) {
+  if (IS_WEB) {
+    const materials = webGet(qKey(quarryId, 'materials')) || [];
+    if (listing.id) {
+      const idx = materials.findIndex(m => m.id === listing.id);
+      if (idx !== -1) { materials[idx] = { ...materials[idx], ...listing, updated_at: new Date().toISOString() }; }
+    } else {
+      const newId = materials.reduce((max, m) => m.id > max ? m.id : max, 100) + 1;
+      materials.push({ ...listing, id: newId, quarry_id: quarryId, is_active: true, created_at: new Date().toISOString() });
+    }
+    webSet(qKey(quarryId, 'materials'), materials);
+    return materials;
+  }
+  return [];
+}
+
+export async function deleteMaterialListing(db, quarryId, materialId) {
+  if (IS_WEB) {
+    const materials = webGet(qKey(quarryId, 'materials')) || [];
+    webSet(qKey(quarryId, 'materials'), materials.filter(m => m.id !== materialId));
+  }
+}
+
+export async function toggleMaterialActive(db, quarryId, materialId) {
+  if (IS_WEB) {
+    const materials = webGet(qKey(quarryId, 'materials')) || [];
+    const idx = materials.findIndex(m => m.id === materialId);
+    if (idx !== -1) { materials[idx].is_active = !materials[idx].is_active; webSet(qKey(quarryId, 'materials'), materials); }
+  }
+}
+
+
