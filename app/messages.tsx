@@ -214,8 +214,9 @@ export default function MessagesScreen() {
                       onPress={() => handleSelectContact(c)}
                       activeOpacity={0.7}
                     >
-                      <View style={[styles.avatar, { backgroundColor: c.badgeBg || '#E8F5E9' }]}>
+                      <View style={[styles.avatar, { backgroundColor: c.badgeBg || '#E8F5E9', position: 'relative' }]}>
                         <Ionicons name={c.avatarIcon || 'person'} size={20} color={c.badgeColor || '#2E7D32'} />
+                        <View style={styles.onlineBadgeDot} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.contactName} numberOfLines={1}>{c.name}</Text>
@@ -242,11 +243,17 @@ export default function MessagesScreen() {
                       <Ionicons name="arrow-back" size={22} color={Colors.navy} />
                     </TouchableOpacity>
                   )}
-                  <View style={[styles.avatar, { backgroundColor: activeContact.badgeBg }]}>
+                  <View style={[styles.avatar, { backgroundColor: activeContact.badgeBg, position: 'relative' }]}>
                     <Ionicons name={activeContact.avatarIcon || 'person'} size={22} color={activeContact.badgeColor} />
+                    <View style={styles.onlineBadgeDot} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.activeTitle}>{activeContact.name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={styles.activeTitle}>{activeContact.name}</Text>
+                      <View style={styles.onlinePill}>
+                        <Text style={styles.onlinePillText}>Online</Text>
+                      </View>
+                    </View>
                     <Text style={styles.activeSub}>{activeContact.subtext} • Phone: {activeContact.phone}</Text>
                   </View>
 
@@ -290,9 +297,16 @@ export default function MessagesScreen() {
                         {m.sender_name} ({m.sender_role || 'User'})
                       </Text>
                       <Text style={styles.bubbleText}>{m.text}</Text>
-                      <Text style={styles.timeStamp}>
-                        {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 4 }}>
+                        <Text style={styles.timeStamp}>
+                          {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                        {isMe && (
+                          m.status === 'read' ? <Ionicons name="checkmark-done" size={16} color="#0084FF" />
+                          : m.status === 'delivered' ? <Ionicons name="checkmark-done" size={16} color="#757575" />
+                          : <Ionicons name="checkmark" size={16} color="#757575" />
+                        )}
+                      </View>
                     </View>
                   );
                 })}
@@ -424,6 +438,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  onlineBadgeDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#4CAF50',
+    borderWidth: 2,
+    borderColor: '#FFF',
+  },
+  onlinePill: {
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+  },
+  onlinePillText: { fontSize: 9, fontWeight: '800', color: '#2E7D32' },
   contactName: { fontSize: 14, fontWeight: '700', color: Colors.text },
   contactSub: { fontSize: 11, color: Colors.textSecondary, marginTop: 2 },
 

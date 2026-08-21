@@ -79,8 +79,10 @@ export function SidebarNav() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
-  // Hide navigation bar ONLY on the root Product Landing Page
-  if (pathname === '/' || pathname === '' || pathname === '/index') {
+  // Hide navigation bar ONLY on Landing Page and Login/Register screens
+  const isAuthScreen = pathname === '/' || pathname === '' || pathname === '/index' ||
+    pathname.includes('login') || pathname.includes('register') || pathname === '/select-role';
+  if (isAuthScreen) {
     return null;
   }
 

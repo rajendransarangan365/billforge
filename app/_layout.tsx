@@ -13,7 +13,7 @@ export default function RootLayout() {
         <AuthProvider>
           <StatusBar style="dark" translucent={false} backgroundColor="transparent" />
           <View style={styles.appContainer}>
-            {Platform.OS === 'web' && <SidebarNav />}
+            <SidebarNav />
             <View style={styles.contentArea}>
               <Stack
                 screenOptions={{
