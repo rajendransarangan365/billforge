@@ -39,11 +39,40 @@ export default function DriverPortalScreen() {
   const [currentDocs, setCurrentDocs] = useState([]);
   const [selectedTrip, setSelectedTrip] = useState(null);
 
+  const [prevTripCount, setPrevTripCount] = useState<number | null>(null);
+
+  const playBuzzerNotification = () => {
+    try {
+      if (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.25); // A5
+        gain.gain.setValueAtTime(0.4, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+      }
+    } catch (e) {}
+  };
+
   const loadData = useCallback(async () => {
     try {
       const db = await getDatabase();
       const list = await getDriverTrips(db, driverId);
+      
+      // Play buzzer if a new trip assignment arrived
+      if (prevTripCount !== null && list.length > prevTripCount) {
+        playBuzzerNotification();
+      }
+      setPrevTripCount(list.length);
       setConsignments(list);
+
       const rates = await getDriverRateCard(db, driverId);
       if (rates) {
         setRatePerKm((rates.rate_per_km || 45).toString());
@@ -57,7 +86,7 @@ export default function DriverPortalScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [driverId]);
+  }, [driverId, prevTripCount]);
 
   const handleSaveRateCard = async () => {
     setSavingRate(true);

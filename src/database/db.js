@@ -17,11 +17,36 @@ function webGet(key) {
   try { const d = localStorage.getItem(key); return d ? JSON.parse(d) : null; } catch { return null; }
 }
 function webSet(key, val) {
-  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch { }
 }
 
 // Quarry-scoped key helper
 function qKey(quarryId, suffix) { return `bf_quarry_${quarryId}_${suffix}`; }
+
+// === Serverless MongoDB API Helper ===
+const getApiBase = () => {
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return window.location.origin;
+  }
+  return 'https://billforge-lovat.vercel.app';
+};
+
+async function fetchApi(path, options = {}) {
+  try {
+    const url = `${getApiBase()}${path}`;
+    const res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      ...options,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data;
+  } catch (err) {
+    console.warn(`API call ${path} failed, falling back to cache:`, err.message);
+    return null;
+  }
+}
+
 
 // === Initialize Web Schema ===
 function webInitializeSchema() {
@@ -122,9 +147,16 @@ function webInitializeSchema() {
 // MARKETPLACE CATALOG — Customer-facing: all verified quarries + their materials
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function getAllQuarryCatalogs(db) {
+  // 1. Try real cloud MongoDB Atlas endpoint
+  const apiRes = await fetchApi('/api/marketplace');
+  if (apiRes && apiRes.success && Array.isArray(apiRes.catalogs) && apiRes.catalogs.length > 0) {
+    webSet('bf_quarries', apiRes.catalogs);
+    return apiRes.catalogs;
+  }
+
+  // 2. Fallback to local cache
   if (IS_WEB) {
     const quarries = webGet('bf_quarries') || [];
-    // Include all quarries that are verified (or demo quarries which are pre-verified)
     const active = quarries.filter(q =>
       q.status !== 'rejected' && q.status !== 'suspended' &&
       (q.is_verified === true || q.is_verified === undefined || q.is_verified === null)
@@ -133,7 +165,6 @@ export async function getAllQuarryCatalogs(db) {
     const catalogs = [];
     for (const q of active) {
       const materials = webGet(`bf_quarry_${q.id}_materials`) || [];
-      // Also check legacy format (price_per_unit instead of price)
       const activeMats = materials
         .filter(m => m.is_active !== false)
         .map(m => ({
@@ -886,14 +917,14 @@ export function isMeaningfulDraft(draft) {
 export async function saveDraft(templateId, draftData, quarryId = 1) {
   if (!isMeaningfulDraft(draftData)) return;
   const key = qKey(quarryId, `draft_${templateId}`);
-  try { localStorage.setItem(key, JSON.stringify(draftData)); } catch {}
+  try { localStorage.setItem(key, JSON.stringify(draftData)); } catch { }
 }
 
 export async function minimizeDraft(templateId, draftData, quarryId = 1) {
   if (!isMeaningfulDraft(draftData)) return;
   const key = qKey(quarryId, `draft_${templateId}`);
   const payload = { ...draftData, isMinimized: true, lastSaved: new Date().toISOString() };
-  try { localStorage.setItem(key, JSON.stringify(payload)); } catch {}
+  try { localStorage.setItem(key, JSON.stringify(payload)); } catch { }
 }
 
 export async function getDraft(templateId, quarryId = 1) {
@@ -912,7 +943,7 @@ export async function getDraft(templateId, quarryId = 1) {
 
 export async function clearDraft(templateId, quarryId = 1) {
   const key = qKey(quarryId, `draft_${templateId}`);
-  try { localStorage.removeItem(key); } catch {}
+  try { localStorage.removeItem(key); } catch { }
 }
 
 export async function getAllDrafts(quarryId = 1) {
@@ -929,7 +960,7 @@ export async function getAllDrafts(quarryId = 1) {
         }
       }
     }
-  } catch {}
+  } catch { }
   return drafts;
 }
 
@@ -985,7 +1016,7 @@ export async function authenticateCustomerAccount(db, phone, password) {
   if (IS_WEB) {
     const customers = webGet('bf_customers') || [];
     let customer = customers.find(c => String(c.phone).replace(/\D/g, '') === cleanPhone);
-    
+
     // Auto-create or authenticate
     if (!customer) {
       // Create guest customer account automatically on first login if no password specified
@@ -1141,7 +1172,7 @@ export async function getMaterialLedger(db, quarryId) {
           map[mat].total_value += parseFloat(row.Cal1s || row.cal1s || row.each_value || 0);
           map[mat].trip_count += parseFloat(row.Trip || row.trip || 1);
         }
-      } catch {}
+      } catch { }
     }
     return Object.values(map).sort((a, b) => b.total_value - a.total_value);
   }
@@ -1467,44 +1498,7 @@ export async function acceptDeliveryOrder(db, orderId, quarryId, driverId, drive
 // ═══════════════════════════════════════════════════════════════════════════════
 // CATALOG (cross-quarry browsing for customer portal)
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function getAllQuarryCatalogs(db) {
-  const DEFAULT_QUARRIES = [
-    { id: 1, name: 'MS Blue Metals & Aggregates', location: 'Madukkarai, Coimbatore', phone: '9894698049', owner_name: 'Sarangan', status: 'active' },
-    { id: 2, name: 'Demo Quarry & Crushers', location: 'Palladam, Tiruppur', phone: '9876543210', owner_name: 'Rajendran', status: 'active' },
-    { id: 3, name: 'Sri Laxmi Granites & Sand Depot', location: 'Pollachi, Coimbatore', phone: '9123456789', owner_name: 'Anand Kumar', status: 'active' },
-  ];
-
-  const DEFAULT_MATERIALS = [
-    { id: 101, name: 'River Sand Grade A', price: 3200, unit: 'unit', code: 'RS-01', hsn: '2505' },
-    { id: 102, name: 'M-Sand (Manufactured Sand)', price: 2600, unit: 'unit', code: 'MS-02', hsn: '2505' },
-    { id: 103, name: 'P-Sand (Plastering Sand)', price: 2900, unit: 'unit', code: 'PS-03', hsn: '2505' },
-    { id: 104, name: 'Blue Metal (20mm Jelly)', price: 2400, unit: 'unit', code: 'BM-20', hsn: '2517' },
-    { id: 105, name: 'Blue Metal (40mm Jelly)', price: 2200, unit: 'unit', code: 'BM-40', hsn: '2517' },
-    { id: 106, name: 'Quarry Dust / Crusher Dust', price: 1200, unit: 'unit', code: 'QD-06', hsn: '2517' },
-    { id: 107, name: 'Soil / Gravel Fill', price: 900, unit: 'unit', code: 'SG-07', hsn: '2505' },
-  ];
-
-  if (IS_WEB) {
-    let quarries = webGet('bf_quarries') || [];
-    if (quarries.length === 0) {
-      quarries = DEFAULT_QUARRIES;
-      webSet('bf_quarries', quarries);
-    }
-
-    const activeQuarries = quarries.filter(q => q.status === 'active' || !q.status);
-    const resultList = activeQuarries.length > 0 ? activeQuarries : DEFAULT_QUARRIES;
-
-    return resultList.map(q => {
-      let materials = webGet(qKey(q.id, 'materials')) || [];
-      if (materials.length === 0) {
-        materials = DEFAULT_MATERIALS;
-        webSet(qKey(q.id, 'materials'), materials);
-      }
-      return { quarry: { id: q.id, name: q.name, location: q.location, phone: q.phone }, materials };
-    });
-  }
-  return [];
-}
+// (Legacy duplicate function removed)
 
 // Legacy compatibility exports
 export async function registerCompanyOwner(db, details) { return registerQuarry(db, details); }
@@ -1787,23 +1781,21 @@ export function getSharedThreadKey(contact, currentUser) {
 }
 
 export async function getUniversalMessages(db, contact, currentUser) {
-  if (IS_WEB) {
-    const threadKey = typeof contact === 'string' ? `bf_chat_${contact}` : getSharedThreadKey(contact, currentUser);
-    let msgs = webGet(threadKey) || [];
-    
-    // Legacy fallback check if empty
-    if (msgs.length === 0 && typeof contact === 'object' && contact) {
-      const qid = contact.quarry_id || currentUser?.quarryId;
-      const phone = contact.phone || currentUser?.phone;
-      if (qid && phone) {
-        const legacyMsgs = webGet(`bf_chat_${qid}_${phone}`);
-        if (legacyMsgs && legacyMsgs.length > 0) {
-          webSet(threadKey, legacyMsgs);
-          return legacyMsgs;
-        }
-      }
-    }
+  const threadKey = typeof contact === 'string' ? `bf_chat_${contact}` : getSharedThreadKey(contact, currentUser);
+  const qid = typeof contact === 'object' ? (contact?.quarry_id || currentUser?.quarryId) : null;
+  const phone = typeof contact === 'object' ? (contact?.phone || currentUser?.phone) : null;
 
+  // Try MongoDB serverless chat
+  if (qid && phone) {
+    const apiRes = await fetchApi(`/api/chat?quarryId=${qid}&customerPhone=${encodeURIComponent(phone)}&role=${currentUser?.role || ''}`);
+    if (apiRes && apiRes.success && Array.isArray(apiRes.messages) && apiRes.messages.length > 0) {
+      webSet(threadKey, apiRes.messages);
+      return apiRes.messages;
+    }
+  }
+
+  if (IS_WEB) {
+    let msgs = webGet(threadKey) || [];
     if (msgs.length > 0) return msgs;
 
     const welcomeMsgs = [
@@ -1811,8 +1803,9 @@ export async function getUniversalMessages(db, contact, currentUser) {
         id: `msg-welcome-${Date.now()}`,
         sender_role: 'system',
         sender_name: 'BillForge Live Connect',
-        text: '👋 Start direct communication! Type a message below or tap the WhatsApp button to chat directly on WhatsApp.',
+        text: '👋 Start direct communication! Messages sent here sync in real-time across devices.',
         timestamp: new Date().toISOString(),
+        status: 'delivered',
       }
     ];
     webSet(threadKey, welcomeMsgs);
@@ -1822,42 +1815,48 @@ export async function getUniversalMessages(db, contact, currentUser) {
 }
 
 export async function sendUniversalMessage(db, contact, senderRole, senderName, text, currentUser) {
+  const threadKey = typeof contact === 'string' ? `bf_chat_${contact}` : getSharedThreadKey(contact, currentUser);
+  const qid = typeof contact === 'object' ? (contact?.quarry_id || currentUser?.quarryId) : 1;
+  const phone = typeof contact === 'object' ? (contact?.phone || currentUser?.phone) : '9894698049';
+
+  // Send to MongoDB serverless API
+  const apiRes = await fetchApi('/api/chat', {
+    method: 'POST',
+    body: JSON.stringify({
+      quarryId: qid,
+      customerPhone: phone,
+      sender: senderName,
+      senderRole: senderRole,
+      senderName: senderName,
+      text: text,
+    }),
+  });
+
+  const newMsg = (apiRes && apiRes.success && apiRes.message) ? apiRes.message : {
+    id: `msg-${Date.now()}`,
+    sender_role: senderRole,
+    sender_name: senderName,
+    sender: senderRole === 'quarry_owner' ? 'owner' : senderRole === 'customer' ? 'customer' : 'driver',
+    text,
+    timestamp: new Date().toISOString(),
+    status: 'delivered',
+  };
+
   if (IS_WEB) {
-    const threadKey = typeof contact === 'string' ? `bf_chat_${contact}` : getSharedThreadKey(contact, currentUser);
     const list = webGet(threadKey) || [];
-    const newMsg = {
-      id: `msg-${Date.now()}`,
-      sender_role: senderRole,
-      sender_name: senderName,
-      sender: senderRole === 'quarry_owner' ? 'owner' : senderRole === 'customer' ? 'customer' : 'driver',
-      text,
-      timestamp: new Date().toISOString(),
-    };
     list.push(newMsg);
     webSet(threadKey, list);
 
-    // Broadcast event across browser tabs if available
     try {
       if (typeof window !== 'undefined' && window.BroadcastChannel) {
         const bc = new window.BroadcastChannel('billforge_chat');
         bc.postMessage({ type: 'NEW_MESSAGE', threadKey });
         bc.close();
       }
-    } catch (e) {}
-
-    // Legacy sync fallback for enquiry feeds
-    if (typeof contact === 'object' && contact) {
-      const targetQuarryId = contact.quarry_id || currentUser?.quarryId || 1;
-      const targetPhone = contact.phone || currentUser?.phone || '9894698049';
-      if (targetQuarryId && targetPhone) {
-        const legacyKey = `bf_chat_${targetQuarryId}_${targetPhone}`;
-        webSet(legacyKey, list);
-      }
-    }
-
-    return newMsg;
+    } catch (e) { }
   }
-  return null;
+
+  return newMsg;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1966,7 +1965,7 @@ export async function createTransportRequest(db, payload) {
       const bc = new BroadcastChannel('billforge_chat');
       bc.postMessage({ type: 'transport_request_created', data: req });
       bc.close();
-    } catch {}
+    } catch { }
     return req;
   }
   return null;
@@ -2069,7 +2068,7 @@ export async function createTrip(db, payload) {
       const bc = new BroadcastChannel('billforge_chat');
       bc.postMessage({ type: 'trip_assigned', tripId: newId, driverId: payload.driver_id });
       bc.close();
-    } catch {}
+    } catch { }
 
     // Seed trip chat thread
     const chatKey = `bf_trip_chat_${newId}`;
@@ -2104,7 +2103,7 @@ export async function updateTripStatus(db, tripId, newStatus, geo = null) {
       const bc = new BroadcastChannel('billforge_chat');
       bc.postMessage({ type: 'trip_status_updated', tripId, status: newStatus });
       bc.close();
-    } catch {}
+    } catch { }
 
     // Add status update message to trip chat
     const statusLabels = {
@@ -2168,7 +2167,7 @@ export async function sendTripChatMessage(db, tripId, sender, senderName, text) 
       const bc = new BroadcastChannel('billforge_chat');
       bc.postMessage({ type: 'trip_chat', tripId, msg });
       bc.close();
-    } catch {}
+    } catch { }
     return msg;
   }
   return null;

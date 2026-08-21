@@ -64,9 +64,19 @@ export default function TransportAssignmentScreen() {
       chosenDriver = drivers.find(d => d.id === selectedDriverId);
       if (!chosenDriver) { Alert.alert('Please select a driver.'); return; }
     } else if (mode === 'own') {
-      // Own vehicle — use quarry's first driver or a placeholder
-      chosenDriver = drivers.find(d => d.quarry_id === qid) || drivers[0];
-      if (!chosenDriver) { Alert.alert('No own vehicle available. Please select a 3rd party driver.'); return; }
+      // Check if quarry's own registered driver/vehicle is available
+      const ownDriver = drivers.find(d => d.quarry_id === qid && d.status === 'Available');
+      if (ownDriver) {
+        chosenDriver = ownDriver;
+      } else {
+        // Own vehicle is busy or not available -> alert and fallback to 3rd party lowest cost
+        Alert.alert(
+          '🏭 Quarry Vehicle Busy',
+          'Your registered lorry is currently on an active trip. Automatically switching to 3rd-party lowest cost transport.',
+          [{ text: 'Proceed with 3rd Party', onPress: () => {} }]
+        );
+        chosenDriver = drivers[0]; // 3rd party lowest cost
+      }
     }
 
     if (!chosenDriver) { Alert.alert('No drivers available right now.'); return; }
