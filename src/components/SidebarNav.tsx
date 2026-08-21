@@ -83,11 +83,27 @@ export function SidebarNav() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
-  // Hide navigation bar ONLY on Product Landing Page and Login/Register/Role-Select screens
-  const isLandingOrAuthPage = pathname === '/' || pathname === '' || pathname === '/index' ||
-    pathname.includes('login') || pathname.includes('register') || pathname === '/select-role';
+  // Hide ONLY on these specific screens (not on dashboard '/' which is the Quarry Owner home)
+  const AUTH_ROUTES = [
+    '/select-role',
+    '/owner-login', '/owner-register',
+    '/driver-login',
+    '/customer-login', '/customer-register',
+    '/admin-login',
+  ];
 
-  if (isLandingOrAuthPage) {
+  // It's a landing/auth page if:
+  // 1. No user logged in, OR
+  // 2. Pathname exactly matches a known auth/login/register screen
+  const isAuthPage = AUTH_ROUTES.includes(pathname) ||
+    pathname.includes('login') ||
+    pathname.includes('register') ||
+    pathname === '/select-role';
+
+  // If no user is logged in AND we're on root '/', treat it as landing page
+  const isLandingPage = !user && (pathname === '/' || pathname === '' || pathname === '/index');
+
+  if (isAuthPage || isLandingPage) {
     return null;
   }
 
