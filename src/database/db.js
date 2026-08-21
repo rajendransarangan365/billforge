@@ -374,19 +374,7 @@ export async function authenticateDriver(db, phone, password) {
 // CUSTOMER AUTH
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function authenticateCustomer(db, phone) {
-  if (IS_WEB) {
-    const customers = webGet('bf_customers') || [];
-    let c = customers.find(c => c.phone === phone);
-    if (!c) {
-      // Auto-register customer on first login
-      const nextId = customers.reduce((max, c) => c.id > max ? c.id : max, 0) + 1;
-      c = { id: nextId, name: `Customer ${phone.slice(-4)}`, phone, created_at: new Date().toISOString() };
-      customers.push(c);
-      webSet('bf_customers', customers);
-    }
-    return { id: c.id, name: c.name, phone: c.phone, role: 'customer' };
-  }
-  return { id: 1, name: 'Customer', phone, role: 'customer' };
+  return authenticateCustomerAccount(db, phone, '1234');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -904,11 +892,6 @@ export async function authenticateCustomerAccount(db, phone, password) {
     return customer;
   }
   return { id: Date.now(), phone: cleanPhone, role: 'customer' };
-}
-
-// Legacy compatibility export
-export async function authenticateCustomer(db, phone, name) {
-  return authenticateCustomerAccount(db, phone, '1234');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
