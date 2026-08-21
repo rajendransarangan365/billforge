@@ -837,6 +837,81 @@ export async function getMinimizedDrafts(quarryId = 1) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// CUSTOMER REGISTRATION & AUTHENTICATION (Global Customer Directory)
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function registerCustomerAccount(db, details) {
+  const cleanPhone = String(details.phone || '').replace(/\D/g, '');
+  if (!cleanPhone || cleanPhone.length < 10) throw new Error('Please enter a valid 10-digit mobile number.');
+  if (!details.password || details.password.length < 4) throw new Error('Password must be at least 4 characters.');
+
+  if (IS_WEB) {
+    const customers = webGet('bf_customers') || [];
+    const existing = customers.find(c => String(c.phone).replace(/\D/g, '') === cleanPhone);
+    if (existing) {
+      throw new Error('An account with this mobile number already exists. Please log in.');
+    }
+    const nextId = customers.reduce((max, c) => c.id > max ? c.id : max, 0) + 1;
+    const newCustomer = {
+      id: nextId,
+      name: details.name || `Customer ${cleanPhone.slice(-4)}`,
+      phone: cleanPhone,
+      password: details.password,
+      address: details.address || '',
+      company_name: details.company_name || details.name || '',
+      role: 'customer',
+      created_at: new Date().toISOString(),
+    };
+    customers.push(newCustomer);
+    webSet('bf_customers', customers);
+
+    // Also add to active quarry 1 customer directory for seamless invoicing
+    const q1Customers = webGet(qKey(1, 'customers')) || [];
+    if (!q1Customers.some(c => c.phone === cleanPhone)) {
+      q1Customers.push(newCustomer);
+      webSet(qKey(1, 'customers'), q1Customers);
+    }
+
+    return newCustomer;
+  }
+  return { id: Date.now(), name: details.name, phone: cleanPhone, role: 'customer' };
+}
+
+export async function authenticateCustomerAccount(db, phone, password) {
+  const cleanPhone = String(phone || '').replace(/\D/g, '');
+  if (!cleanPhone || cleanPhone.length < 10) throw new Error('Please enter a valid 10-digit mobile number.');
+
+  if (IS_WEB) {
+    const customers = webGet('bf_customers') || [];
+    let customer = customers.find(c => String(c.phone).replace(/\D/g, '') === cleanPhone);
+    
+    // Auto-create or authenticate
+    if (!customer) {
+      // Create guest customer account automatically on first login if no password specified
+      customer = {
+        id: Date.now(),
+        name: `Buyer ${cleanPhone.slice(-4)}`,
+        phone: cleanPhone,
+        password: password || '1234',
+        role: 'customer',
+        created_at: new Date().toISOString(),
+      };
+      customers.push(customer);
+      webSet('bf_customers', customers);
+    } else if (password && customer.password && customer.password !== password) {
+      throw new Error('Incorrect password or PIN. Please check your credentials.');
+    }
+
+    return customer;
+  }
+  return { id: Date.now(), phone: cleanPhone, role: 'customer' };
+}
+
+// Legacy compatibility export
+export async function authenticateCustomer(db, phone, name) {
+  return authenticateCustomerAccount(db, phone, '1234');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // CUSTOMERS (quarry-scoped)
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function getCustomers(db, quarryId) {

@@ -27,6 +27,7 @@ export default function RootLayout() {
                 <Stack.Screen name="owner-login" options={{ headerShown: false }} />
                 <Stack.Screen name="owner-register" options={{ headerShown: false }} />
                 <Stack.Screen name="customer-login" options={{ headerShown: false }} />
+                <Stack.Screen name="customer-register" options={{ headerShown: false }} />
                 <Stack.Screen name="driver-login" options={{ headerShown: false }} />
                 <Stack.Screen name="customer-marketplace" options={{ headerShown: false }} />
                 <Stack.Screen name="driver-portal" options={{ headerShown: false }} />
