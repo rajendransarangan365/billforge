@@ -29,12 +29,86 @@ function webInitializeSchema() {
   if (!webGet('bf_admin')) {
     webSet('bf_admin', { pin: 'admin123', created_at: new Date().toISOString() });
   }
-  // Quarries registry
-  if (!webGet('bf_quarries')) { webSet('bf_quarries', []); }
+
+  // ─── DEMO QUARRY SEED ───────────────────────────────────────────────────────
+  // Always seed 3 demo quarries so the marketplace is never empty for any visitor
+  const quarries = webGet('bf_quarries') || [];
+  const demoIds = [901, 902, 903];
+  const missingDemos = demoIds.filter(id => !quarries.find(q => q.id === id));
+
+  if (missingDemos.length > 0) {
+    const demoQuarries = [
+      {
+        id: 901, name: 'Sri Murugan Granite & Quarry', owner_name: 'Murugan S',
+        phone: '9944112233', password: 'demo123',
+        address: 'Mettur Dam Road, Salem, Tamil Nadu 636401',
+        location: 'Salem, Tamil Nadu',
+        lat: 11.7870, lng: 77.8420,
+        gstin: '33AABCS1234A1Z5', is_verified: true, status: 'active',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 902, name: 'Annamalai Blue Metal Works', owner_name: 'Annamalai R',
+        phone: '9876501122', password: 'demo123',
+        address: 'NH-47, Avinashi Road, Coimbatore, Tamil Nadu 641014',
+        location: 'Coimbatore, Tamil Nadu',
+        lat: 11.0168, lng: 76.9558,
+        gstin: '33AACCA9876B1Z2', is_verified: true, status: 'active',
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 903, name: 'Velu Sand & Aggregates Pvt Ltd', owner_name: 'Veluchamy P',
+        phone: '9443300221', password: 'demo123',
+        address: 'Thiruvallur Bypass, Chennai, Tamil Nadu 602001',
+        location: 'Chennai, Tamil Nadu',
+        lat: 13.1067, lng: 79.9477,
+        gstin: '33AABCV5555C1Z9', is_verified: true, status: 'active',
+        created_at: new Date().toISOString(),
+      },
+    ].filter(q => missingDemos.includes(q.id));
+
+    const updatedQuarries = [...quarries, ...demoQuarries];
+    webSet('bf_quarries', updatedQuarries);
+
+    // Seed demo materials for each missing demo quarry
+    const demoMaterials = {
+      901: [
+        { id: 1, name: 'River Sand Grade A', price: 3200, unit: 'unit', min_order: 5, stock: 800, hsn: '2505', description: 'Premium river sand for construction', is_active: true },
+        { id: 2, name: 'M-Sand (Manufactured Sand)', price: 2600, unit: 'unit', min_order: 5, stock: 1200, hsn: '2505', description: 'ISI certified M-Sand', is_active: true },
+        { id: 3, name: 'Blue Metal 20mm (Jelly)', price: 2800, unit: 'unit', min_order: 5, stock: 600, hsn: '2517', description: '20mm well-graded aggregate', is_active: true },
+        { id: 4, name: 'Quarry Dust', price: 1100, unit: 'unit', min_order: 10, stock: 2000, hsn: '2517', description: 'Fine quarry dust for filling', is_active: true },
+      ],
+      902: [
+        { id: 1, name: 'Blue Metal 12mm', price: 2600, unit: 'unit', min_order: 5, stock: 500, hsn: '2517', description: '12mm crushed granite', is_active: true },
+        { id: 2, name: 'Blue Metal 40mm (Jelly)', price: 2400, unit: 'unit', min_order: 5, stock: 700, hsn: '2517', description: '40mm aggregate for base layer', is_active: true },
+        { id: 3, name: 'P-Sand (Plastering Sand)', price: 2900, unit: 'unit', min_order: 5, stock: 400, hsn: '2505', description: 'Fine plastering sand', is_active: true },
+        { id: 4, name: 'Granite Gravel', price: 3400, unit: 'MT', min_order: 2, stock: 300, hsn: '2516', description: 'Crushed granite gravel', is_active: true },
+      ],
+      903: [
+        { id: 1, name: 'River Sand Grade A', price: 3500, unit: 'unit', min_order: 5, stock: 600, hsn: '2505', description: 'High-quality river sand Chennai region', is_active: true },
+        { id: 2, name: 'M-Sand (Manufactured Sand)', price: 2700, unit: 'unit', min_order: 5, stock: 900, hsn: '2505', description: 'M-Sand conforming to IS:383', is_active: true },
+        { id: 3, name: 'Blue Metal 6mm', price: 2500, unit: 'unit', min_order: 10, stock: 1000, hsn: '2517', description: '6mm chips for RCC work', is_active: true },
+        { id: 4, name: 'Soil / Fill Gravel', price: 1600, unit: 'unit', min_order: 10, stock: 3000, hsn: '2517', description: 'Fill gravel for levelling', is_active: true },
+      ],
+    };
+
+    for (const qid of missingDemos) {
+      const key = `bf_quarry_${qid}_materials`;
+      if (!webGet(key)) {
+        webSet(key, (demoMaterials[qid] || []).map((m, i) => ({
+          ...m, quarry_id: qid, created_at: new Date().toISOString(),
+        })));
+      }
+    }
+  }
+  // ────────────────────────────────────────────────────────────────────────────
+
   // Global drivers
   if (!webGet('bf_drivers')) {
     webSet('bf_drivers', [
-      { id: 1, name: 'Ramesh K', phone: '9876543210', vehicle_no: 'TN 38 AB 1234', password: 'driver123', status: 'Available', quarry_id: null, created_at: new Date().toISOString() }
+      { id: 1, name: 'Ramesh K', phone: '9876543210', vehicle_no: 'TN 38 AB 1234', password: 'driver123', status: 'Available', quarry_id: null, created_at: new Date().toISOString() },
+      { id: 2, name: 'Vel Murugan', phone: '9876500002', vehicle_no: 'TN 11 AK 5678', password: 'driver123', status: 'Available', quarry_id: null, created_at: new Date().toISOString() },
+      { id: 3, name: 'Senthil Kumar', phone: '9876500003', vehicle_no: 'TN 45 CD 9012', password: 'driver123', status: 'Available', quarry_id: null, created_at: new Date().toISOString() },
     ]);
   }
   // Global customers
@@ -43,6 +117,46 @@ function webInitializeSchema() {
   // MIGRATION: Move old billforge_* data to new schema for quarry 1 if exists
   migrateOldData();
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MARKETPLACE CATALOG — Customer-facing: all verified quarries + their materials
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function getAllQuarryCatalogs(db) {
+  if (IS_WEB) {
+    const quarries = webGet('bf_quarries') || [];
+    // Include all quarries that are verified (or demo quarries which are pre-verified)
+    const active = quarries.filter(q =>
+      q.status !== 'rejected' && q.status !== 'suspended' &&
+      (q.is_verified === true || q.is_verified === undefined || q.is_verified === null)
+    );
+
+    const catalogs = [];
+    for (const q of active) {
+      const materials = webGet(`bf_quarry_${q.id}_materials`) || [];
+      // Also check legacy format (price_per_unit instead of price)
+      const activeMats = materials
+        .filter(m => m.is_active !== false)
+        .map(m => ({
+          ...m,
+          price: m.price ?? m.price_per_unit ?? 0,
+          unit: m.unit ?? m.unit_type ?? 'unit',
+        }));
+
+      if (activeMats.length > 0) {
+        catalogs.push({
+          ...q,
+          materials: activeMats,
+          material_count: activeMats.length,
+          min_price: Math.min(...activeMats.map(m => m.price || 0)),
+          max_price: Math.max(...activeMats.map(m => m.price || 0)),
+        });
+      }
+    }
+    return catalogs;
+  }
+  return [];
+}
+
 
 function migrateOldData() {
   const oldBills = webGet('billforge_bills');
