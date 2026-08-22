@@ -17,8 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
-import { getDatabase, authenticateOwner, requestPasswordResetOTP, verifyOTPAndResetPassword } from '../src/database/db';
-
+import { getDatabase, authenticateOwner, requestPasswordResetOTP, verifyOTPAndResetPassword, verifyTempPasswordAndSetNew } from '../src/database/db';
 
 const { width: W } = Dimensions.get('window');
 
@@ -35,9 +34,11 @@ export default function OwnerLoginScreen() {
 
   // Password Recovery Modal State
   const [forgotModalVisible, setForgotModalVisible] = useState(false);
-  const [resetStep, setResetStep] = useState(1); // 1: request OTP, 2: verify & set pass
+  const [recoveryMethod, setRecoveryMethod] = useState('otp'); // 'otp' or 'admin_temp'
+  const [resetStep, setResetStep] = useState(1);
   const [resetPhone, setResetPhone] = useState('9894698049');
   const [otpCode, setOtpCode] = useState('');
+  const [adminTempPass, setAdminTempPass] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState('');
@@ -66,6 +67,32 @@ export default function OwnerLoginScreen() {
 
   const handleResetPassword = async () => {
     setResetError('');
+    if (recoveryMethod === 'admin_temp') {
+      if (!adminTempPass.trim()) { setResetError('Please enter the Temporary Password given by Admin.'); return; }
+      if (!newPassword.trim() || newPassword.trim().length < 4) { setResetError('New password must be at least 4 characters long.'); return; }
+      setResetLoading(true);
+      try {
+        const db = await getDatabase();
+        await verifyTempPasswordAndSetNew(db, 'quarry_owner', resetPhone.trim(), adminTempPass.trim(), newPassword.trim());
+        const authenticated = await authenticateOwner(db, resetPhone.trim(), newPassword.trim());
+        if (authenticated && !authenticated.error) {
+          loginOwner(authenticated);
+          setForgotModalVisible(false);
+          router.replace('/(tabs)');
+        } else {
+          setForgotModalVisible(false);
+          setPassword(newPassword.trim());
+          setPhone(resetPhone.trim());
+          setError('Password set successfully! Tap Sign In.');
+        }
+      } catch (e) {
+        setResetError(e.message || 'Failed to verify temp password.');
+      } finally {
+        setResetLoading(false);
+      }
+      return;
+    }
+
     if (!otpCode.trim()) { setResetError('Please enter the 6-digit OTP code.'); return; }
     if (!newPassword.trim() || newPassword.trim().length < 4) { setResetError('New password must be at least 4 characters long.'); return; }
 
@@ -74,7 +101,6 @@ export default function OwnerLoginScreen() {
       const db = await getDatabase();
       await verifyOTPAndResetPassword(db, 'quarry_owner', resetPhone.trim(), otpCode.trim(), newPassword.trim());
       
-      // Auto-authenticate with new password
       const authenticated = await authenticateOwner(db, resetPhone.trim(), newPassword.trim());
       if (authenticated && !authenticated.error) {
         loginOwner(authenticated);
@@ -84,7 +110,7 @@ export default function OwnerLoginScreen() {
         setForgotModalVisible(false);
         setPassword(newPassword.trim());
         setPhone(resetPhone.trim());
-        setError('Password updated successfully! Please tap Sign In.');
+        setError('Password updated successfully! Tap Sign In.');
       }
     } catch (e) {
       setResetError(e.message || 'Failed to reset password.');
@@ -92,6 +118,7 @@ export default function OwnerLoginScreen() {
       setResetLoading(false);
     }
   };
+
 
 
   const handleLogin = async () => {
@@ -263,7 +290,86 @@ export default function OwnerLoginScreen() {
               </TouchableOpacity>
             </View>
 
-            {resetStep === 1 ? (
+            {/* Recovery Method Tabs */}
+            <View style={{ flexDirection: 'row', backgroundColor: Colors.background, borderRadius: 10, padding: 3, marginBottom: 16 }}>
+              <TouchableOpacity
+                style={[{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' }, recoveryMethod === 'otp' && { backgroundColor: Colors.surface, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 }]}
+                onPress={() => { setRecoveryMethod('otp'); setResetStep(1); setResetError(''); }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: recoveryMethod === 'otp' ? Colors.primary : Colors.textSecondary }}>📩 Email / SMS OTP</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' }, recoveryMethod === 'admin_temp' && { backgroundColor: Colors.surface, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 2, elevation: 1 }]}
+                onPress={() => { setRecoveryMethod('admin_temp'); setResetError(''); }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: recoveryMethod === 'admin_temp' ? Colors.primary : Colors.textSecondary }}>📞 Admin Temp Pass</Text>
+              </TouchableOpacity>
+            </View>
+
+            {recoveryMethod === 'admin_temp' ? (
+              <View style={{ gap: 14 }}>
+                <Text style={{ fontSize: 13, color: Colors.textSecondary }}>
+                  If you received a Temporary Password from Admin over phone call, enter it below to set your new permanent password:
+                </Text>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Mobile Number *</Text>
+                  <View style={styles.inputWrap}>
+                    <Ionicons name="call-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      value={resetPhone}
+                      onChangeText={setResetPhone}
+                      placeholder="10-digit mobile number"
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Admin Temporary Password *</Text>
+                  <View style={styles.inputWrap}>
+                    <Ionicons name="key-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      value={adminTempPass}
+                      onChangeText={setAdminTempPass}
+                      placeholder="e.g. temp1234 (given by admin)"
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Set New Permanent Password *</Text>
+                  <View style={styles.inputWrap}>
+                    <Ionicons name="lock-closed-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      placeholder="Enter your new password (min 4 chars)"
+                      secureTextEntry
+                    />
+                  </View>
+                </View>
+
+                {resetError ? (
+                  <View style={styles.errorBox}>
+                    <Ionicons name="alert-circle-outline" size={14} color={Colors.danger} />
+                    <Text style={styles.errorText}>{resetError}</Text>
+                  </View>
+                ) : null}
+
+                <TouchableOpacity
+                  style={[styles.loginBtn, resetLoading && styles.loginBtnDisabled]}
+                  onPress={handleResetPassword}
+                  disabled={resetLoading}
+                >
+                  {resetLoading ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.loginBtnText}>Save New Password & Sign In 🔐</Text>}
+                </TouchableOpacity>
+              </View>
+            ) : resetStep === 1 ? (
               <View style={{ gap: 14 }}>
                 <Text style={{ fontSize: 13, color: Colors.textSecondary }}>
                   Enter your registered mobile number to receive a 6-digit verification OTP code:
@@ -358,6 +464,7 @@ export default function OwnerLoginScreen() {
                 </View>
               </View>
             )}
+
           </View>
         </View>
       )}

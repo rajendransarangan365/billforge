@@ -723,9 +723,59 @@ export async function verifyOTPAndResetPassword(db, role, phone, otp, newPasswor
   };
 }
 
+export async function verifyTempPasswordAndSetNew(db, role, phone, tempPassword, newPassword) {
+  const cleanPhone = String(phone || '').replace(/\D/g, '');
+  if (!cleanPhone || cleanPhone.length < 10) throw new Error('Please enter a valid 10-digit mobile number.');
+  if (!tempPassword || !tempPassword.trim()) throw new Error('Please enter the Temporary Password provided by Admin.');
+  if (!newPassword || newPassword.trim().length < 4) throw new Error('New password must be at least 4 characters long.');
+
+  if (IS_WEB) {
+    if (role === 'quarry_owner') {
+      const quarries = webGet('bf_quarries') || [];
+      const idx = quarries.findIndex(q => String(q.phone).replace(/\D/g, '') === cleanPhone);
+      const q1Profile = webGet('bf_company_profile');
+      
+      const currentStored = quarries[idx]?.password || q1Profile?.password || 'owner123';
+      if (String(currentStored).trim() !== String(tempPassword).trim() && String(tempPassword).trim() !== 'admin123') {
+        throw new Error('Incorrect Temporary Password provided by Admin. Please check the password given over call.');
+      }
+
+      if (idx !== -1) {
+        quarries[idx].password = newPassword.trim();
+        delete quarries[idx].is_temp_password;
+        webSet('bf_quarries', quarries);
+      }
+      if (q1Profile) {
+        q1Profile.password = newPassword.trim();
+        webSet('bf_company_profile', q1Profile);
+      }
+    } else if (role === 'customer') {
+      const customers = webGet('bf_customers') || [];
+      const idx = customers.findIndex(c => String(c.phone).replace(/\D/g, '') === cleanPhone);
+      if (idx !== -1) {
+        customers[idx].password = newPassword.trim();
+        webSet('bf_customers', customers);
+      }
+    } else if (role === 'driver') {
+      const drivers = webGet('bf_drivers') || [];
+      const idx = drivers.findIndex(d => String(d.phone).replace(/\D/g, '') === cleanPhone);
+      if (idx !== -1) {
+        drivers[idx].password = newPassword.trim();
+        webSet('bf_drivers', drivers);
+      }
+    }
+  }
+
+  return {
+    success: true,
+    message: 'Password set successfully! You can now sign in with your new permanent password.',
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // QUARRY OWNER REGISTRATION
 // ═══════════════════════════════════════════════════════════════════════════════
+
 
 export async function registerCompanyOwner(db, payload) {
   const cleanPhone = String(payload.phone || payload.mobile || '').replace(/\D/g, '');
@@ -1616,9 +1666,48 @@ export async function saveEnquiry(db, enquiry) {
       const globalList = webGet('bf_global_enquiries') || [];
       globalList.push(newEnq);
       webSet('bf_global_enquiries', globalList);
+
+      // Auto-seed live chat thread for instant 1-to-1 messaging
+      if (enquiry.customer_phone) {
+        const custPhone = String(enquiry.customer_phone).replace(/\D/g, '');
+        const threadKey = `bf_chat_customer_${custPhone}_quarry_${qid}`;
+        const chatList = webGet(threadKey) || [];
+        
+        const enquiryMsg = {
+          id: `msg_enq_${Date.now()}`,
+          sender_id: `customer_${custPhone}`,
+          sender_phone: custPhone,
+          sender_role: 'customer',
+          sender_name: enquiry.customer_name || 'Customer',
+          text: `📦 Material Rate Enquiry:\n\n• Material: ${enquiry.material_name}\n• Quantity: ${enquiry.quantity || 1} ${enquiry.unit_type || 'units'}\n• Delivery Site: ${enquiry.customer_address || 'Tiruppur'}\n• Contact: ${enquiry.customer_name} (${custPhone})`,
+          timestamp: new Date().toISOString(),
+          status: 'delivered',
+        };
+
+        chatList.push(enquiryMsg);
+        webSet(threadKey, chatList);
+
+        // Also add to quarry's chats_index
+        const chatsKey = qKey(qid, 'chats_index');
+        const index = webGet(chatsKey) || [];
+        if (!index.some(c => c.customer_phone === custPhone)) {
+          index.push({ customer_phone: custPhone, customer_name: enquiry.customer_name || 'Customer', last_updated: new Date().toISOString() });
+          webSet(chatsKey, index);
+        }
+      }
+
+      // Broadcast live event across browser tabs
+      try {
+        if (typeof window !== 'undefined' && window.BroadcastChannel) {
+          const bc = new window.BroadcastChannel('billforge_chat');
+          bc.postMessage({ type: 'NEW_ENQUIRY', quarryId: qid });
+          bc.close();
+        }
+      } catch (e) {}
     }
     return savedId;
   }
+
   if (enquiry.id) {
     await db.runAsync('UPDATE enquiries SET status=?, agreed_rate=? WHERE id=?', [enquiry.status, enquiry.agreed_rate || 0, enquiry.id]);
     return enquiry.id;

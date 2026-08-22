@@ -313,8 +313,24 @@ export default function MessagesScreen() {
               >
                 {messages.map((m) => {
                   const myEntityId = getEntityId(currentUserObj);
-                  const isMe = m.sender_id === myEntityId || (m.sender_phone && m.sender_phone === user?.phone) || (m.sender_name === myName && m.sender_role === myRole);
-                  const isSystem = m.sender_role === 'system';
+                  const cleanMyPhone = String(user?.phone || currentUserObj?.phone || '').replace(/\D/g, '');
+                  const cleanMsgPhone = String(m.sender_phone || m.phone || '').replace(/\D/g, '');
+
+                  const isRoleMatch = (
+                    (myRole === 'quarry_owner' && (m.sender_role === 'quarry_owner' || m.sender_role === 'owner' || m.sender === 'owner' || m.sender === 'quarry')) ||
+                    (myRole === 'customer' && (m.sender_role === 'customer' || m.sender === 'customer' || m.sender === 'buyer')) ||
+                    (myRole === 'driver' && (m.sender_role === 'driver' || m.sender === 'driver' || m.sender === 'transporter')) ||
+                    (myRole === 'admin' && (m.sender_role === 'admin' || m.sender === 'admin'))
+                  );
+
+                  const isMe = Boolean(
+                    (myEntityId && m.sender_id === myEntityId) ||
+                    (cleanMyPhone.length >= 10 && cleanMsgPhone.length >= 10 && cleanMyPhone === cleanMsgPhone) ||
+                    (m.sender_name === myName && m.sender_name !== 'Customer' && m.sender_name !== 'Quarry Owner') ||
+                    (isRoleMatch && (!m.sender_phone || m.sender_name === '(User)' || m.sender_name === myName))
+                  );
+
+                  const isSystem = m.sender_role === 'system' || m.sender === 'system';
 
                   if (isSystem) {
                     return (
@@ -324,6 +340,8 @@ export default function MessagesScreen() {
                       </View>
                     );
                   }
+
+                  const displayName = isMe ? 'You' : (m.sender_name || 'Contact');
 
                   return (
                     <View
@@ -336,8 +354,9 @@ export default function MessagesScreen() {
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                         <Text style={[styles.senderName, isMe ? { color: '#1B5E20' } : { color: '#1565C0' }]}>
-                          {m.sender_name} ({m.sender_role || 'User'})
+                          {displayName}
                         </Text>
+
                         {isMe && !m.isDeleted && (
                           <View style={{ flexDirection: 'row', gap: 6 }}>
                             <TouchableOpacity onPress={() => handleStartEdit(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
