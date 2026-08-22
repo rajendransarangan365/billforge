@@ -24,6 +24,7 @@ export default function CustomerLoginScreen() {
   const handleLogin = async () => {
     setError('');
     if (!phone.trim() || phone.trim().length < 10) { setError('Please enter your 10-digit mobile number.'); return; }
+    if (!password.trim()) { setError('Please enter your password / PIN.'); return; }
 
     setLoading(true);
     try {
@@ -77,14 +78,14 @@ export default function CustomerLoginScreen() {
           </View>
 
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Password / PIN (Optional for quick login)</Text>
+            <Text style={styles.label}>Password / PIN *</Text>
             <View style={styles.inputWrap}>
               <Ionicons name="lock-closed-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
               <TextInput
                 style={styles.input}
                 value={password}
                 onChangeText={setPassword}
-                placeholder="Enter password or leave blank for guest login"
+                placeholder="Enter account password"
                 placeholderTextColor={Colors.textDisabled}
                 secureTextEntry
                 returnKeyType="done"
@@ -92,6 +93,7 @@ export default function CustomerLoginScreen() {
               />
             </View>
           </View>
+
 
           {error ? (
             <View style={styles.errorBox}>
