@@ -12,7 +12,7 @@ import {
   getDatabase, getBillCount, getBillsThisMonth, getTemplates,
   getBills, getAllDrafts, getAllPayments, getActiveReminders, getOverdueReminders,
 } from '../../src/database/db';
-import { setupAndroidChannel, requestNotificationPermissions, addNotificationTapListener } from '../../src/services/notificationService';
+import { setupAndroidChannel, requestNotificationPermissions, addNotificationTapListener } from '../../src/services/mobileNotificationService';
 import { useAuth } from '../../src/context/AuthContext';
 
 const { width: SCREEN_W } = Dimensions.get('window');

@@ -16,7 +16,7 @@ import {
 } from '../src/database/db';
 import {
   schedulePaymentReminder, cancelPaymentReminder,
-} from '../src/services/notificationService';
+} from '../src/services/mobileNotificationService';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function fmtCurrency(n) {

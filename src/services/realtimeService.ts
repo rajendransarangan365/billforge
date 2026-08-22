@@ -4,7 +4,7 @@
  * Powers live WebSocket / SSE / Polling sync across Quarries, Transporters, Drivers, and Customers.
  */
 
-import { triggerNotification } from './notificationService';
+import { triggerNotification } from './webNotificationService';
 
 type SyncCallback = (event: { type: string; payload: any }) => void;
 let syncSubscribers: SyncCallback[] = [];
