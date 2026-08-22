@@ -149,22 +149,39 @@ export async function sendBillInvoiceEmail({
 }
 
 /**
- * Core SMTP Dispatcher
+ * Core Serverless SMTP Dispatcher
  */
 async function dispatchEmail({ to, subject, html }: { to: string; subject: string; html: string }) {
   try {
-    console.log(`[SMTP Mailer] Connecting to ${SMTP_CONFIG.host}:${SMTP_CONFIG.port} via ${SMTP_CONFIG.user}...`);
-    // In browser/Expo environments, log clean SMTP payload confirmation
-    return {
-      success: true,
-      to,
-      subject,
-      smtpServer: `${SMTP_CONFIG.host}:${SMTP_CONFIG.port}`,
-      from: SMTP_CONFIG.user,
-      sentAt: new Date().toISOString(),
+    const getApiBase = () => {
+      if (typeof window !== 'undefined' && window.location && window.location.origin) {
+        return window.location.origin;
+      }
+      return 'https://billforge-lovat.vercel.app';
     };
+
+    const apiUrl = `${getApiBase()}/api/email`;
+    console.log(`[EmailService] Posting email request via Serverless API to ${to}...`);
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ to, subject, html }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Server HTTP ${response.status}: ${errText}`);
+    }
+
+    const data = await response.json();
+    console.log('[EmailService] SMTP Dispatch Successful:', data);
+    return data;
   } catch (error) {
-    console.error('[SMTP Mailer Error]:', error);
-    return { success: false, error: error.message };
+    console.error('[SMTP Mailer Error]:', error.message || error);
+    return { success: false, error: error.message || String(error) };
   }
 }
+
