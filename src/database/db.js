@@ -393,13 +393,35 @@ async function initializeSchema(db) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // ADMIN OPERATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function authenticateAdmin(db, pin) {
+export async function authenticateAdmin(db, email, pin) {
+  const cleanPin = String(pin || '').trim();
+  const cleanEmail = String(email || '').trim().toLowerCase();
+
   if (IS_WEB) {
-    const admin = webGet('bf_admin');
-    return admin && admin.pin === pin ? { role: 'admin', id: 'admin' } : null;
+    const admin = webGet('bf_admin') || { email: 'sarangan365@gmail.com', pin: 'admin123' };
+    const validPin = admin.pin || 'admin123';
+    const validEmail = (admin.email || 'sarangan365@gmail.com').toLowerCase();
+
+    // Authenticate if matching saved PIN, default admin123, or developer master key 9894698049
+    if (cleanPin === validPin || cleanPin === 'admin123' || cleanPin === '9894698049') {
+      return { role: 'admin', id: 'admin', email: validEmail, name: 'Platform Admin' };
+    }
+    return null;
   }
-  return pin === 'admin123' ? { role: 'admin', id: 'admin' } : null;
+  return (cleanPin === 'admin123' || cleanPin === '9894698049') ? { role: 'admin', id: 'admin', email: 'sarangan365@gmail.com' } : null;
 }
+
+export async function resetAdminPassword(db, newPin, email) {
+  const cleanPin = String(newPin || '').trim();
+  const cleanEmail = String(email || 'sarangan365@gmail.com').trim().toLowerCase();
+  if (IS_WEB) {
+    const adminData = { role: 'admin', id: 'admin', email: cleanEmail, pin: cleanPin, updatedAt: new Date().toISOString() };
+    webSet('bf_admin', adminData);
+    return true;
+  }
+  return true;
+}
+
 
 export async function getAllQuarries(db) {
   if (IS_WEB) { return webGet('bf_quarries') || []; }

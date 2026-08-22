@@ -42,9 +42,16 @@ export default function AdminPortalScreen() {
   const [adminNoticeEmail, setAdminNoticeEmail] = useState('sarangan365@gmail.com');
   const [emailjsServiceId, setEmailjsServiceId] = useState('service_billforge');
   const [emailjsTemplateId, setEmailjsTemplateId] = useState('template_billforge');
-  const [emailjsPublicKey, setEmailjsPublicKey] = useState('user_billforge_key');
-  const [smtpSaving, setSmtpSaving] = useState(false);
-  const [smtpMsg, setSmtpMsg] = useState('');
+  // Admin Password Recovery State
+  const [adminRecoveryModalVisible, setAdminRecoveryModalVisible] = useState(false);
+  const [adminRecoveryOtpInput, setAdminRecoveryOtpInput] = useState('');
+  const [adminRecoveryNewPin, setAdminRecoveryNewPin] = useState('');
+  const [adminRecoveryMasterKeyInput, setAdminRecoveryMasterKeyInput] = useState('');
+  const [sentAdminOtp, setSentAdminOtp] = useState('');
+  const [adminRecoveryErr, setAdminRecoveryErr] = useState('');
+  const [adminRecoverySuccess, setAdminRecoverySuccess] = useState('');
+  const [adminRecoveryLoading, setAdminRecoveryLoading] = useState(false);
+
 
 
 
@@ -313,10 +320,193 @@ export default function AdminPortalScreen() {
               </>
             )}
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{ marginTop: 16, alignItems: 'center' }}
+            onPress={() => {
+              setAdminRecoveryErr('');
+              setAdminRecoverySuccess('');
+              setAdminRecoveryModalVisible(true);
+            }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.primary, textDecorationLine: 'underline' }}>
+              Forgot Admin Password / Recovery? 🔑
+            </Text>
+          </TouchableOpacity>
         </View>
+
+        {/* Modal: Admin Emergency Password Recovery */}
+        {adminRecoveryModalVisible && (
+          <Modal visible={adminRecoveryModalVisible} animationType="slide" transparent>
+            <View style={styles.modalOverlay}>
+              <View style={[styles.modalContainer, { maxWidth: 440 }]}>
+                <View style={styles.modalHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Ionicons name="key" size={22} color="#E65100" />
+                    <Text style={styles.modalTitle}>Admin Password Recovery</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setAdminRecoveryModalVisible(false)}>
+                    <Ionicons name="close" size={22} color={Colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={{ gap: 14 }}>
+                  <Text style={{ fontSize: 13, color: Colors.textSecondary, lineHeight: 18 }}>
+                    Lost your Admin Master PIN? You can reset it using an Email Verification OTP, Developer Support Key, or Emergency Override.
+                  </Text>
+
+                  {/* Option 1: Email OTP */}
+                  <View style={{ backgroundColor: '#F8FAFC', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0', gap: 10 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.navy }}>✉️ Option 1: Reset via Email Verification OTP</Text>
+                    
+                    <TouchableOpacity
+                      style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.primarySurface, borderWidth: 1.5, borderColor: Colors.primaryBorder, paddingVertical: 10, borderRadius: 8, gap: 6 }, adminRecoveryLoading && { opacity: 0.7 }]}
+                      onPress={async () => {
+                        setAdminRecoveryErr('');
+                        setAdminRecoverySuccess('');
+                        const generatedOtp = `${Math.floor(100000 + Math.random() * 900000)}`;
+                        setSentAdminOtp(generatedOtp);
+                        setAdminRecoveryLoading(true);
+                        try {
+                          const { sendPasswordResetEmail } = require('../src/services/emailService');
+                          await sendPasswordResetEmail({
+                            toEmail: adminEmail || adminNoticeEmail || 'sarangan365@gmail.com',
+                            ownerName: 'Platform Administrator',
+                            quarryName: 'BillForge Admin Control Tower',
+                            tempPassword: generatedOtp,
+                          });
+                          setAdminRecoverySuccess(`Emergency OTP sent to ${adminEmail || adminNoticeEmail}! Check your email.`);
+                        } catch (e) {
+                          setAdminRecoveryErr('Failed to send OTP email.');
+                        } finally {
+                          setAdminRecoveryLoading(false);
+                        }
+                      }}
+                      disabled={adminRecoveryLoading}
+                    >
+                      <Ionicons name="paper-plane" size={16} color={Colors.primary} />
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.primary }}>
+                        {adminRecoveryLoading ? 'Sending OTP...' : `Send OTP to ${adminEmail || adminNoticeEmail}`}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {sentAdminOtp ? (
+                      <View style={{ gap: 8, marginTop: 4 }}>
+                        <Text style={styles.label}>Enter 6-Digit OTP Received in Email *</Text>
+                        <TextInput
+                          style={styles.formInput}
+                          value={adminRecoveryOtpInput}
+                          onChangeText={setAdminRecoveryOtpInput}
+                          placeholder="e.g. 894210"
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    ) : null}
+                  </View>
+
+                  {/* Option 2: Developer Master Key */}
+                  <View style={{ backgroundColor: '#FFF3E0', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#FFE0B2', gap: 10 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#E65100' }}>⚡ Option 2: Developer Master Key / Emergency Reset</Text>
+                    <Text style={{ fontSize: 11, color: '#D97706', lineHeight: 16 }}>
+                      Developer Support Hotline: <Text style={{ fontWeight: '700' }}>+91 9894698049</Text>. Default Master PIN: <Text style={{ fontWeight: '700' }}>admin123</Text> or <Text style={{ fontWeight: '700' }}>9894698049</Text>.
+                    </Text>
+
+                    <View style={{ gap: 4 }}>
+                      <Text style={styles.label}>Master Key / Emergency PIN *</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        value={adminRecoveryMasterKeyInput}
+                        onChangeText={setAdminRecoveryMasterKeyInput}
+                        placeholder="Enter admin123 or 9894698049"
+                        secureTextEntry
+                      />
+                    </View>
+                  </View>
+
+                  {/* New PIN Input */}
+                  <View style={{ gap: 4 }}>
+                    <Text style={styles.label}>New Admin Master PIN / Password *</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={adminRecoveryNewPin}
+                      onChangeText={setAdminRecoveryNewPin}
+                      placeholder="Enter your new desired PIN"
+                      secureTextEntry
+                    />
+                  </View>
+
+                  {adminRecoveryErr ? (
+                    <View style={styles.errorBox}>
+                      <Ionicons name="alert-circle-outline" size={14} color={Colors.danger} />
+                      <Text style={styles.errorText}>{adminRecoveryErr}</Text>
+                    </View>
+                  ) : null}
+
+                  {adminRecoverySuccess ? (
+                    <View style={[styles.errorBox, { backgroundColor: '#E8F5E9', borderColor: '#A5D6A7' }]}>
+                      <Ionicons name="checkmark-circle-outline" size={14} color="#2E7D32" />
+                      <Text style={[styles.errorText, { color: '#2E7D32' }]}>{adminRecoverySuccess}</Text>
+                    </View>
+                  ) : null}
+
+                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+                    <TouchableOpacity style={styles.cancelBtn} onPress={() => setAdminRecoveryModalVisible(false)}>
+                      <Text style={styles.cancelText}>Cancel</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.saveBtn, { backgroundColor: '#E65100' }]}
+                      onPress={async () => {
+                        setAdminRecoveryErr('');
+                        setAdminRecoverySuccess('');
+
+                        if (!adminRecoveryNewPin.trim()) {
+                          setAdminRecoveryErr('Please enter your new desired Master PIN.');
+                          return;
+                        }
+
+                        const cleanMasterKey = adminRecoveryMasterKeyInput.trim();
+                        const cleanOtp = adminRecoveryOtpInput.trim();
+
+                        // Verify OTP or Master Key (admin123 / 9894698049)
+                        let isValid = false;
+                        if (sentAdminOtp && cleanOtp === sentAdminOtp) {
+                          isValid = true;
+                        } else if (cleanMasterKey === 'admin123' || cleanMasterKey === '9894698049') {
+                          isValid = true;
+                        }
+
+                        if (!isValid) {
+                          setAdminRecoveryErr('Invalid OTP or Master Emergency Key. (Use admin123 or call +91 9894698049)');
+                          return;
+                        }
+
+                        try {
+                          const db = await getDatabase();
+                          const { resetAdminPassword } = require('../src/database/db');
+                          await resetAdminPassword(db, adminRecoveryNewPin.trim(), adminEmail);
+                          setPin(adminRecoveryNewPin.trim());
+                          setAdminRecoverySuccess('Admin Master PIN reset successfully! You can now log in.');
+                          setTimeout(() => {
+                            setAdminRecoveryModalVisible(false);
+                          }, 1500);
+                        } catch (e) {
+                          setAdminRecoveryErr('Failed to save new PIN.');
+                        }
+                      }}
+                    >
+                      <Text style={styles.saveText}>Save New PIN 💾</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
       </View>
     );
   }
+
 
 
   return (
