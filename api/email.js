@@ -7,14 +7,23 @@ module.exports = async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const { to, subject, html, smtpConfig } = req.body || {};
+  let body = req.body;
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch (e) {}
+  }
+
+  const { to, subject, html, smtpConfig } = body || {};
 
   if (!to || !subject || !html) {
     return res.status(400).json({
       success: false,
       error: 'Missing required parameters: to, subject, html',
+      receivedBody: req.body,
     });
   }
+
 
 
   const host = (smtpConfig && smtpConfig.host) || process.env.SMTP_HOST || 'smtp.gmail.com';
