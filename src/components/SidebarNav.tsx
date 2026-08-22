@@ -15,6 +15,7 @@ const ADMIN_NAV = [
     { route: '/(tabs)', icon: 'grid-outline', activeIcon: 'grid', label: 'Platform Overview' },
   ]},
   { title: 'ACCOUNT', items: [
+    { route: '/profile', icon: 'person-circle-outline', activeIcon: 'person-circle', label: 'Profile & Settings' },
     { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },
     { isLogout: true, icon: 'log-out-outline', activeIcon: 'log-out', label: 'Logout' },
   ]},
@@ -41,6 +42,7 @@ const OWNER_NAV = [
     { route: '/material-catalog', icon: 'pricetags-outline', activeIcon: 'pricetags', label: 'Manage Catalog' },
   ]},
   { title: 'SETTINGS', items: [
+    { route: '/profile', icon: 'person-circle-outline', activeIcon: 'person-circle', label: 'Profile & Settings' },
     { route: '/(tabs)/profile', icon: 'business-outline', activeIcon: 'business', label: 'Company Profile' },
     { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },
     { isLogout: true, icon: 'log-out-outline', activeIcon: 'log-out', label: 'Logout' },
@@ -55,6 +57,7 @@ const DRIVER_NAV = [
     { route: '/earnings', icon: 'cash-outline', activeIcon: 'cash', label: 'My Earnings' },
   ]},
   { title: 'ACCOUNT', items: [
+    { route: '/profile', icon: 'person-circle-outline', activeIcon: 'person-circle', label: 'Profile & Settings' },
     { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },
     { isLogout: true, icon: 'log-out-outline', activeIcon: 'log-out', label: 'Logout' },
   ]},
@@ -66,10 +69,12 @@ const CUSTOMER_NAV = [
     { route: '/messages', icon: 'logo-whatsapp', activeIcon: 'logo-whatsapp', label: 'Messages & WhatsApp' },
   ]},
   { title: 'ACCOUNT', items: [
+    { route: '/profile', icon: 'person-circle-outline', activeIcon: 'person-circle', label: 'Profile & Settings' },
     { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },
     { isLogout: true, icon: 'log-out-outline', activeIcon: 'log-out', label: 'Logout' },
   ]},
 ];
+
 
 import { useWindowDimensions } from 'react-native';
 

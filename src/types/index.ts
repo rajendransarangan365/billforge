@@ -73,3 +73,43 @@ export interface DeliveryTrip {
   agreed_rate?: number;
   created_at?: string;
 }
+
+export interface ConversationParticipant {
+  id: string;
+  name: string;
+  role: UserRole | 'system' | 'group';
+  phone?: string;
+  avatarIcon?: string;
+  quarry_id?: number;
+}
+
+export interface Conversation {
+  id: string;
+  type: 'direct' | 'group';
+  name?: string;
+  participants: string[];
+  participant_details: ConversationParticipant[];
+  last_message?: string;
+  last_message_time?: string;
+  unread_counts: Record<string, number>;
+  context_type?: 'enquiry' | 'trip' | 'invoice' | 'direct';
+  context_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  clientMessageId?: string;
+  sender_id: string;
+  sender_name: string;
+  sender_role: UserRole | 'system';
+  sender_phone?: string;
+  text: string;
+  status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  timestamp: string;
+  editedAt?: string;
+  isEdited?: boolean;
+}
+

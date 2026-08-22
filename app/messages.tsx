@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, ActivityIndicator, Linking, Platform, Alert,
+  TextInput, ActivityIndicator, Linking, Platform, Alert, Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,8 +34,52 @@ export default function MessagesScreen() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
 
+  // New Chat Directory Modal State
+  const [newChatModalVisible, setNewChatModalVisible] = useState(false);
+  const [directoryUsers, setDirectoryUsers] = useState([]);
+
   const myName = user?.name || user?.owner_name || (role === 'admin' ? 'Admin' : role === 'driver' ? 'Driver' : 'User');
   const myRole = role || 'quarry_owner';
+
+  const handleOpenNewChatModal = async () => {
+    try {
+      const db = await getDatabase();
+      const { webGet } = require('../src/database/db');
+      const quarries = (webGet('bf_quarries') || []).map(q => ({
+        id: `quarry_${q.id}`,
+        quarry_id: q.id,
+        name: q.name || 'Quarry',
+        subtext: `Quarry Owner • ${q.location || 'Tamil Nadu'}`,
+        phone: q.phone || '9894698049',
+        role: 'quarry_owner',
+        avatarIcon: 'business',
+        badgeBg: '#E8F5E9',
+        badgeColor: '#2E7D32',
+      }));
+
+      const drivers = (webGet('bf_drivers') || []).map(d => ({
+        id: `driver_${d.phone || d.id}`,
+        driver_id: d.id,
+        name: `${d.name} (${d.vehicle_no || 'Lorry'})`,
+        subtext: `Fleet Driver • Phone: ${d.phone}`,
+        phone: d.phone,
+        role: 'driver',
+        avatarIcon: 'car-sport',
+        badgeBg: '#E3F2FD',
+        badgeColor: '#1565C0',
+      }));
+
+      setDirectoryUsers([...quarries, ...drivers]);
+      setNewChatModalVisible(true);
+    } catch (e) {}
+  };
+
+  const handleSelectDirectoryUser = (u) => {
+    setNewChatModalVisible(false);
+    setActiveContact(u);
+    if (isMobile) setShowMobileChat(true);
+  };
+
 
   const loadContacts = useCallback(async () => {
     try {
@@ -205,17 +249,27 @@ export default function MessagesScreen() {
         {/* Left Contacts Sidebar */}
         {(!isMobile || !showMobileChat) && (
           <View style={[styles.sidebar, isMobile && { width: '100%' }]}>
-            {/* Search Input */}
-            <View style={styles.searchBox}>
-              <Ionicons name="search" size={16} color={Colors.textTertiary} />
-              <TextInput
-                style={styles.searchInput}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search contacts..."
-                placeholderTextColor={Colors.textDisabled}
-              />
+            {/* Search Input & New Chat Button */}
+            <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingTop: 12, alignItems: 'center' }}>
+              <View style={[styles.searchBox, { flex: 1, marginHorizontal: 0, marginTop: 0 }]}>
+                <Ionicons name="search" size={16} color={Colors.textTertiary} />
+                <TextInput
+                  style={styles.searchInput}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Filter active chats..."
+                  placeholderTextColor={Colors.textDisabled}
+                />
+              </View>
+              <TouchableOpacity
+                style={{ backgroundColor: '#2563EB', paddingHorizontal: 10, paddingVertical: 10, borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                onPress={() => handleOpenNewChatModal()}
+              >
+                <Ionicons name="add" size={18} color="#FFF" />
+                <Text style={{ color: '#FFF', fontSize: 12, fontWeight: '700' }}>New Chat</Text>
+              </TouchableOpacity>
             </View>
+
 
             {/* Role Filter Tabs */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={{ paddingHorizontal: 12, gap: 6 }}>
@@ -313,24 +367,13 @@ export default function MessagesScreen() {
               >
                 {messages.map((m) => {
                   const myEntityId = getEntityId(currentUserObj);
-                  const cleanMyPhone = String(user?.phone || currentUserObj?.phone || '').replace(/\D/g, '');
-                  const cleanMsgPhone = String(m.sender_phone || m.phone || '').replace(/\D/g, '');
-
-                  const isRoleMatch = (
-                    (myRole === 'quarry_owner' && (m.sender_role === 'quarry_owner' || m.sender_role === 'owner' || m.sender === 'owner' || m.sender === 'quarry')) ||
-                    (myRole === 'customer' && (m.sender_role === 'customer' || m.sender === 'customer' || m.sender === 'buyer')) ||
-                    (myRole === 'driver' && (m.sender_role === 'driver' || m.sender === 'driver' || m.sender === 'transporter')) ||
-                    (myRole === 'admin' && (m.sender_role === 'admin' || m.sender === 'admin'))
-                  );
-
                   const isMe = Boolean(
-                    (myEntityId && m.sender_id === myEntityId) ||
-                    (cleanMyPhone.length >= 10 && cleanMsgPhone.length >= 10 && cleanMyPhone === cleanMsgPhone) ||
-                    (m.sender_name === myName && m.sender_name !== 'Customer' && m.sender_name !== 'Quarry Owner') ||
-                    (isRoleMatch && (!m.sender_phone || m.sender_name === '(User)' || m.sender_name === myName))
+                    (myEntityId && String(m.sender_id) === String(myEntityId)) ||
+                    (m.sender_name && m.sender_name === myName && m.sender_name !== 'Customer' && m.sender_name !== 'Quarry Owner')
                   );
 
                   const isSystem = m.sender_role === 'system' || m.sender === 'system';
+
 
                   if (isSystem) {
                     return (
@@ -442,9 +485,48 @@ export default function MessagesScreen() {
         </View>
       )}
     </View>
+
+
+    {/* New Chat Directory Modal */}
+    <Modal visible={newChatModalVisible} animationType="slide" transparent onRequestClose={() => setNewChatModalVisible(false)}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.65)', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+        <View style={{ width: '100%', maxWidth: 460, backgroundColor: '#FFF', borderRadius: 16, padding: 20, gap: 12 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ fontSize: 16, fontWeight: '800', color: Colors.navy }}>Start New Chat / Search Users</Text>
+            <TouchableOpacity onPress={() => setNewChatModalVisible(false)}>
+              <Ionicons name="close" size={22} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={{ fontSize: 12, color: Colors.textSecondary }}>
+            Select a registered Quarry, Transporter, or Buyer to initiate a new direct conversation.
+          </Text>
+
+          <ScrollView style={{ maxHeight: 300 }} contentContainerStyle={{ gap: 8 }}>
+            {directoryUsers.map((u) => (
+              <TouchableOpacity
+                key={u.id}
+                style={{ flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: '#F8FAFC', borderRadius: 8, gap: 10, borderWidth: 1, borderColor: '#E2E8F0' }}
+                onPress={() => handleSelectDirectoryUser(u)}
+              >
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: u.badgeBg || '#E8F5E9', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name={u.avatarIcon || 'person'} size={18} color={u.badgeColor || '#2E7D32'} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: Colors.navy }}>{u.name}</Text>
+                  <Text style={{ fontSize: 11, color: Colors.textSecondary }}>{u.subtext}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },

@@ -2134,183 +2134,79 @@ export async function getDriverRateCard(db, driverId) {
 // UNIVERSAL MESSAGING & LIVE CHAT (1-to-1 Direct & Group Channels)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export async function getUniversalContacts(db, userRole, quarryId, currentUser) {
+export async function legacyGetUniversalContacts(db, userRole, quarryId, currentUser) {
+  return [];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONVERSATION ENGINE (Contacts !== Conversations Architecture)
+// Returns ONLY active conversations where the authenticated user is a participant!
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export async function getConversationsForUser(db, currentUser) {
+  const myEntityId = getEntityId(currentUser);
+
+  // 1. Try serverless MongoDB API
+  if (myEntityId) {
+    const apiRes = await fetchApi(`/api/chat?action=conversations&userId=${encodeURIComponent(myEntityId)}`);
+    if (apiRes && apiRes.success && Array.isArray(apiRes.conversations)) {
+      webSet(`bf_conversations_${myEntityId}`, apiRes.conversations);
+      return apiRes.conversations;
+    }
+  }
+
+  // 2. LocalStorage Fallback for offline / instant render
   if (IS_WEB) {
-    const contacts = [];
-    const qid = parseInt(quarryId || currentUser?.quarryId || currentUser?.quarry_id || 1);
+    const allConvs = webGet('bf_conversations') || [];
+    let userConvs = allConvs.filter(c => Array.isArray(c.participants) && c.participants.includes(myEntityId));
 
-    // 0. Public Group Channels
-    contacts.push(
-      {
-        id: 'group_quarry_ops',
-        role: 'group',
-        isGroup: true,
-        name: 'Quarry Operations & Logistics Group',
-        subtext: 'Public Group • Quarry Owners, Drivers & Dispatch',
-        avatarIcon: 'people',
-        badgeBg: '#FFF3EB',
-        badgeColor: '#E57025',
-      },
-      {
-        id: 'group_enquiries',
-        role: 'group',
-        isGroup: true,
-        name: 'Customer Support & Enquiries Channel',
-        subtext: 'Public Group • Customer Help, Orders & Trade Enquiries',
-        avatarIcon: 'help-buoy',
-        badgeBg: '#F3E8FF',
-        badgeColor: '#7C3AED',
-      }
-    );
+    // Seed default system/support conversation if empty
+    if (userConvs.length === 0) {
+      const defaultGroup = {
+        id: 'group_public_operations',
+        type: 'group',
+        name: 'Quarry Operations & Logistics Group 📢',
+        participants: [myEntityId, 'admin', 'system'],
+        participant_details: [
+          { id: 'group_public_operations', name: 'Quarry Operations Group', role: 'group', avatarIcon: 'people' }
+        ],
+        last_message: 'Welcome to BillForge Live Connect! Communicate with dispatchers and quarries.',
+        last_message_time: new Date().toISOString(),
+        unread_counts: { [myEntityId]: 0 },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
 
-    // 1. Platform Admin Contact
-    contacts.push({
-      id: 'contact_admin',
-      role: 'admin',
-      name: 'Platform Administrator',
-      subtext: 'BillForge Admin & Technical Support',
-      phone: '1234567890',
-      avatarIcon: 'shield-checkmark',
-      badgeBg: '#FFF3E0',
-      badgeColor: '#E65100',
-    });
+      const supportConv = {
+        id: `conv_${[myEntityId, 'admin'].sort().join('_')}`,
+        type: 'direct',
+        participants: [myEntityId, 'admin'],
+        participant_details: [
+          { id: 'admin', name: 'Platform Administrator', role: 'admin', avatarIcon: 'shield-checkmark', badgeBg: '#FFEDD5', badgeColor: '#C2410C' },
+          { id: myEntityId, name: currentUser?.name || 'User', role: currentUser?.role || 'user' }
+        ],
+        last_message: 'Need help or support? Send a message to Platform Admin.',
+        last_message_time: new Date().toISOString(),
+        unread_counts: { [myEntityId]: 0 },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
 
-    // 2. Targeted Role-Based Contact Routing (NO FAKE HARDCODED QUARRIES!)
-    const activeRole = userRole || currentUser?.role;
-
-    if (activeRole === 'quarry_owner') {
-      // FOR QUARRY OWNER: Show ONLY customers who inquired or chatted with THIS quarry!
-      const enquiries = webGet(qKey(qid, 'enquiries')) || [];
-      const chatsIndex = webGet(qKey(qid, 'chats_index')) || [];
-      const customerMap = new Map();
-
-      for (const e of enquiries) {
-        if (e.customer_phone) {
-          customerMap.set(e.customer_phone, {
-            id: `contact_customer_${e.customer_phone}`,
-            customer_id: e.customer_phone,
-            role: 'customer',
-            name: e.customer_name || `Customer ${e.customer_phone.slice(-4)}`,
-            subtext: `Material Enquiry: ${e.material_name || 'Quarry Trade'}`,
-            phone: e.customer_phone,
-            avatarIcon: 'person',
-            badgeBg: '#F3E8FF',
-            badgeColor: '#7C3AED',
-          });
-        }
-      }
-
-      for (const c of chatsIndex) {
-        if (c.customer_phone && !customerMap.has(c.customer_phone)) {
-          customerMap.set(c.customer_phone, {
-            id: `contact_customer_${c.customer_phone}`,
-            customer_id: c.customer_phone,
-            role: 'customer',
-            name: c.customer_name || `Customer ${c.customer_phone.slice(-4)}`,
-            subtext: 'Live Negotiation Chat',
-            phone: c.customer_phone,
-            avatarIcon: 'person',
-            badgeBg: '#F3E8FF',
-            badgeColor: '#7C3AED',
-          });
-        }
-      }
-
-      for (const custContact of customerMap.values()) {
-        contacts.push(custContact);
-      }
-
-      // Drivers associated with THIS quarry
-      const drivers = webGet('bf_drivers') || [];
-      const quarryDrivers = drivers.filter(d => d.quarry_id === qid);
-      for (const d of quarryDrivers) {
-        contacts.push({
-          id: `contact_driver_${d.id}`,
-          driver_id: d.id,
-          role: 'driver',
-          name: `${d.name} (${d.vehicle_no || 'Lorry'})`,
-          subtext: 'Assigned Transport Fleet Driver',
-          phone: d.phone,
-          avatarIcon: 'car-sport',
-          badgeBg: '#E3F2FD',
-          badgeColor: '#1565C0',
-        });
-      }
-
-    } else if (activeRole === 'customer') {
-      // FOR CUSTOMER: Show registered active quarries that customer can browse and chat with!
-      let quarries = webGet('bf_quarries') || [];
-      const hasQ1 = quarries.some(q => q.id === 1 || q.quarry_id === 1);
-      if (!hasQ1) {
-        quarries = [
-          {
-            id: 1,
-            quarry_id: 1,
-            name: 'MS Blue Metals & Quarries',
-            owner_name: 'MS Blue Metals',
-            phone: '9894698049',
-            location: 'Tiruppur, Tamil Nadu',
-            status: 'active',
-          },
-          ...quarries,
-        ];
-      }
-
-      const activeQuarries = quarries.filter(q => q.status !== 'rejected' && q.status !== 'suspended');
-
-      for (const q of activeQuarries) {
-        contacts.push({
-          id: `contact_quarry_${q.id || 1}`,
-          quarry_id: q.id || 1,
-          role: 'quarry_owner',
-          name: q.name || q.owner_name || 'MS Blue Metals & Quarries',
-          subtext: `Quarry Owner • ${q.location || 'Tiruppur, Tamil Nadu'}`,
-          phone: q.phone || '9894698049',
-          avatarIcon: 'business',
-          badgeBg: '#E8F5E9',
-          badgeColor: '#2E7D32',
-        });
-      }
-
-    } else if (activeRole === 'driver') {
-      // FOR DRIVER: Show quarry owner(s) who dispatched trips to this driver
-      const quarries = webGet('bf_quarries') || [];
-      const activeQuarries = quarries.length > 0 ? quarries : [{ id: 1, name: 'MS Blue Metals & Quarries', phone: '9894698049', location: 'Tiruppur' }];
-      for (const q of activeQuarries) {
-        contacts.push({
-          id: `contact_quarry_${q.id}`,
-          quarry_id: q.id,
-          role: 'quarry_owner',
-          name: q.name || 'Quarry Owner',
-          subtext: `Quarry Owner • ${q.location || ''}`,
-          phone: q.phone || '',
-          avatarIcon: 'business',
-          badgeBg: '#E8F5E9',
-          badgeColor: '#2E7D32',
-        });
-      }
-    } else {
-      // Default view
-      const quarries = webGet('bf_quarries') || [];
-      for (const q of quarries) {
-        contacts.push({
-          id: `contact_quarry_${q.id}`,
-          quarry_id: q.id,
-          role: 'quarry_owner',
-          name: q.name || 'Quarry',
-          subtext: `Quarry Owner • ${q.location || ''}`,
-          phone: q.phone || '',
-          avatarIcon: 'business',
-          badgeBg: '#E8F5E9',
-          badgeColor: '#2E7D32',
-        });
-      }
+      userConvs = [defaultGroup, supportConv];
+      allConvs.push(defaultGroup, supportConv);
+      webSet('bf_conversations', allConvs);
     }
 
-    return contacts;
+    return userConvs.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
   }
   return [];
 }
+
+export async function getUniversalContacts(db, activeRole, quarryId, user) {
+  return getConversationsForUser(db, user || { role: activeRole, quarryId });
+}
+
 
 
 export function getEntityId(entity) {
@@ -2418,43 +2314,70 @@ export async function getUniversalMessages(db, contact, currentUser) {
 
 export async function sendUniversalMessage(db, contact, senderRole, senderName, text, currentUser) {
   const threadKey = typeof contact === 'string' ? `bf_chat_${contact}` : getSharedThreadKey(contact, currentUser);
-  const qid = typeof contact === 'object' ? (contact?.quarry_id || currentUser?.quarryId) : 1;
-  const phone = typeof contact === 'object' ? (contact?.phone || currentUser?.phone) : '9894698049';
   const myEntityId = getEntityId(currentUser);
+  const targetId = getEntityId(contact);
 
-  // Send to MongoDB serverless API
-  const apiRes = await fetchApi('/api/chat', {
-    method: 'POST',
-    body: JSON.stringify({
-      quarryId: qid,
-      customerPhone: phone,
-      sender: senderName,
-      senderRole: senderRole,
-      senderName: senderName,
-      text: text,
-    }),
-  });
-
-  const newMsg = (apiRes && apiRes.success && apiRes.message) ? {
-    ...apiRes.message,
-    sender_id: myEntityId,
-    sender_phone: currentUser?.phone || '',
-  } : {
+  const newMsg = {
     id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
     sender_id: myEntityId,
     sender_phone: currentUser?.phone || '',
     sender_role: senderRole,
     sender_name: senderName,
-    sender: senderRole === 'quarry_owner' ? 'owner' : senderRole === 'customer' ? 'customer' : 'driver',
     text,
     timestamp: new Date().toISOString(),
     status: 'delivered',
   };
 
+  // 1. Post to Serverless API
+  try {
+    await fetchApi('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        conversationId: contact?.id || `conv_${[myEntityId, targetId].sort().join('_')}`,
+        senderId: myEntityId,
+        senderName,
+        senderRole,
+        text,
+        targetUser: typeof contact === 'object' ? { id: targetId, name: contact.name, role: contact.role, phone: contact.phone } : null,
+      }),
+    });
+  } catch (e) {}
+
+  // 2. Update Local Storage for Instant UI Responsiveness
   if (IS_WEB) {
     const list = webGet(threadKey) || [];
     list.push(newMsg);
     webSet(threadKey, list);
+
+    // Update or Create Conversation aggregate in bf_conversations
+    const convs = webGet('bf_conversations') || [];
+    const convId = contact?.id || `conv_${[myEntityId, targetId].sort().join('_')}`;
+    const cIdx = convs.findIndex(c => c.id === convId);
+
+    if (cIdx !== -1) {
+      convs[cIdx].last_message = text;
+      convs[cIdx].last_message_time = newMsg.timestamp;
+      convs[cIdx].updated_at = newMsg.timestamp;
+      webSet('bf_conversations', convs);
+    } else if (typeof contact === 'object' && contact) {
+      const newConv = {
+        id: convId,
+        type: contact.isGroup ? 'group' : 'direct',
+        name: contact.name,
+        participants: [myEntityId, targetId],
+        participant_details: [
+          { id: myEntityId, name: currentUser?.name || 'User', role: currentUser?.role || 'user' },
+          { id: targetId, name: contact.name, role: contact.role || 'user', phone: contact.phone }
+        ],
+        last_message: text,
+        last_message_time: newMsg.timestamp,
+        unread_counts: { [targetId]: 1, [myEntityId]: 0 },
+        created_at: newMsg.timestamp,
+        updated_at: newMsg.timestamp,
+      };
+      convs.push(newConv);
+      webSet('bf_conversations', convs);
+    }
 
     try {
       if (typeof window !== 'undefined' && window.BroadcastChannel) {
@@ -2467,6 +2390,7 @@ export async function sendUniversalMessage(db, contact, senderRole, senderName, 
 
   return newMsg;
 }
+
 
 export async function editUniversalMessage(db, messageId, newText, threadKey) {
   if (IS_WEB) {
