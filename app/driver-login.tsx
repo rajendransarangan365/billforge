@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
 import { getDatabase, authenticateDriver } from '../src/database/db';
+import { UserPasswordRecoveryModal } from '../src/components';
 
 export default function DriverLoginScreen() {
   const router = useRouter();
@@ -21,6 +22,8 @@ export default function DriverLoginScreen() {
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [recoveryModalVisible, setRecoveryModalVisible] = useState(false);
+
 
   const handleLogin = async () => {
     setError('');
@@ -125,6 +128,15 @@ export default function DriverLoginScreen() {
               )
             }
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{ marginTop: 14, alignItems: 'center' }}
+            onPress={() => setRecoveryModalVisible(true)}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#1565C0', textDecorationLine: 'underline' }}>
+              Forgot Driver Password / Recovery? 🔑
+            </Text>
+          </TouchableOpacity>
         </View>
 
         <View style={[styles.demoBox]}>
@@ -133,10 +145,21 @@ export default function DriverLoginScreen() {
             Demo Driver — Phone: <Text style={{ fontWeight: '700' }}>9876543210</Text>  Pass: <Text style={{ fontWeight: '700' }}>driver123</Text>
           </Text>
         </View>
+
+        <UserPasswordRecoveryModal
+          visible={recoveryModalVisible}
+          onClose={() => setRecoveryModalVisible(false)}
+          role="driver"
+          userPhone={phone}
+          onPasswordResetSuccess={(newPass) => {
+            setPassword(newPass);
+          }}
+        />
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
+
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },

@@ -110,13 +110,21 @@ export function SidebarNav() {
   const handleLogout = () => {
     logout();
     setMobileDrawerOpen(false);
-    router.replace('/select-role');
+    if (typeof window !== 'undefined' && window.location) {
+      window.location.href = '/select-role';
+    } else {
+      router.replace('/select-role');
+    }
   };
 
-  const navSections = role === 'admin' || pathname.startsWith('/admin') ? ADMIN_NAV
-    : role === 'driver' || pathname.startsWith('/driver') ? DRIVER_NAV
-    : role === 'customer' || pathname.startsWith('/customer') ? CUSTOMER_NAV
+  // Strictly enforce user role navigation (NEVER show admin nav to driver/customer/owner)
+  const currentRole = user?.role || role;
+
+  const navSections = currentRole === 'admin' ? ADMIN_NAV
+    : currentRole === 'driver' ? DRIVER_NAV
+    : currentRole === 'customer' ? CUSTOMER_NAV
     : OWNER_NAV;
+
 
   const isCurrentRoute = (r) => {
     if (r === '/(tabs)' && (pathname === '/(tabs)' || pathname === '/(tabs)/index' || pathname === '/quarry')) return true;

@@ -9,4 +9,6 @@ export { SidebarNav } from './SidebarNav';
 export { MinimizedTaskbar } from './MinimizedTaskbar';
 export { LiveTrackingCard } from './LiveTrackingCard';
 export { LeafletMapModal } from './LeafletMapModal';
+export { UserPasswordRecoveryModal } from './UserPasswordRecoveryModal';
+
 

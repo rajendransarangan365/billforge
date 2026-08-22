@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
 import { getDatabase, authenticateCustomerAccount } from '../src/database/db';
+import { UserPasswordRecoveryModal } from '../src/components';
 
 export default function CustomerLoginScreen() {
   const router = useRouter();
@@ -20,6 +21,8 @@ export default function CustomerLoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [recoveryModalVisible, setRecoveryModalVisible] = useState(false);
+
 
   const handleLogin = async () => {
     setError('');
@@ -124,6 +127,15 @@ export default function CustomerLoginScreen() {
               )
             }
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{ marginTop: 14, alignItems: 'center' }}
+            onPress={() => setRecoveryModalVisible(true)}
+          >
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#2E7D32', textDecorationLine: 'underline' }}>
+              Forgot Customer Password / Recovery? 🔑
+            </Text>
+          </TouchableOpacity>
         </View>
 
         <TouchableOpacity style={{ marginTop: 24, alignSelf: 'center', padding: 8 }} onPress={() => router.push('/customer-register')}>
@@ -136,10 +148,21 @@ export default function CustomerLoginScreen() {
             Enter mobile number to log in and view live material prices across all registered quarries.
           </Text>
         </View>
+
+        <UserPasswordRecoveryModal
+          visible={recoveryModalVisible}
+          onClose={() => setRecoveryModalVisible(false)}
+          role="customer"
+          userPhone={phone}
+          onPasswordResetSuccess={(newPass) => {
+            setPassword(newPass);
+          }}
+        />
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
+
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },

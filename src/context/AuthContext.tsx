@@ -63,7 +63,15 @@ export function AuthProvider({ children }) {
   const logout = () => {
     setUser(null);
     Storage.removeItem(SESSION_KEY).catch(() => {});
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem('bf_user_session');
+        localStorage.removeItem('bf_user_role');
+        localStorage.removeItem('bf_active_user');
+      } catch (e) {}
+    }
   };
+
 
   const role = user?.role || null;
   const quarryId = user?.quarry_id || null;
