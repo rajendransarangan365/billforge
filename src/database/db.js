@@ -164,7 +164,12 @@ export async function getAllQuarryCatalogs(db) {
 
     const result = [];
     for (const q of quarryList) {
-      let materials = webGet(qKey(q.id, 'material_catalog')) || webGet(qKey(q.id, 'materials')) || webGet(`bf_quarry_${q.id}_materials`) || [];
+      const qid = q.id || 1;
+      let materials = webGet(qKey(qid, 'materials')) || 
+                        webGet(qKey(qid, 'material_catalog')) || 
+                        webGet(`bf_quarry_${qid}_materials`) || 
+                        webGet('bf_quarry_1_materials') || [];
+
       if (!Array.isArray(materials) || materials.length === 0) {
         materials = [
           { id: 101, name: 'M-Sand', price_per_unit: 2600, price: 2600, unit_type: 'unit', unit: 'unit' },
@@ -174,10 +179,19 @@ export async function getAllQuarryCatalogs(db) {
           { id: 105, name: 'Gravel / GSV Soil', price_per_unit: 1400, price: 1400, unit_type: 'unit', unit: 'unit' },
         ];
       }
+
+      const normalizedMats = materials.map(m => ({
+        ...m,
+        price_per_unit: m.price_per_unit || m.price || 0,
+        price: m.price_per_unit || m.price || 0,
+        unit_type: m.unit_type || m.unit || 'unit',
+        unit: m.unit_type || m.unit || 'unit',
+      }));
+
       result.push({
         quarry: q,
         ...q,
-        materials: Array.isArray(materials) ? materials : [],
+        materials: normalizedMats,
       });
     }
     return result;
@@ -1550,6 +1564,7 @@ export async function sendChatMessage(db, quarryId = 1, customerPhone = '9894698
   const phone = (customerPhone || '9894698049').trim();
   if (IS_WEB) {
     const key = `bf_chat_${qid}_${phone}`;
+    const threadKey = `bf_chat_customer_${phone}_quarry_${qid}`;
     const list = webGet(key) || [];
     const msg = {
       id: `msg-${Date.now()}`,
@@ -1562,6 +1577,20 @@ export async function sendChatMessage(db, quarryId = 1, customerPhone = '9894698
     };
     list.push(msg);
     webSet(key, list);
+
+    // Sync with 1-to-1 thread key
+    const universalList = webGet(threadKey) || [];
+    universalList.push({
+      id: msg.id,
+      sender_id: sender === 'customer' ? `customer_${phone}` : `quarry_${qid}`,
+      sender_phone: phone,
+      sender_role: sender === 'customer' ? 'customer' : 'quarry_owner',
+      sender_name: msg.sender_name,
+      text,
+      timestamp: msg.timestamp,
+      status: 'delivered',
+    });
+    webSet(threadKey, universalList);
 
     const chatsKey = qKey(qid, 'chats_index');
     const index = webGet(chatsKey) || [];
@@ -1597,6 +1626,14 @@ export async function sendChatMessage(db, quarryId = 1, customerPhone = '9894698
       });
     }
     webSet(enquiriesKey, enquiries);
+
+    try {
+      if (typeof window !== 'undefined' && window.BroadcastChannel) {
+        const bc = new window.BroadcastChannel('billforge_chat');
+        bc.postMessage({ type: 'NEW_MESSAGE', threadKey });
+        bc.close();
+      }
+    } catch (e) { }
 
     return msg;
   }
@@ -1825,8 +1862,8 @@ export function getSharedThreadKey(contact, currentUser) {
 
 export async function getUniversalMessages(db, contact, currentUser) {
   const threadKey = typeof contact === 'string' ? `bf_chat_${contact}` : getSharedThreadKey(contact, currentUser);
-  const qid = typeof contact === 'object' ? (contact?.quarry_id || currentUser?.quarryId) : null;
-  const phone = typeof contact === 'object' ? (contact?.phone || currentUser?.phone) : null;
+  const qid = typeof contact === 'object' ? (contact?.quarry_id || contact?.quarryId || currentUser?.quarryId || 1) : 1;
+  const phone = typeof contact === 'object' ? (contact?.phone || currentUser?.phone || '') : (currentUser?.phone || '');
 
   // Try MongoDB serverless chat
   if (qid && phone) {
@@ -1839,6 +1876,34 @@ export async function getUniversalMessages(db, contact, currentUser) {
 
   if (IS_WEB) {
     let msgs = webGet(threadKey) || [];
+
+    // Merge legacy chat messages if any exist
+    if (phone) {
+      const legacyKey1 = `bf_chat_${qid}_${phone}`;
+      const legacyKey2 = `bf_chat_1_${phone}`;
+      const legacyMsgs = webGet(legacyKey1) || webGet(legacyKey2) || [];
+
+      if (legacyMsgs.length > 0) {
+        const existingIds = new Set(msgs.map(m => m.id));
+        for (const lm of legacyMsgs) {
+          if (!existingIds.has(lm.id)) {
+            msgs.push({
+              id: lm.id || `msg-${Date.now()}`,
+              sender_id: lm.sender === 'customer' ? `customer_${phone}` : `quarry_${qid}`,
+              sender_phone: phone,
+              sender_role: lm.sender === 'customer' ? 'customer' : 'quarry_owner',
+              sender_name: lm.sender_name || (lm.sender === 'customer' ? 'Customer' : 'Quarry Owner'),
+              text: lm.text,
+              timestamp: lm.timestamp || new Date().toISOString(),
+              status: 'delivered',
+            });
+          }
+        }
+        msgs.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        webSet(threadKey, msgs);
+      }
+    }
+
     if (msgs.length > 0) return msgs;
 
     const isGroup = contact?.isGroup || contact?.role === 'group';
@@ -2333,16 +2398,37 @@ export async function getMaterialCatalog(db, quarryId) {
 }
 
 export async function saveMaterialListing(db, quarryId, listing) {
+  const qid = parseInt(quarryId) || 1;
   if (IS_WEB) {
-    const materials = webGet(qKey(quarryId, 'materials')) || [];
+    const materials = webGet(qKey(qid, 'materials')) || [];
+    const priceVal = parseFloat(listing.price ?? listing.price_per_unit) || 0;
+    const unitVal = listing.unit ?? listing.unit_type ?? 'unit';
+
+    const itemToSave = {
+      ...listing,
+      quarry_id: qid,
+      price: priceVal,
+      price_per_unit: priceVal,
+      unit: unitVal,
+      unit_type: unitVal,
+      is_active: listing.is_active !== false,
+      updated_at: new Date().toISOString(),
+    };
+
     if (listing.id) {
       const idx = materials.findIndex(m => m.id === listing.id);
-      if (idx !== -1) { materials[idx] = { ...materials[idx], ...listing, updated_at: new Date().toISOString() }; }
+      if (idx !== -1) { materials[idx] = { ...materials[idx], ...itemToSave }; }
     } else {
       const newId = materials.reduce((max, m) => m.id > max ? m.id : max, 100) + 1;
-      materials.push({ ...listing, id: newId, quarry_id: quarryId, is_active: true, created_at: new Date().toISOString() });
+      materials.push({ ...itemToSave, id: newId, created_at: new Date().toISOString() });
     }
-    webSet(qKey(quarryId, 'materials'), materials);
+
+    // Save across ALL key aliases so customer marketplace & bill forms see it immediately
+    webSet(qKey(qid, 'materials'), materials);
+    webSet(qKey(qid, 'material_catalog'), materials);
+    webSet(`bf_quarry_${qid}_materials`, materials);
+    webSet('bf_quarry_1_materials', materials);
+
     return materials;
   }
   return [];
