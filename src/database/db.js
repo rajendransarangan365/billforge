@@ -369,6 +369,7 @@ async function initializeSchema(db) {
       name TEXT NOT NULL, owner_name TEXT DEFAULT '',
       phone TEXT NOT NULL, password TEXT DEFAULT 'admin123',
       address TEXT DEFAULT '', location TEXT DEFAULT '',
+      email TEXT DEFAULT '', lat REAL DEFAULT 0, lng REAL DEFAULT 0,
       status TEXT DEFAULT 'active',
       created_at TEXT DEFAULT (datetime('now'))
     );
@@ -395,6 +396,9 @@ async function initializeSchema(db) {
     CREATE TABLE IF NOT EXISTS customers (
       id INTEGER PRIMARY KEY AUTOINCREMENT, quarry_id INTEGER,
       name TEXT NOT NULL, phone TEXT DEFAULT '', address TEXT DEFAULT '',
+      email TEXT DEFAULT '', password TEXT DEFAULT 'customer123',
+      must_change_password INTEGER DEFAULT 0,
+      lat REAL DEFAULT 0, lng REAL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS payments (
@@ -421,7 +425,10 @@ async function initializeSchema(db) {
     CREATE TABLE IF NOT EXISTS drivers (
       id INTEGER PRIMARY KEY AUTOINCREMENT, quarry_id INTEGER,
       name TEXT NOT NULL, phone TEXT NOT NULL, vehicle_no TEXT DEFAULT '',
-      password TEXT DEFAULT 'driver123', status TEXT DEFAULT 'Available',
+      email TEXT DEFAULT '', password TEXT DEFAULT 'driver123',
+      must_change_password INTEGER DEFAULT 0,
+      lat REAL DEFAULT 0, lng REAL DEFAULT 0,
+      status TEXT DEFAULT 'Available',
       created_at TEXT DEFAULT (datetime('now'))
     );
     CREATE TABLE IF NOT EXISTS consignments (
@@ -821,6 +828,7 @@ export async function verifyTempPasswordAndSetNew(db, role, phone, tempPassword,
       if (idx !== -1) {
         quarries[idx].password = newPassword.trim();
         delete quarries[idx].is_temp_password;
+        quarries[idx].must_change_password = 0;
         webSet('bf_quarries', quarries);
       }
       if (q1Profile) {
@@ -832,6 +840,7 @@ export async function verifyTempPasswordAndSetNew(db, role, phone, tempPassword,
       const idx = customers.findIndex(c => String(c.phone).replace(/\D/g, '') === cleanPhone);
       if (idx !== -1) {
         customers[idx].password = newPassword.trim();
+        customers[idx].must_change_password = 0;
         webSet('bf_customers', customers);
       }
     } else if (role === 'driver') {
@@ -839,6 +848,7 @@ export async function verifyTempPasswordAndSetNew(db, role, phone, tempPassword,
       const idx = drivers.findIndex(d => String(d.phone).replace(/\D/g, '') === cleanPhone);
       if (idx !== -1) {
         drivers[idx].password = newPassword.trim();
+        drivers[idx].must_change_password = 0;
         webSet('bf_drivers', drivers);
       }
     }
@@ -2864,4 +2874,62 @@ export async function toggleMaterialActive(db, quarryId, materialId) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADMIN USER MANAGEMENT & PROFILES
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function issueTempPassword(db, role, phone, tempPassword) {
+  if (IS_WEB) {
+    if (role === 'driver') {
+      const drivers = webGet('bf_drivers') || [];
+      const d = drivers.find(d => d.phone === phone);
+      if (d) {
+        d.password = tempPassword;
+        d.must_change_password = 1;
+        webSet('bf_drivers', drivers);
+        return true;
+      }
+    } else if (role === 'customer') {
+      const customers = webGet('bf_global_customers') || [];
+      const c = customers.find(c => c.phone === phone);
+      if (c) {
+        c.password = tempPassword;
+        c.must_change_password = 1;
+        webSet('bf_global_customers', customers);
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
+export async function updateUserProfile(db, role, id, updates) {
+  if (IS_WEB) {
+    if (role === 'quarry_owner') {
+      // Just update the main quarry object for simplicity in this demo
+      const quarries = webGet('bf_quarries') || [];
+      const q = quarries.find(q => q.id === id);
+      if (q) {
+        Object.assign(q, updates);
+        webSet('bf_quarries', quarries);
+        return q;
+      }
+    } else if (role === 'driver') {
+      const drivers = webGet('bf_drivers') || [];
+      const d = drivers.find(d => d.id === id);
+      if (d) {
+        Object.assign(d, updates);
+        webSet('bf_drivers', drivers);
+        return d;
+      }
+    } else if (role === 'customer') {
+      const customers = webGet('bf_global_customers') || [];
+      const c = customers.find(c => c.id === id);
+      if (c) {
+        Object.assign(c, updates);
+        webSet('bf_global_customers', customers);
+        return c;
+      }
+    }
+  }
+  return null;
+}

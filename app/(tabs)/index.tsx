@@ -291,16 +291,25 @@ export default function DashboardScreen() {
           </View>
           <Text style={styles.date}>{todayStr()}</Text>
         </View>
-        <TouchableOpacity
-          style={styles.switchPortalBtn}
-          onPress={() => {
-            logout();
-            router.push('/select-role');
-          }}
-        >
-          <Ionicons name="swap-horizontal" size={16} color={Colors.primary} />
-          <Text style={styles.switchPortalText}>Portal</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity
+            style={styles.switchPortalBtn}
+            onPress={() => router.push('/profile')}
+          >
+            <Ionicons name="person-circle" size={16} color={Colors.primary} />
+            <Text style={styles.switchPortalText}>Profile</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.switchPortalBtn}
+            onPress={() => {
+              logout();
+              router.push('/select-role');
+            }}
+          >
+            <Ionicons name="swap-horizontal" size={16} color={Colors.primary} />
+            <Text style={styles.switchPortalText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView

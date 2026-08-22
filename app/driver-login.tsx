@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
 import { getDatabase, authenticateDriver } from '../src/database/db';
-import { UserPasswordRecoveryModal } from '../src/components';
+import { UserPasswordRecoveryModal, ForcePasswordChangeModal } from '../src/components';
 
 export default function DriverLoginScreen() {
   const router = useRouter();
@@ -23,6 +23,8 @@ export default function DriverLoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [recoveryModalVisible, setRecoveryModalVisible] = useState(false);
+  const [forceChangeVisible, setForceChangeVisible] = useState(false);
+  const [tempAuthData, setTempAuthData] = useState<any>(null);
 
 
   const handleLogin = async () => {
@@ -35,13 +37,18 @@ export default function DriverLoginScreen() {
       const db = await getDatabase();
       const authenticated = await authenticateDriver(db, phone.trim(), password.trim());
       if (authenticated) {
-        loginDriver(authenticated);
-        router.replace('/driver-portal');
+        if (authenticated.must_change_password === 1) {
+          setTempAuthData(authenticated);
+          setForceChangeVisible(true);
+        } else {
+          loginDriver(authenticated);
+          router.replace('/driver-portal');
+        }
       } else {
         setError('Invalid driver credentials. (Demo: 9876543210 / driver123)');
       }
-    } catch (e) {
-      setError('Login failed. Please try again.');
+    } catch (e: any) {
+      setError(e.message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -153,6 +160,20 @@ export default function DriverLoginScreen() {
           userPhone={phone}
           onPasswordResetSuccess={(newPass) => {
             setPassword(newPass);
+          }}
+        />
+
+        <ForcePasswordChangeModal
+          visible={forceChangeVisible}
+          role="driver"
+          userPhone={phone}
+          onSuccess={(newPass) => {
+            setForceChangeVisible(false);
+            setPassword(newPass);
+            if (tempAuthData) {
+              loginDriver({ ...tempAuthData, must_change_password: 0 });
+              router.replace('/driver-portal');
+            }
           }}
         />
       </ScrollView>

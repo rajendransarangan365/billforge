@@ -58,6 +58,7 @@ export default function AdminPortalScreen() {
   // Admin dashboard state
   const [quarries, setQuarries] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -71,13 +72,32 @@ export default function AdminPortalScreen() {
   const [regAddress, setRegAddress] = useState('');
   const [regSaving, setRegSaving] = useState(false);
 
+  // SMTP & EmailJS config state
+  const [smtpUser, setSmtpUser] = useState('');
+  const [smtpPass, setSmtpPass] = useState('');
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState('465');
+  const [adminNoticeEmail, setAdminNoticeEmail] = useState('');
+  const [emailjsServiceId, setEmailjsServiceId] = useState('');
+  const [emailjsTemplateId, setEmailjsTemplateId] = useState('');
+  const [emailjsPublicKey, setEmailjsPublicKey] = useState('');
+
+
   const loadData = useCallback(async () => {
     try {
       const db = await getDatabase();
       const qList = await getAllQuarries(db);
       const dList = await getGlobalDrivers(db);
+      
+      // Load global customers directly from localStorage for demo purposes
+      let cList = [];
+      if (typeof window !== 'undefined' && window.localStorage) {
+        cList = JSON.parse(window.localStorage.getItem('bf_global_customers') || '[]');
+      }
+      
       setQuarries(qList);
       setDrivers(dList);
+      setCustomers(cList);
     } catch (e) {
       console.error('Admin Load Error:', e);
     } finally {
@@ -580,10 +600,17 @@ export default function AdminPortalScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
+              style={[{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center' }, activeTab === 'customers' && { backgroundColor: '#E8F5E9', borderWidth: 1, borderColor: '#C8E6C9' }]}
+              onPress={() => setActiveTab('customers')}
+            >
+              <Text style={{ fontSize: 13, fontWeight: '700', color: activeTab === 'customers' ? '#2E7D32' : Colors.textSecondary }}>👥 Users ({customers.length})</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={[{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center' }, activeTab === 'settings' && { backgroundColor: '#FFF3E0', borderWidth: 1, borderColor: '#FFE0B2' }]}
               onPress={() => setActiveTab('settings')}
             >
-              <Text style={{ fontSize: 13, fontWeight: '700', color: activeTab === 'settings' ? '#E65100' : Colors.textSecondary }}>⚙️ SMTP & Mail</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: activeTab === 'settings' ? '#E65100' : Colors.textSecondary }}>⚙️ SMTP</Text>
             </TouchableOpacity>
           </View>
 
@@ -767,13 +794,66 @@ export default function AdminPortalScreen() {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.quarryName}>{d.name}</Text>
-                      <Text style={styles.quarryOwner}>Vehicle: {d.vehicle_no || 'Lorry'} • Mobile: {d.phone}</Text>
+                      <Text style={styles.quarryOwner}>Vehicle: {d.vehicle_no || 'Lorry'}   Mobile: {d.phone}</Text>
                     </View>
-                    <View style={[styles.statusBadge, { backgroundColor: '#E3F2FD' }]}>
-                      <Text style={[styles.statusBadgeText, { color: '#1565C0' }]}>AVAILABLE</Text>
-                    </View>
+                    <TouchableOpacity 
+                      style={[styles.statusBadge, { backgroundColor: '#FFF3E0', paddingHorizontal: 12, paddingVertical: 6 }]}
+                      onPress={async () => {
+                        try {
+                          const { issueTempPassword, getDatabase } = require('../src/database/db');
+                          const db = await getDatabase();
+                          const tempPass = 'temp' + Math.floor(1000 + Math.random() * 9000);
+                          await issueTempPassword(db, 'driver', d.phone, tempPass);
+                          Alert.alert('Temp Password Issued 🔐', `Provide this to the driver over call.\n\nPhone: ${d.phone}\nTemp Password: ${tempPass}\n\nThey will be forced to change it upon login.`);
+                          loadData();
+                        } catch(e) {
+                          Alert.alert('Error', 'Failed to issue temp password');
+                        }
+                      }}
+                    >
+                      <Ionicons name="key-outline" size={14} color="#E65100" />
+                      <Text style={[styles.statusBadgeText, { color: '#E65100', marginLeft: 4 }]}>Issue Temp Pass</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
+              ))}
+            </View>
+          ) : activeTab === 'customers' ? (
+            <View style={{ gap: 14 }}>
+              <Text style={styles.sectionTitle}>Global Customers & Users ({customers.length})</Text>
+              {customers.map(c => (
+                <View key={c.id} style={styles.quarryCard}>
+                  <View style={styles.quarryHeader}>
+                    <View style={[styles.quarryAvatar, { backgroundColor: '#E8F5E9' }]}>
+                      <Ionicons name="person" size={20} color="#2E7D32" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.quarryName}>{c.name}</Text>
+                      <Text style={styles.quarryOwner}>Mobile: {c.phone}</Text>
+                    </View>
+                    <TouchableOpacity 
+                      style={[styles.statusBadge, { backgroundColor: '#FFF3E0', paddingHorizontal: 12, paddingVertical: 6 }]}
+                      onPress={async () => {
+                        try {
+                          const { issueTempPassword, getDatabase } = require('../src/database/db');
+                          const db = await getDatabase();
+                          const tempPass = 'temp' + Math.floor(1000 + Math.random() * 9000);
+                          await issueTempPassword(db, 'customer', c.phone, tempPass);
+                          Alert.alert('Temp Password Issued 🔐', `Provide this to the customer over call.\n\nPhone: ${c.phone}\nTemp Password: ${tempPass}\n\nThey will be forced to change it upon login.`);
+                          loadData();
+                        } catch(e) {
+                          Alert.alert('Error', 'Failed to issue temp password');
+                        }
+                      }}
+                    >
+                      <Ionicons name="key-outline" size={14} color="#E65100" />
+                      <Text style={[styles.statusBadgeText, { color: '#E65100', marginLeft: 4 }]}>Issue Temp Pass</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : (/View>
               ))}
             </View>
           ) : (

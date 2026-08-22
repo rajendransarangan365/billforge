@@ -10,5 +10,5 @@ export { MinimizedTaskbar } from './MinimizedTaskbar';
 export { LiveTrackingCard } from './LiveTrackingCard';
 export { LeafletMapModal } from './LeafletMapModal';
 export { UserPasswordRecoveryModal } from './UserPasswordRecoveryModal';
-
-
+export { ForcePasswordChangeModal } from './ForcePasswordChangeModal';
+export { ProfileSettingsModal } from './ProfileSettingsModal';

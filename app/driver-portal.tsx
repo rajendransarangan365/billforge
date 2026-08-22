@@ -12,7 +12,9 @@ import { useAuth } from '../src/context/AuthContext';
 import {
   getDatabase, getDriverTrips, getConsignments, saveConsignment,
   getDriverRateCard, saveDriverRateCard, getConsignmentDocuments,
+  updateTripStatus, getTripsForDriver,
 } from '../src/database/db';
+import { ProfileSettingsModal } from '../src/components';
 
 export default function DriverPortalScreen() {
   const router = useRouter();
@@ -38,6 +40,12 @@ export default function DriverPortalScreen() {
   const [docModalVisible, setDocModalVisible] = useState(false);
   const [currentDocs, setCurrentDocs] = useState([]);
   const [selectedTrip, setSelectedTrip] = useState(null);
+
+  const [selectedTrip, setSelectedTrip] = useState(null);
+
+  // Profile State
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [currentUserProfile, setCurrentUserProfile] = useState(user);
 
   const [prevTripCount, setPrevTripCount] = useState<number | null>(null);
 
@@ -128,7 +136,6 @@ export default function DriverPortalScreen() {
     Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encoded}`).catch(() => {});
   };
 
-  // Geo-fence enabled status update
   const handleUpdateStatus = async (consignment, newStatus, label) => {
     // Geo-fence check for critical statuses
     const geoFencedStatuses = {
@@ -140,7 +147,7 @@ export default function DriverPortalScreen() {
       const target = geoFencedStatuses[newStatus];
       try {
         if (Platform.OS === 'web' && navigator?.geolocation) {
-          Alert.alert('📍 Location Check', `We'll verify you're within 150m of "${target.address}". Allow location access?`, [
+          Alert.alert('📍 Location Check', `We'll verify you're within 150m of "${target.address || 'destination'}". Allow location access?`, [
             { text: 'Cancel', style: 'cancel' },
             {
               text: 'Check Location', onPress: async () => {
@@ -150,19 +157,23 @@ export default function DriverPortalScreen() {
                   // If we have target coords, check distance; otherwise proceed
                   if (target.lat && target.lng) {
                     const R = 6371000;
-                    const toRad = (d) => (d * Math.PI) / 180;
-                    const dLat2 = toRad(target.lat - dLat);
-                    const dLng2 = toRad(target.lng - dLng);
-                    const a = Math.sin(dLat2/2)**2 + Math.cos(toRad(dLat)) * Math.cos(toRad(target.lat)) * Math.sin(dLng2/2)**2;
-                    const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-                    if (dist > 300) {
-                      Alert.alert('🚫 Too Far', `You appear to be ${Math.round(dist)}m away from the ${newStatus === 'reached_quarry' ? 'quarry' : 'customer site'}. Move closer and try again.`);
+                    const dLatR = (target.lat - dLat) * Math.PI / 180;
+                    const dLngR = (target.lng - dLng) * Math.PI / 180;
+                    const a = Math.sin(dLatR/2) * Math.sin(dLatR/2) + Math.cos(dLat * Math.PI / 180) * Math.cos(target.lat * Math.PI / 180) * Math.sin(dLngR/2) * Math.sin(dLngR/2);
+                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                    const dist = R * c;
+                    
+                    if (dist > 150) {
+                      Alert.alert('Geofence Alert', `You are ${Math.round(dist)}m away from the target location. Please move closer.\n\n(Demo: Bypass this error to continue?)`, [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Bypass (Demo)', onPress: () => doUpdateStatus(consignment, newStatus, label, { lat: dLat, lng: dLng }) }
+                      ]);
                       return;
                     }
                   }
                   await doUpdateStatus(consignment, newStatus, label, { lat: dLat, lng: dLng });
                 }, async () => {
-                  // Location denied — allow with warning
+                  // Location denied - allow with warning
                   Alert.alert('Location Unavailable', 'Could not verify location. Proceeding anyway.', [
                     { text: 'OK', onPress: () => doUpdateStatus(consignment, newStatus, label, null) }
                   ]);
@@ -209,6 +220,87 @@ export default function DriverPortalScreen() {
     }
   };
 
+  const getGeoLocationPromise = () => {
+    return new Promise((resolve, reject) => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          (err) => reject(err)
+        );
+      } else {
+        reject(new Error('Geolocation not supported'));
+      }
+    });
+  };
+
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3; // metres
+    const φ1 = lat1 * Math.PI/180; // φ, λ in radians
+    const φ2 = lat2 * Math.PI/180;
+    const Δφ = (lat2-lat1) * Math.PI/180;
+    const Δλ = (lon2-lon1) * Math.PI/180;
+
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // in metres
+  };
+
+  const handleTripStage = async (trip, nextStage) => {
+    try {
+      setLoading(true);
+      const db = await getDatabase();
+      // Try to get actual geo, fallback to mock if failed to allow testing
+      let geo = null;
+      try {
+        geo = await getGeoLocationPromise();
+        
+        // Geofencing verification (e.g., must be within 100m of quarry to mark reached_quarry)
+        if (nextStage === 'reached_quarry' && trip.from_lat && trip.from_lng) {
+          const dist = calculateDistance(geo.lat, geo.lng, trip.from_lat, trip.from_lng);
+          if (dist > 150) { // 150 meters tolerance
+            Alert.alert('Geofence Alert', `You appear to be ${Math.round(dist)}m away from the quarry. Please move closer to mark arrival.\n\n(Demo: Bypass this error to continue?)`, [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Bypass (Demo)', onPress: () => forceUpdateTripStage(db, trip, nextStage, geo) }
+            ]);
+            setLoading(false);
+            return;
+          }
+        }
+        
+        if (nextStage === 'reached_customer' && trip.to_lat && trip.to_lng) {
+          const dist = calculateDistance(geo.lat, geo.lng, trip.to_lat, trip.to_lng);
+          if (dist > 150) {
+            Alert.alert('Geofence Alert', `You appear to be ${Math.round(dist)}m away from the delivery site. Please move closer.\n\n(Demo: Bypass this error to continue?)`, [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Bypass (Demo)', onPress: () => forceUpdateTripStage(db, trip, nextStage, geo) }
+            ]);
+            setLoading(false);
+            return;
+          }
+        }
+
+      } catch (err) {
+        console.warn('Geo failed', err);
+        // Fallback mock geo for demo
+        geo = { lat: 11.0168, lng: 76.9558 }; 
+      }
+
+      await forceUpdateTripStage(db, trip, nextStage, geo);
+    } catch (e) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const forceUpdateTripStage = async (db, trip, nextStage, geo) => {
+    await updateTripStatus(db, trip.id, nextStage, geo);
+    Alert.alert('Success', `Trip status updated to: ${nextStage.replace('_', ' ')}`);
+    loadData();
+  };
+
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -218,15 +310,15 @@ export default function DriverPortalScreen() {
           <Ionicons name="arrow-back" size={20} color={Colors.navy} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>{driverName}</Text>
+          <Text style={styles.headerTitle}>{currentUserProfile?.name || driverName}</Text>
           <Text style={styles.headerSub}>Vehicle: {vehicleNo}</Text>
         </View>
         <TouchableOpacity style={[styles.refreshBtn, { backgroundColor: '#E3F2FD', paddingHorizontal: 10, width: 'auto', flexDirection: 'row', gap: 4 }]} onPress={() => setModalRateVisible(true)}>
           <Ionicons name="pricetag-outline" size={16} color="#1565C0" />
           <Text style={{ fontSize: 12, fontWeight: '700', color: '#1565C0' }}>Rate Card</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.refreshBtn} onPress={() => { setRefreshing(true); loadData(); }}>
-          <Ionicons name="refresh" size={18} color="#1565C0" />
+        <TouchableOpacity style={[styles.refreshBtn, { marginLeft: 8 }]} onPress={() => setProfileModalVisible(true)}>
+          <Ionicons name="person-circle" size={22} color="#1565C0" />
         </TouchableOpacity>
       </View>
 
@@ -316,18 +408,24 @@ export default function DriverPortalScreen() {
                 {/* Status Action Buttons */}
                 <View style={styles.actionRow}>
                   {c.status === 'assigned' && (
-                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: Colors.primary }]} onPress={() => handleUpdateStatus(c, 'reached_pickup', 'Reached Quarry')}>
+                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: Colors.primary }]} onPress={() => handleUpdateStatus(c, 'reached_quarry', 'Reached Quarry')}>
                       <Ionicons name="location-outline" size={16} color="#FFF" />
                       <Text style={styles.actionBtnText}>Reached Quarry</Text>
                     </TouchableOpacity>
                   )}
-                  {c.status === 'reached_pickup' && (
-                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#1565C0' }]} onPress={() => handleUpdateStatus(c, 'loaded', 'Material Loaded')}>
+                  {c.status === 'reached_quarry' && (
+                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#F57C00' }]} onPress={() => handleUpdateStatus(c, 'picked_up', 'Material Loaded')}>
                       <Ionicons name="cube-outline" size={16} color="#FFF" />
-                      <Text style={styles.actionBtnText}>Loaded & In Transit</Text>
+                      <Text style={styles.actionBtnText}>Material Picked Up</Text>
                     </TouchableOpacity>
                   )}
-                  {c.status === 'loaded' && (
+                  {c.status === 'picked_up' && (
+                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#1565C0' }]} onPress={() => handleUpdateStatus(c, 'reached_customer', 'Reached Delivery Site')}>
+                      <Ionicons name="navigate-circle-outline" size={16} color="#FFF" />
+                      <Text style={styles.actionBtnText}>Reached Drop Loc.</Text>
+                    </TouchableOpacity>
+                  )}
+                  {c.status === 'reached_customer' && (
                     <TouchableOpacity style={[styles.actionBtn, { backgroundColor: Colors.success }]} onPress={() => handleUpdateStatus(c, 'delivered', 'Delivered to Site')}>
                       <Ionicons name="checkmark-circle-outline" size={16} color="#FFF" />
                       <Text style={styles.actionBtnText}>Mark Delivered</Text>
@@ -387,6 +485,14 @@ export default function DriverPortalScreen() {
           </View>
         </View>
       </Modal>
+
+      <ProfileSettingsModal
+        visible={profileModalVisible}
+        onClose={() => setProfileModalVisible(false)}
+        role="driver"
+        userProfile={currentUserProfile}
+        onProfileUpdated={(updated) => setCurrentUserProfile(updated)}
+      />
 
       {/* Legal Transport Docs Modal */}
       <Modal visible={docModalVisible} animationType="slide" transparent>

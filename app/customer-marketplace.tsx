@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
 import { getDatabase, getAllQuarryCatalogs, saveEnquiry, sendChatMessage, getChatMessages } from '../src/database/db';
+import { ProfileSettingsModal } from '../src/components';
 
 export default function CustomerMarketplaceScreen() {
   const router = useRouter();
@@ -22,6 +23,10 @@ export default function CustomerMarketplaceScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Profile State
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [currentUserProfile, setCurrentUserProfile] = useState(user);
 
   // Enquiry Modal state
   const [modalVisible, setModalVisible] = useState(false);
@@ -178,9 +183,12 @@ export default function CustomerMarketplaceScreen() {
           <Ionicons name="arrow-back" size={20} color={Colors.navy} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Quarry Materials Marketplace</Text>
-          <Text style={styles.subTitle}>Browse Live Material Rates & Enquire Directly</Text>
+          <Text style={styles.title}>Welcome, {currentUserProfile?.name || customerName}</Text>
+          <Text style={styles.subTitle}>Find nearest quarries & best prices</Text>
         </View>
+        <TouchableOpacity style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#E8F5E9', alignItems: 'center', justifyContent: 'center' }} onPress={() => setProfileModalVisible(true)}>
+          <Ionicons name="person-circle" size={24} color="#2E7D32" />
+        </TouchableOpacity>
       </View>
 
       {/* Search Bar */}
@@ -373,6 +381,15 @@ export default function CustomerMarketplaceScreen() {
           </View>
         </View>
       </Modal>
+
+      <ProfileSettingsModal
+        visible={profileModalVisible}
+        onClose={() => setProfileModalVisible(false)}
+        role="customer"
+        userProfile={currentUserProfile}
+        onProfileUpdated={(updated) => setCurrentUserProfile(updated)}
+      />
+
     </View>
   );
 }

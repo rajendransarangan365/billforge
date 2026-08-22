@@ -10,8 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
 import { getDatabase, authenticateCustomerAccount } from '../src/database/db';
-import { UserPasswordRecoveryModal } from '../src/components';
-
+import { UserPasswordRecoveryModal, ForcePasswordChangeModal } from '../src/components';
 export default function CustomerLoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -22,6 +21,8 @@ export default function CustomerLoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [recoveryModalVisible, setRecoveryModalVisible] = useState(false);
+  const [forceChangeVisible, setForceChangeVisible] = useState(false);
+  const [tempAuthData, setTempAuthData] = useState<any>(null);
 
 
   const handleLogin = async () => {
@@ -33,9 +34,14 @@ export default function CustomerLoginScreen() {
     try {
       const db = await getDatabase();
       const user = await authenticateCustomerAccount(db, phone.trim(), password.trim());
-      loginCustomer(user);
-      router.replace('/customer-marketplace');
-    } catch (e) {
+      if (user.must_change_password === 1) {
+        setTempAuthData(user);
+        setForceChangeVisible(true);
+      } else {
+        loginCustomer(user);
+        router.replace('/customer-marketplace');
+      }
+    } catch (e: any) {
       setError(e.message || 'Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
@@ -156,6 +162,20 @@ export default function CustomerLoginScreen() {
           userPhone={phone}
           onPasswordResetSuccess={(newPass) => {
             setPassword(newPass);
+          }}
+        />
+
+        <ForcePasswordChangeModal
+          visible={forceChangeVisible}
+          role="customer"
+          userPhone={phone}
+          onSuccess={(newPass) => {
+            setForceChangeVisible(false);
+            setPassword(newPass);
+            if (tempAuthData) {
+              loginCustomer({ ...tempAuthData, must_change_password: 0 });
+              router.replace('/customer-marketplace');
+            }
           }}
         />
       </ScrollView>

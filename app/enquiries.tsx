@@ -11,7 +11,7 @@ import { Colors, Typography, Spacing, BorderRadius } from '../src/theme';
 import { Button, Input, EmptyState } from '../src/components';
 import {
   getDatabase, getEnquiries, saveEnquiry, getDrivers, saveConsignment,
-  getQuarryChats, getChatMessages, sendChatMessage, saveConsignmentDocument,
+  getQuarryChats, getChatMessages, sendChatMessage, saveConsignmentDocument, getGlobalDrivers,
 } from '../src/database/db';
 import { useAuth } from '../src/context/AuthContext';
 
@@ -56,10 +56,22 @@ export default function EnquiriesScreen() {
     try {
       const db = await getDatabase();
       const list = await getEnquiries(db, activeQuarryId);
-      const driverList = await getDrivers(db, activeQuarryId);
+      const localDrivers = await getDrivers(db, activeQuarryId);
+      const globalDrivers = await getGlobalDrivers(db);
+      
+      // Combine local and global drivers, avoiding duplicates
+      const driverMap = new Map();
+      localDrivers.forEach(d => driverMap.set(d.id, { ...d, isLocal: true }));
+      globalDrivers.forEach(d => {
+        if (!driverMap.has(d.id)) {
+          driverMap.set(d.id, { ...d, isLocal: false });
+        }
+      });
+      const combinedDrivers = Array.from(driverMap.values());
+      
       const chatIndex = await getQuarryChats(db, activeQuarryId);
       setEnquiries(list);
-      setDrivers(driverList);
+      setDrivers(combinedDrivers);
       setChats(chatIndex);
     } catch (e) {
       console.error('Enquiries load error:', e);
@@ -425,24 +437,22 @@ export default function EnquiriesScreen() {
 
             <ScrollView style={{ maxHeight: 220, marginVertical: 12 }}>
               {drivers.map(d => (
-                <View
+                <TouchableOpacity
                   key={d.id}
-                  style={[styles.driverRow, selectedDriverId === d.id && styles.driverRowActive]}
+                  style={[
+                    styles.driverRow, 
+                    selectedDriverId === d.id && styles.driverRowActive, 
+                    { flexDirection: 'row', alignItems: 'center' }
+                  ]}
+                  onPress={() => setSelectedDriverId(d.id)}
                 >
-                  <TouchableOpacity
-                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                    onPress={() => setSelectedDriverId(d.id)}
-                  >
-                    <Ionicons name="person-circle" size={26} color={selectedDriverId === d.id ? Colors.primary : Colors.textSecondary} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.driverName}>{d.name}</Text>
-                      <Text style={styles.driverMeta}>
-                        {d.category === 'private' ? 'Private Freelance Driver' : 'In-House Fleet'} • {d.vehicle_no || 'Lorry'}
-                      </Text>
-                    </View>
-                    {selectedDriverId === d.id && <Ionicons name="checkmark" size={18} color={Colors.primary} />}
-                  </TouchableOpacity>
-
+                  <Ionicons name="person-circle" size={26} color={selectedDriverId === d.id ? Colors.primary : Colors.textSecondary} />
+                  <View style={{ flex: 1, marginLeft: 8 }}>
+                    <Text style={[styles.driverName, selectedDriverId === d.id && { color: Colors.primary }]}>
+                      {d.name} {d.isLocal ? '(In-house)' : '(External/Transport)'}
+                    </Text>
+                    <Text style={styles.driverMeta}>Vehicle: {d.vehicle_no || 'Lorry'} • Mobile: {d.phone}</Text>
+                  </View>
                   <TouchableOpacity
                     style={{ backgroundColor: '#E3F2FD', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8 }}
                     onPress={() => {
@@ -451,9 +461,10 @@ export default function EnquiriesScreen() {
                     }}
                   >
                     <Ionicons name="chatbubbles" size={14} color="#1565C0" />
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#1565C0' }}>Chat Driver</Text>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#1565C0' }}>Chat</Text>
                   </TouchableOpacity>
-                </View>
+                  {selectedDriverId === d.id && <Ionicons name="checkmark" size={20} color={Colors.primary} style={{ marginLeft: 8 }} />}
+                </TouchableOpacity>
               ))}
             </ScrollView>
 
