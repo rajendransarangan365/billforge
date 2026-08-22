@@ -45,32 +45,48 @@ export async function generatePDF({
     });
 
     if (Platform.OS === 'web') {
-      const bn = headerData.BN || headerData.billnumber || '0001';
-      const cust = (headerData.partyname || headerData.customername || 'Party').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '_');
-      const fileName = `${cust}_BN${bn}_${timestamp}.html`;
+      // FIXED: Open a proper print window so the user can Save as PDF via browser
+      // Do NOT download an HTML file — browsers can print-to-PDF natively.
 
-      // Close placeholder window if open
+      // Close old placeholder window if open
       if (printWindow && !printWindow.closed) {
         try { printWindow.close(); } catch (e) {}
       }
 
-      // Silent Background Auto-Save
-      try {
-        const blob = new Blob([html], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } catch (e) {
-        console.error('Silent auto-save error:', e);
+      // Open a fresh window for printing
+      const pw = window.open('', '_blank', 'width=900,height=700,scrollbars=yes,resizable=yes');
+      if (pw) {
+        pw.document.open();
+        pw.document.write(html);
+        pw.document.close();
+
+        // Wait for fonts/images to load, then trigger print dialog
+        pw.onload = () => {
+          setTimeout(() => {
+            try { pw.print(); } catch (e) {}
+          }, 300);
+        };
+        // Fallback: trigger after 800ms if onload doesn't fire
+        setTimeout(() => {
+          try {
+            if (pw && !pw.closed) pw.print();
+          } catch (e) {}
+        }, 800);
+      } else {
+        // Popup blocked fallback: offer an in-page print
+        const iframe = document.createElement('iframe');
+        iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;border:none;';
+        document.body.appendChild(iframe);
+        iframe.contentDocument.open();
+        iframe.contentDocument.write(html);
+        iframe.contentDocument.close();
+        setTimeout(() => {
+          try { iframe.contentWindow.print(); } catch (e) {}
+          setTimeout(() => document.body.removeChild(iframe), 2000);
+        }, 600);
       }
 
-      return { uri: 'web-auto-saved', fileName, success: true };
+      return { uri: 'web-print', fileName: 'bill.pdf', success: true };
     }
 
     const { uri } = await Print.printToFileAsync({
@@ -176,7 +192,12 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
     return matchedKey ? obj[matchedKey] : undefined;
   };
 
-  const companyName = getFieldVal(headerData, ['shopname', 'companyname']) || companyProfile.name || templateName;
+  // FIXED: Company name must ALWAYS come from the saved company profile.
+  // Never fall back to templateName (which was showing "Standard Billing Template").
+  const companyName = getFieldVal(headerData, ['shopname', 'companyname'])
+    || companyProfile?.name
+    || companyProfile?.owner_name
+    || '';
   
   let companyAddress = getFieldVal(headerData, ['shoplocation', 'shopaddress', 'address']);
   if (!companyAddress && companyProfile) {

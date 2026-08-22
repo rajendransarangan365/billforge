@@ -893,26 +893,33 @@ export async function getBillsThisMonth(db, quarryId) {
 export function isMeaningfulDraft(draft) {
   if (!draft) return false;
   const hData = draft.headerData || {};
-  // Check if any non-default field is populated
-  const hasUserField = Object.entries(hData).some(([key, val]) => {
-    if (!val || typeof val !== 'string') return false;
-    const v = val.trim();
-    if (!v) return false;
-    // Exclude auto-filled default fields like Bill No, Dates, Shop Name
-    if (v.match(/^(000\d|\d{4}-\d{2}-\d{2})/)) return false;
-    if (v.toLowerCase().includes('quarry') || v.toLowerCase().includes('shop')) return false;
-    return v.length > 1;
-  });
-  const hasPhone = Boolean(draft.customerPhone && draft.customerPhone.trim().length > 0);
-  const hasAddress = Boolean(draft.customerAddress && draft.customerAddress.trim().length > 0);
-  const rData = draft.rowData || [];
-  const hasRowData = rData.some(row => Object.entries(row).some(([k, v]) => {
-    if (k.toLowerCase() === 'sno' || k.toLowerCase() === 'slno') return false;
-    return v && String(v).trim().length > 0 && String(v).trim() !== '0';
-  }));
 
-  return hasUserField || hasPhone || hasAddress || hasRowData;
+  // 1. Check if customer/party name is entered
+  const partyNameEntry = Object.entries(hData).find(([k, v]) => {
+    const norm = k.toLowerCase().replace(/[\s_-]/g, '');
+    return (norm === 'partyname' || norm === 'customername' || norm === 'clientname' || norm === 'name') && v && String(v).trim().length > 0;
+  });
+  if (partyNameEntry) return true;
+
+  // 2. Check if customer phone or address is entered
+  if (draft.customerPhone && String(draft.customerPhone).trim().length > 0) return true;
+  if (draft.customerAddress && String(draft.customerAddress).trim().length > 0) return true;
+
+  // 3. Check if any row has user input (material, qty, price, total, etc.)
+  const rData = draft.rowData || [];
+  const hasUserRowInput = rData.some(row => {
+    return Object.entries(row).some(([k, v]) => {
+      const norm = k.toLowerCase().replace(/[\s_-]/g, '');
+      if (norm === 'sno' || norm === 'slno' || norm === 's/no' || norm === 'date' || norm === 'time' || norm === 'datetime') return false;
+      if (!v) return false;
+      const strVal = String(v).trim();
+      return strVal.length > 0 && strVal !== '0';
+    });
+  });
+
+  return hasUserRowInput;
 }
+
 
 export async function saveDraft(templateId, draftData, quarryId = 1) {
   if (!isMeaningfulDraft(draftData)) return;

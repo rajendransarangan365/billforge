@@ -76,31 +76,42 @@ export default function BillFormScreen() {
 
         const costFieldName = Object.keys(updatedRow).find(k => {
           const norm = normalizeKey(k);
-          return (norm.includes('cost') || norm.includes('price') || norm.includes('rate')) && !norm.includes('eachvalue') && !norm.includes('total') && !norm.includes('amount');
+          return (norm === 'materialtypecost' || norm.includes('cost') || norm.includes('price') || norm.includes('rate'))
+            && !norm.includes('eachvalue') && !norm.includes('total') && !norm.includes('amount')
+            && !norm.includes('cal');
         }) || 'MaterialTypeCost';
 
         let costVal = parseFloat(updatedRow[costFieldName] || '0');
         if (isNaN(costVal)) costVal = 0;
 
-        const calFieldName = Object.keys(updatedRow).find(k => {
-          const norm = normalizeKey(k);
-          return norm.includes('eachvalue') || norm.startsWith('cal') || norm.includes('total') || norm.includes('amount') || norm.includes('calculatedvalue');
-        });
+        // Robust calFieldName: check row keys first, then tableFields
+        const calFieldName =
+          Object.keys(updatedRow).find(k => {
+            const norm = normalizeKey(k);
+            return norm.includes('eachvalue') || (norm.startsWith('cal') && norm !== normalizeKey(costFieldName))
+              || (norm.includes('total') && !norm.includes('rate') && !norm.includes('cost'))
+              || norm.includes('amount') || norm.includes('calculatedvalue');
+          }) ||
+          tableFields.find(f => {
+            const norm = normalizeKey(f.name);
+            return norm.includes('eachvalue') || norm.startsWith('cal')
+              || norm.includes('total') || norm.includes('amount');
+          })?.name;
 
         if (calFieldName) {
           let calculatedVal = 0;
           if (settings.multiplyTrip) {
-            if (!isNaN(tripVal) && tripVal > 0 && !isNaN(qtyVal) && qtyVal > 0) {
+            if (tripVal > 0 && qtyVal > 0) {
               calculatedVal = costVal * tripVal * qtyVal;
-            } else if (!isNaN(qtyVal) && qtyVal > 0) {
+            } else if (qtyVal > 0) {
               calculatedVal = costVal * qtyVal;
-            } else if (!isNaN(tripVal) && tripVal > 0) {
+            } else if (tripVal > 0) {
               calculatedVal = costVal * tripVal;
             }
           } else {
-            if (!isNaN(qtyVal) && qtyVal > 0) {
+            if (qtyVal > 0) {
               calculatedVal = costVal * qtyVal;
-            } else if (!isNaN(tripVal) && tripVal > 0) {
+            } else if (tripVal > 0) {
               calculatedVal = costVal * tripVal;
             }
           }
@@ -141,7 +152,9 @@ export default function BillFormScreen() {
 
   useEffect(() => {
     loadTemplate();
-    loadBillNumber();
+    // NOTE: loadBillNumber() is NOT called here separately — it is already
+    // called inside loadTemplate() AFTER headerFields are known, preventing
+    // the race condition where headerFields state is still [] when BN is set.
     loadMaterials();
     loadCustomers();
   }, [templateId, companyId, editBillId]);
@@ -221,28 +234,10 @@ export default function BillFormScreen() {
     }
   };
 
-  const loadBillNumber = async () => {
-    if (targetEditId) return; // Do NOT overwrite bill number when editing an existing bill!
-    try {
-      const db = await getDatabase();
-      const nextBn = await getNextBillNumber(db, companyId);
-      setHeaderData(prev => {
-        const updated = { ...prev };
-        const bnField = headerFields.find(f => {
-          const norm = normalizeKey(f.name);
-          return norm === 'bn' || norm === 'billnumber' || norm === 'billno';
-        });
-        if (bnField) {
-          updated[bnField.name] = nextBn;
-        } else {
-          updated['BN'] = nextBn;
-        }
-        return updated;
-      });
-    } catch (error) {
-      console.error('Error loading bill number:', error);
-    }
-  };
+  // loadBillNumber is intentionally removed — it caused a race condition because
+  // it ran before loadTemplate() finished setting headerFields state. Bill number
+  // is now set synchronously inside loadTemplate() where the parsed hFields
+  // array is available directly (not stale state).
 
   const [materials, setMaterials] = useState([]);
   const loadMaterials = async () => {
@@ -421,10 +416,12 @@ export default function BillFormScreen() {
       const normalizedFieldName = normalizeKey(fieldName);
       const isMaterialField = ['materialtype', 'materialstype', 'material', 'materials'].includes(normalizedFieldName);
 
-      // Cost / Price per Unit field name
+      // Cost / Price per Unit field name — search all row keys
       const costFieldName = Object.keys(row).find(k => {
         const norm = normalizeKey(k);
-        return (norm.includes('cost') || norm.includes('price') || norm.includes('rate')) && !norm.includes('eachvalue') && !norm.includes('total') && !norm.includes('amount');
+        return (norm === 'materialtypecost' || norm.includes('cost') || norm.includes('price') || norm.includes('rate'))
+          && !norm.includes('eachvalue') && !norm.includes('total') && !norm.includes('amount')
+          && !norm.includes('cal');
       }) || 'MaterialTypeCost';
 
       // Auto-fill material price when material is picked
@@ -435,11 +432,20 @@ export default function BillFormScreen() {
         }
       }
 
-      // Calculation / Total field name (e.g. Each Value ₹)
-      const calFieldName = Object.keys(row).find(k => {
-        const norm = normalizeKey(k);
-        return norm.includes('eachvalue') || norm.startsWith('cal') || norm.includes('total') || norm.includes('amount') || norm.includes('calculatedvalue');
-      });
+      // Calculation / Total field name (e.g. Cal1s = Each Value ₹)
+      // Search all current row keys AND tableFields for the cal/total/eachvalue field
+      const calFieldName =
+        Object.keys(row).find(k => {
+          const norm = normalizeKey(k);
+          return norm.includes('eachvalue') || (norm.startsWith('cal') && norm !== costFieldName)
+            || (norm.includes('total') && !norm.includes('rate') && !norm.includes('cost'))
+            || norm.includes('amount') || norm.includes('calculatedvalue');
+        }) ||
+        tableFields.find(f => {
+          const norm = normalizeKey(f.name);
+          return norm.includes('eachvalue') || norm.startsWith('cal')
+            || norm.includes('total') || norm.includes('amount');
+        })?.name;
 
       // ONLY auto-calculate if user edited price, units, trip, or material (NOT if they manually edited Each Value itself)
       const isCalFieldEdited = calFieldName && normalizedFieldName === normalizeKey(calFieldName);
@@ -453,28 +459,31 @@ export default function BillFormScreen() {
 
         let calculatedVal = 0;
         if (calcSettings.multiplyTrip) {
-          if (!isNaN(tripVal) && tripVal > 0 && !isNaN(qtyVal) && qtyVal > 0) {
+          // Trip × Units × Price
+          if (tripVal > 0 && qtyVal > 0) {
             calculatedVal = costVal * tripVal * qtyVal;
-          } else if (!isNaN(qtyVal) && qtyVal > 0) {
+          } else if (qtyVal > 0) {
             calculatedVal = costVal * qtyVal;
-          } else if (!isNaN(tripVal) && tripVal > 0) {
+          } else if (tripVal > 0) {
             calculatedVal = costVal * tripVal;
           } else {
             calculatedVal = costVal;
           }
         } else {
-          if (!isNaN(qtyVal) && qtyVal > 0) {
+          // Default: Units × Price
+          if (qtyVal > 0) {
             calculatedVal = costVal * qtyVal;
-          } else if (!isNaN(tripVal) && tripVal > 0) {
+          } else if (tripVal > 0) {
             calculatedVal = costVal * tripVal;
           } else {
             calculatedVal = costVal;
           }
         }
 
-        if (calculatedVal > 0 || (costVal > 0 && (qtyVal > 0 || tripVal > 0))) {
-          row[calFieldName] = String(Number.isInteger(calculatedVal) ? calculatedVal : parseFloat(calculatedVal.toFixed(2)));
-        }
+        // Write back the calculated value (even if 0, to clear stale values)
+        row[calFieldName] = calculatedVal > 0
+          ? String(Number.isInteger(calculatedVal) ? calculatedVal : parseFloat(calculatedVal.toFixed(2)))
+          : (costVal > 0 ? '0' : '');
       }
 
       updated[rowIndex] = row;
@@ -607,7 +616,11 @@ export default function BillFormScreen() {
     const cellBorder = getCellBorderStyle();
     const tableHeaderBg = selectedBorderStyle === 'none' ? 'transparent' : '#F8FAFC';
 
-    const companyName = getRowValue(headerData, ['shopname', 'companyname']) || companyProfile.name || template.name;
+    // FIXED: Use real company profile — never fall back to template.name
+    const companyName = getRowValue(headerData, ['shopname', 'companyname'])
+      || companyProfile?.name
+      || companyProfile?.owner_name
+      || '';
     
     let companyAddress = getRowValue(headerData, ['shoplocation', 'shopaddress', 'address']);
     if (!companyAddress && companyProfile) {
@@ -615,7 +628,7 @@ export default function BillFormScreen() {
     }
     if (!companyAddress) companyAddress = '';
 
-    const companyPhone = getRowValue(headerData, ['shopnumber', 'shopphone', 'phone']) || companyProfile.phone || '';
+    const companyPhone = getRowValue(headerData, ['shopnumber', 'shopphone', 'phone']) || companyProfile?.phone || '';
     const billNumber = getRowValue(headerData, ['bn', 'billnumber']) || '';
     const partyName = getRowValue(headerData, ['partyname', 'customername', 'clientname']) || '';
     
@@ -1017,21 +1030,9 @@ export default function BillFormScreen() {
   };
 
   const handleGeneratePDF = async () => {
-    // Open print window synchronously on web to bypass Chrome popup blocker
-    let printWindow = null;
-    if (Platform.OS === 'web') {
-      printWindow = window.open('', '_blank');
-      if (printWindow) {
-        printWindow.document.open();
-        printWindow.document.write('<html><head><title>Generating PDF...</title><style>body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #666; }</style></head><body><div><h2>Generating formal A4 invoice PDF...</h2><p>Please wait a moment.</p></div></body></html>');
-        printWindow.document.close();
-      }
-    }
-
     setGenerating(true);
     try {
       const totalAmount = calculateTotal();
-      
       const mergedHeaderData = {
         ...headerData,
         calc_multiply_trip: calcSettings.multiplyTrip ? 'true' : 'false',
@@ -1047,29 +1048,24 @@ export default function BillFormScreen() {
         tableFields,
         templateName: template.name,
         totalAmount,
-        printWindow,
+        printWindow: null, // generatePDF opens its own print window on web
         themeColor: template?.theme_color,
         fontFamily: template?.font_family,
         borderStyle: template?.border_style,
       });
 
-      if (result.success) {
-        if (Platform.OS === 'web') return; // Print handled directly in popup on Web
-        
-        // Save PDF permanently
+      if (!result.success) {
+        Alert.alert('Error', 'Failed to generate PDF: ' + (result.error || 'Unknown error'));
+      } else if (Platform.OS !== 'web') {
+        // On mobile: share the generated PDF file
         const billNumber = headerData.BN || `BF-${Date.now().toString(36).toUpperCase()}`;
         const customerName = getRowValue(headerData, ['partyname', 'customername', 'clientname', 'name']) || '';
         const permanentUri = await savePDFPermanently(result.uri, billNumber, customerName);
-        
-        // Share the PDF
         await sharePDF(permanentUri);
-      } else {
-        if (printWindow) printWindow.close();
-        Alert.alert('Error', 'Failed to generate PDF: ' + (result.error || 'Unknown error'));
       }
+      // On web: generatePDF already opened the print dialog — nothing more to do
     } catch (error) {
       console.error('PDF generation error:', error);
-      if (printWindow) printWindow.close();
       Alert.alert('Error', 'Failed to generate PDF.');
     } finally {
       setGenerating(false);
@@ -1077,17 +1073,6 @@ export default function BillFormScreen() {
   };
 
   const handleSaveBill = async () => {
-    // Open print window synchronously on web to bypass Chrome popup blocker
-    let printWindow = null;
-    if (Platform.OS === 'web') {
-      printWindow = window.open('', '_blank');
-      if (printWindow) {
-        printWindow.document.open();
-        printWindow.document.write('<html><head><title>Saving & Generating PDF...</title><style>body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #666; }</style></head><body><div><h2>Saving bill and generating PDF...</h2><p>Please wait a moment.</p></div></body></html>');
-        printWindow.document.close();
-      }
-    }
-
     setSaving(true);
     try {
       const db = await getDatabase();
@@ -1098,12 +1083,14 @@ export default function BillFormScreen() {
       const customerName = getRowValue(headerData, ['partyname', 'customername', 'clientname', 'name']) || '';
 
       // Auto-save/update customer in the Customer Directory
+      // FIXED: Always include quarry_id so the record is keyed correctly
       if (customerName && customerName.trim() !== '') {
         const existing = customers.find(c => normalizeKey(c.name) === normalizeKey(customerName));
         const customerData = {
           name: customerName,
           phone: customerPhone || '',
-          address: customerAddress || ''
+          address: customerAddress || '',
+          quarry_id: companyId || 1,
         };
         if (existing) {
           if (existing.phone !== customerPhone || existing.address !== customerAddress) {
@@ -1115,7 +1102,7 @@ export default function BillFormScreen() {
         await loadCustomers();
       }
 
-      // Prepare header data with customer phone/address to store in the DB record
+      // Prepare header data with customer phone/address
       const headerDataToSave = {
         ...headerData,
         customer_phone: customerPhone,
@@ -1126,7 +1113,7 @@ export default function BillFormScreen() {
         calc_show_time_in_table: calcSettings.showTimeInTable ? 'true' : 'false',
       };
 
-      // Generate PDF (uses original headerData to ensure customer phone/address NEVER print on PDF)
+      // Generate PDF — on web this opens the print dialog
       const pdfResult = await generatePDF({
         companyProfile,
         headerData: headerDataToSave,
@@ -1135,14 +1122,15 @@ export default function BillFormScreen() {
         tableFields,
         templateName: template.name,
         totalAmount,
-        printWindow,
+        printWindow: null, // generatePDF handles its own window
         themeColor: template?.theme_color,
         fontFamily: template?.font_family,
         borderStyle: template?.border_style,
       });
 
+      // On native: save the file. On web: uri is 'web-print', skip file-save.
       let pdfUri = '';
-      if (pdfResult.success) {
+      if (pdfResult.success && Platform.OS !== 'web') {
         pdfUri = await savePDFPermanently(pdfResult.uri, billNumber, customerName);
       }
 
@@ -1157,9 +1145,12 @@ export default function BillFormScreen() {
         pdf_uri: pdfUri,
       });
 
+      // Clear draft after saving bill
+      await clearDraft(templateId, companyId);
+
       Alert.alert(
-        'Bill Saved',
-        `Bill "${billNumber}" saved successfully.`,
+        'Bill Saved ✅',
+        `Bill "${billNumber}" saved successfully.${Platform.OS === 'web' ? '\n\nUse the print dialog to save as PDF.' : ''}`,
         [
           {
             text: 'View Bill',
@@ -1169,11 +1160,10 @@ export default function BillFormScreen() {
             text: 'Create Another',
             onPress: async () => {
               try {
-                // Reset form
                 setCustomerPhone('');
                 setCustomerAddress('');
                 const db = await getDatabase();
-                const nextBn = await getNextBillNumber(db);
+                const nextBn = await getNextBillNumber(db, companyId);
                 const hData = {};
                 headerFields.forEach(f => { 
                   const norm = normalizeKey(f.name);
@@ -1210,7 +1200,6 @@ export default function BillFormScreen() {
       );
     } catch (error) {
       console.error('Save bill error:', error);
-      if (printWindow) printWindow.close();
       Alert.alert('Error', 'Failed to save bill.');
     } finally {
       setSaving(false);
@@ -1227,33 +1216,17 @@ export default function BillFormScreen() {
     setWhatsappModalVisible(false);
     setSaving(true);
     setSharingWhatsApp(true);
-    
-    // Open the print and WhatsApp windows immediately in the user-initiated handler to bypass popup blockers!
-    let printWindow = null;
-    let waWindow = null;
-    
+
     // Format WhatsApp number
     let formattedPhone = whatsappPhone.trim().replace(/[\s+-]/g, '');
     if (formattedPhone.length === 10) {
       formattedPhone = `91${formattedPhone}`; // Standard India country code
     }
-    
-    if (Platform.OS === 'web') {
-      // 1. Open placeholder window for printing
-      printWindow = window.open('', '_blank');
-      if (printWindow) {
-        printWindow.document.open();
-        printWindow.document.write('<html><head><title>Preparing Invoice PDF...</title><style>body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #666; }</style></head><body><div><h2>Generating invoice PDF...</h2><p>Please wait a moment.</p></div></body></html>');
-        printWindow.document.close();
-      }
-      
-      // 2. Open placeholder window for WhatsApp Web
+
+    // On web: open WhatsApp window right now (user-initiated) before async work
+    let waWindow = null;
+    if (Platform.OS === 'web' && formattedPhone) {
       waWindow = window.open('', '_blank');
-      if (waWindow) {
-        waWindow.document.open();
-        waWindow.document.write('<html><head><title>Opening WhatsApp...</title><style>body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #666; }</style></head><body><div><h2>Preparing WhatsApp chat...</h2><p>Please wait.</p></div></body></html>');
-        waWindow.document.close();
-      }
     }
 
     try {
@@ -1269,7 +1242,8 @@ export default function BillFormScreen() {
         const customerData = {
           name: customerName,
           phone: whatsappPhone || '',
-          address: customerAddress || ''
+          address: customerAddress || '',
+          quarry_id: companyId || 1,
         };
         if (existing) {
           if (existing.phone !== whatsappPhone || existing.address !== customerAddress) {
@@ -1281,7 +1255,6 @@ export default function BillFormScreen() {
         await loadCustomers();
       }
 
-      // Save confirmed number in header
       const headerDataToSave = {
         ...headerData,
         customer_phone: whatsappPhone,
@@ -1292,7 +1265,7 @@ export default function BillFormScreen() {
         calc_show_time_in_table: calcSettings.showTimeInTable ? 'true' : 'false',
       };
 
-      // Generate the PDF (this will write directly to our printWindow on Web!)
+      // Generate PDF — on web opens print dialog automatically
       const pdfResult = await generatePDF({
         companyProfile,
         headerData: headerDataToSave,
@@ -1301,22 +1274,22 @@ export default function BillFormScreen() {
         tableFields,
         templateName: template.name,
         totalAmount,
-        printWindow, // pass the print window to draw the PDF
+        printWindow: null,
         themeColor: template?.theme_color,
         fontFamily: template?.font_family,
         borderStyle: template?.border_style,
       });
 
       let pdfUri = '';
-      if (pdfResult.success) {
+      if (pdfResult.success && Platform.OS !== 'web') {
         pdfUri = await savePDFPermanently(pdfResult.uri, billNumber, customerName);
       }
 
-      // Save or Update bill record in DB
+      // Save bill record
       const savedId = await saveBill(db, {
         id: editBillId ? parseInt(editBillId) : undefined,
         template_id: parseInt(templateId),
-        company_id: 1,
+        company_id: companyId || 1,
         bill_number: billNumber,
         customer_name: customerName,
         headerData: headerDataToSave,
@@ -1325,57 +1298,44 @@ export default function BillFormScreen() {
         pdf_uri: pdfUri,
       });
 
-      // Clear left-over draft once bill is saved
       await clearDraft(templateId);
 
-      const shopNameStr = getRowValue(headerData, ['shopname', 'companyname']) || companyProfile.name || template.name;
+      // FIXED: Company name from profile, not template name
+      const shopNameStr = getRowValue(headerData, ['shopname', 'companyname'])
+        || companyProfile?.name || '';
       const messageText = `Dear Customer, here is your invoice (No: ${billNumber}) from ${shopNameStr}. Total Amount: Rs. ${formatIndianNumber(totalAmount)}. Thank you for your business!`;
       const encodedMsg = encodeURIComponent(messageText);
 
-      // On Mobile (built Android/iOS app): Trigger native sharing of the PDF itself so the actual PDF gets sent!
       if (Platform.OS !== 'web' && pdfUri) {
         await sharePDF(pdfUri);
-        
-        // Also open WhatsApp chat message if phone is provided
         if (formattedPhone) {
           const waUrl = `whatsapp://send?phone=${formattedPhone}&text=${encodedMsg}`;
           try {
             const { Linking } = require('react-native');
             const supported = await Linking.canOpenURL(waUrl);
-            if (supported) {
-              setTimeout(() => {
-                Linking.openURL(waUrl);
-              }, 1200);
-            }
-          } catch (e) {
-            console.error('Error opening WhatsApp chat:', e);
-          }
+            if (supported) { setTimeout(() => { Linking.openURL(waUrl); }, 1200); }
+          } catch (e) { console.error('Error opening WhatsApp:', e); }
         }
-      } else {
-        // On Web Browsers: Redirect our already open waWindow to WhatsApp Web!
-        if (waWindow) {
-          const webWaUrl = `https://wa.me/${formattedPhone || ''}?text=${encodedMsg}`;
+      } else if (Platform.OS === 'web') {
+        // Redirect the pre-opened WhatsApp window
+        const webWaUrl = `https://wa.me/${formattedPhone || ''}?text=${encodedMsg}`;
+        if (waWindow && !waWindow.closed) {
           waWindow.location.href = webWaUrl;
+        } else {
+          window.open(webWaUrl, '_blank');
         }
       }
 
       Alert.alert(
-        isEditing ? 'Bill Updated & Versioned! 📄' : 'Bill Saved & Auto-Archived! 📄',
-        `Bill "${billNumber}" for ${customerName || 'Party'} has been saved successfully.\n\nFile saved in background: ${pdfResult.fileName || 'Auto-Saved'}\n\nVersion history updated.`,
+        'Bill Saved & Sent! ✅',
+        `Bill "${billNumber}" saved.${Platform.OS === 'web' ? '\n\nPDF print dialog opened. WhatsApp opened in new tab.' : ''}`,
         [
-          {
-            text: 'View Invoice',
-            onPress: () => router.replace(`/bill-preview/${billId}`),
-          },
-          {
-            text: 'View History & Bills',
-            onPress: () => router.replace('/(tabs)/history'),
-          },
+          { text: 'View Invoice', onPress: () => router.replace(`/bill-preview/${savedId}`) },
+          { text: 'View History', onPress: () => router.replace('/(tabs)/history') },
         ]
       );
     } catch (error) {
       console.error('Save & Share WhatsApp Error:', error);
-      if (printWindow) printWindow.close();
       Alert.alert('Error', 'Failed to save and share bill.');
     } finally {
       setSaving(false);
