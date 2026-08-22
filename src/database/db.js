@@ -1684,7 +1684,8 @@ export async function acceptDeliveryOrder(db, orderId, quarryId, driverId, drive
 }
 
 // Legacy compatibility exports
-export async function registerCompanyOwner(db, details) { return registerQuarry(db, details); }
+// registerCompanyOwner already defined above
+
 
 
 
