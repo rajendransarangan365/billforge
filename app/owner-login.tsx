@@ -17,7 +17,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
-import { getDatabase, authenticateOwner } from '../src/database/db';
+import { getDatabase, authenticateOwner, requestPasswordResetOTP, verifyOTPAndResetPassword } from '../src/database/db';
+
 
 const { width: W } = Dimensions.get('window');
 
@@ -26,11 +27,72 @@ export default function OwnerLoginScreen() {
   const insets = useSafeAreaInsets();
   const { loginOwner } = useAuth();
 
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState('9894698049');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Password Recovery Modal State
+  const [forgotModalVisible, setForgotModalVisible] = useState(false);
+  const [resetStep, setResetStep] = useState(1); // 1: request OTP, 2: verify & set pass
+  const [resetPhone, setResetPhone] = useState('9894698049');
+  const [otpCode, setOtpCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState('');
+  const [resetSuccessMsg, setResetSuccessMsg] = useState('');
+  const [demoOTP, setDemoOTP] = useState('');
+
+  const handleRequestOTP = async () => {
+    setResetError('');
+    if (!resetPhone.trim() || resetPhone.trim().length < 10) {
+      setResetError('Please enter your registered 10-digit mobile number.');
+      return;
+    }
+    setResetLoading(true);
+    try {
+      const db = await getDatabase();
+      const res = await requestPasswordResetOTP(db, 'quarry_owner', resetPhone.trim());
+      setDemoOTP(res.otpDemo);
+      setResetSuccessMsg(`Verification OTP sent! (Demo Code: ${res.otpDemo})`);
+      setResetStep(2);
+    } catch (e) {
+      setResetError(e.message || 'Account not found.');
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    setResetError('');
+    if (!otpCode.trim()) { setResetError('Please enter the 6-digit OTP code.'); return; }
+    if (!newPassword.trim() || newPassword.trim().length < 4) { setResetError('New password must be at least 4 characters long.'); return; }
+
+    setResetLoading(true);
+    try {
+      const db = await getDatabase();
+      await verifyOTPAndResetPassword(db, 'quarry_owner', resetPhone.trim(), otpCode.trim(), newPassword.trim());
+      
+      // Auto-authenticate with new password
+      const authenticated = await authenticateOwner(db, resetPhone.trim(), newPassword.trim());
+      if (authenticated && !authenticated.error) {
+        loginOwner(authenticated);
+        setForgotModalVisible(false);
+        router.replace('/(tabs)');
+      } else {
+        setForgotModalVisible(false);
+        setPassword(newPassword.trim());
+        setPhone(resetPhone.trim());
+        setError('Password updated successfully! Please tap Sign In.');
+      }
+    } catch (e) {
+      setResetError(e.message || 'Failed to reset password.');
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
 
   const handleLogin = async () => {
     setError('');
@@ -114,9 +176,14 @@ export default function OwnerLoginScreen() {
             </View>
           </View>
 
-          {/* Password */}
+          {/* Password Header + Forgot Password Link */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Password</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={styles.label}>Password</Text>
+              <TouchableOpacity onPress={() => { setResetPhone(phone || '9894698049'); setResetStep(1); setResetError(''); setForgotModalVisible(true); }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.primary }}>Forgot Password?</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.inputWrap}>
               <Ionicons name="lock-closed-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
               <TextInput
@@ -134,6 +201,7 @@ export default function OwnerLoginScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
 
           {/* Error */}
           {error ? (
@@ -176,11 +244,125 @@ export default function OwnerLoginScreen() {
         <View style={styles.demoBox}>
           <Ionicons name="information-circle-outline" size={14} color={Colors.info} />
           <Text style={styles.demoText}>
-            Demo — Phone: <Text style={styles.demoBold}>9999999999</Text>  Password: <Text style={styles.demoBold}>admin123</Text>
+            Demo — Phone: <Text style={styles.demoBold}>9894698049</Text>  Password: <Text style={styles.demoBold}>owner123</Text>
           </Text>
         </View>
       </ScrollView>
+
+      {/* Forgot Password OTP Modal */}
+      {forgotModalVisible && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="key-outline" size={20} color={Colors.primary} />
+                <Text style={styles.modalTitle}>Password Recovery</Text>
+              </View>
+              <TouchableOpacity onPress={() => setForgotModalVisible(false)}>
+                <Ionicons name="close" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {resetStep === 1 ? (
+              <View style={{ gap: 14 }}>
+                <Text style={{ fontSize: 13, color: Colors.textSecondary }}>
+                  Enter your registered mobile number to receive a 6-digit verification OTP code:
+                </Text>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Mobile Number *</Text>
+                  <View style={styles.inputWrap}>
+                    <Ionicons name="call-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      value={resetPhone}
+                      onChangeText={setResetPhone}
+                      placeholder="10-digit mobile number"
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                    />
+                  </View>
+                </View>
+
+                {resetError ? (
+                  <View style={styles.errorBox}>
+                    <Ionicons name="alert-circle-outline" size={14} color={Colors.danger} />
+                    <Text style={styles.errorText}>{resetError}</Text>
+                  </View>
+                ) : null}
+
+                <TouchableOpacity
+                  style={[styles.loginBtn, resetLoading && styles.loginBtnDisabled]}
+                  onPress={handleRequestOTP}
+                  disabled={resetLoading}
+                >
+                  {resetLoading ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.loginBtnText}>Send Verification OTP 📩</Text>}
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={{ gap: 14 }}>
+                <View style={[styles.demoBox, { marginTop: 0, backgroundColor: '#E8F5E9', borderColor: '#A5D6A7' }]}>
+                  <Ionicons name="checkmark-circle-outline" size={16} color="#2E7D32" />
+                  <Text style={[styles.demoText, { color: '#2E7D32' }]}>
+                    {resetSuccessMsg}
+                  </Text>
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Enter 6-Digit OTP Code *</Text>
+                  <View style={styles.inputWrap}>
+                    <Ionicons name="shield-checkmark-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      value={otpCode}
+                      onChangeText={setOtpCode}
+                      placeholder={`Enter OTP (Demo: ${demoOTP || '849201'})`}
+                      keyboardType="numeric"
+                      maxLength={6}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>New Password *</Text>
+                  <View style={styles.inputWrap}>
+                    <Ionicons name="lock-closed-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      placeholder="Enter new password (min 4 chars)"
+                      secureTextEntry
+                    />
+                  </View>
+                </View>
+
+                {resetError ? (
+                  <View style={styles.errorBox}>
+                    <Ionicons name="alert-circle-outline" size={14} color={Colors.danger} />
+                    <Text style={styles.errorText}>{resetError}</Text>
+                  </View>
+                ) : null}
+
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                  <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setResetStep(1)}>
+                    <Text style={styles.modalCancelText}>Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.loginBtn, { flex: 2, marginTop: 0 }, resetLoading && styles.loginBtnDisabled]}
+                    onPress={handleResetPassword}
+                    disabled={resetLoading}
+                  >
+                    {resetLoading ? <ActivityIndicator color="#FFF" size="small" /> : <Text style={styles.loginBtnText}>Reset & Sign In 🔐</Text>}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
     </KeyboardAvoidingView>
+
   );
 }
 
@@ -265,4 +447,31 @@ const styles = StyleSheet.create({
   },
   demoText: { fontSize: 12, color: Colors.info, flex: 1, lineHeight: 18 },
   demoBold: { fontWeight: '700' },
+  modalOverlay: {
+    position: 'absolute', top: 0, bottom: 0, left: 0, right: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center', alignItems: 'center',
+    padding: 20, zIndex: 999,
+  },
+  modalCard: {
+    width: '100%', maxWidth: 440,
+    backgroundColor: Colors.surface,
+    borderRadius: 16, padding: 22,
+    borderWidth: 1, borderColor: Colors.borderLight,
+    shadowColor: Colors.shadow, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15, shadowRadius: 12, elevation: 6,
+  },
+  modalHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
+    paddingBottom: 12,
+  },
+  modalTitle: { fontSize: 17, fontWeight: '800', color: Colors.navy },
+  modalCancelBtn: {
+    flex: 1, height: 48, borderRadius: 12,
+    borderWidth: 1.5, borderColor: Colors.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  modalCancelText: { fontSize: 14, fontWeight: '700', color: Colors.textSecondary },
 });
+

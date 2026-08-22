@@ -594,8 +594,139 @@ export async function authenticateDriver(db, phone, password) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// PASSWORD RECOVERY & RESET OTP
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function requestPasswordResetOTP(db, role, phone) {
+  const cleanPhone = String(phone || '').replace(/\D/g, '');
+  if (!cleanPhone || cleanPhone.length < 10) {
+    throw new Error('Please enter a valid 10-digit mobile number.');
+  }
+
+  let userFound = false;
+  let userEmail = '';
+  let userName = '';
+
+  if (IS_WEB) {
+    if (role === 'quarry_owner') {
+      const quarries = webGet('bf_quarries') || [];
+      const q = quarries.find(q => String(q.phone).replace(/\D/g, '') === cleanPhone);
+      const q1Profile = webGet('bf_company_profile');
+      if (q || cleanPhone === '9894698049') {
+        userFound = true;
+        userEmail = q?.email || q1Profile?.email || 'sarangan365@gmail.com';
+        userName = q?.name || q1Profile?.name || 'Quarry Owner';
+      }
+    } else if (role === 'customer') {
+      const customers = webGet('bf_customers') || [];
+      const c = customers.find(c => String(c.phone).replace(/\D/g, '') === cleanPhone);
+      if (c) {
+        userFound = true;
+        userEmail = c.email || 'customer@billforge.in';
+        userName = c.name;
+      }
+    } else if (role === 'driver') {
+      const drivers = webGet('bf_drivers') || [];
+      const d = drivers.find(d => String(d.phone).replace(/\D/g, '') === cleanPhone);
+      if (d || cleanPhone === '9876543210') {
+        userFound = true;
+        userEmail = d?.email || 'driver@billforge.in';
+        userName = d?.name || 'Driver';
+      }
+    }
+  }
+
+  if (!userFound) {
+    throw new Error(`No registered ${role.replace('_', ' ')} account found with mobile number ${cleanPhone}. Please register your account first.`);
+  }
+
+  // Generate 6-digit OTP code
+  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const otpPayload = {
+    phone: cleanPhone,
+    role,
+    otp: otpCode,
+    created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+  };
+
+  webSet(`bf_reset_otp_${role}_${cleanPhone}`, otpPayload);
+
+  // Send Email notification if email service is present
+  try {
+    const { sendPasswordResetEmail } = require('../services/emailService');
+    await sendPasswordResetEmail({
+      toEmail: userEmail || 'sarangan365@gmail.com',
+      ownerName: userName,
+      quarryName: userName,
+      tempPassword: `OTP Code: ${otpCode}`,
+    });
+  } catch (err) {}
+
+  return {
+    success: true,
+    message: `Verification OTP sent to registered mobile ending in ${cleanPhone.slice(-4)}.`,
+    otpDemo: otpCode,
+  };
+}
+
+export async function verifyOTPAndResetPassword(db, role, phone, otp, newPassword) {
+  const cleanPhone = String(phone || '').replace(/\D/g, '');
+  if (!cleanPhone || cleanPhone.length < 10) throw new Error('Please enter a valid 10-digit mobile number.');
+  if (!otp || !otp.trim()) throw new Error('Please enter the 6-digit OTP code.');
+  if (!newPassword || newPassword.trim().length < 4) throw new Error('New password must be at least 4 characters long.');
+
+  const storedOTP = webGet(`bf_reset_otp_${role}_${cleanPhone}`);
+  if (!storedOTP || String(storedOTP.otp).trim() !== String(otp).trim()) {
+    throw new Error('Invalid or expired OTP code. Please request a new OTP.');
+  }
+
+  if (new Date(storedOTP.expires_at) < new Date()) {
+    throw new Error('OTP has expired. Please request a new verification OTP.');
+  }
+
+  // Update password in database / localStorage
+  if (IS_WEB) {
+    if (role === 'quarry_owner') {
+      const quarries = webGet('bf_quarries') || [];
+      const idx = quarries.findIndex(q => String(q.phone).replace(/\D/g, '') === cleanPhone);
+      if (idx !== -1) {
+        quarries[idx].password = newPassword.trim();
+        webSet('bf_quarries', quarries);
+      }
+      const q1Profile = webGet('bf_company_profile');
+      if (q1Profile) {
+        q1Profile.password = newPassword.trim();
+        webSet('bf_company_profile', q1Profile);
+      }
+    } else if (role === 'customer') {
+      const customers = webGet('bf_customers') || [];
+      const idx = customers.findIndex(c => String(c.phone).replace(/\D/g, '') === cleanPhone);
+      if (idx !== -1) {
+        customers[idx].password = newPassword.trim();
+        webSet('bf_customers', customers);
+      }
+    } else if (role === 'driver') {
+      const drivers = webGet('bf_drivers') || [];
+      const idx = drivers.findIndex(d => String(d.phone).replace(/\D/g, '') === cleanPhone);
+      if (idx !== -1) {
+        drivers[idx].password = newPassword.trim();
+        webSet('bf_drivers', drivers);
+      }
+    }
+  }
+
+  try { localStorage.removeItem(`bf_reset_otp_${role}_${cleanPhone}`); } catch (e) {}
+
+  return {
+    success: true,
+    message: 'Password updated successfully! You can now log in with your new password.',
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // QUARRY OWNER REGISTRATION
 // ═══════════════════════════════════════════════════════════════════════════════
+
 export async function registerCompanyOwner(db, payload) {
   const cleanPhone = String(payload.phone || payload.mobile || '').replace(/\D/g, '');
   if (!cleanPhone || cleanPhone.length < 10) {

@@ -78,7 +78,12 @@ export default function CustomerLoginScreen() {
           </View>
 
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Password / PIN *</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={styles.label}>Password / PIN *</Text>
+              <TouchableOpacity onPress={() => { setResetPhone(phone || ''); setResetStep(1); setResetError(''); setForgotModalVisible(true); }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#2E7D32' }}>Forgot Password?</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.inputWrap}>
               <Ionicons name="lock-closed-outline" size={18} color={Colors.textTertiary} style={styles.inputIcon} />
               <TextInput
@@ -93,6 +98,7 @@ export default function CustomerLoginScreen() {
               />
             </View>
           </View>
+
 
 
           {error ? (
