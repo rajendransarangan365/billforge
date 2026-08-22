@@ -34,14 +34,18 @@ export default function AdminPortalScreen() {
   const [generatedTempPass, setGeneratedTempPass] = useState('');
   const [resetEmailSent, setResetEmailSent] = useState(false);
 
-  // SMTP Settings State
+  // SMTP & EmailJS Settings State
   const [smtpUser, setSmtpUser] = useState('rightsight365@gmail.com');
   const [smtpPass, setSmtpPass] = useState('ktgvoitoxfhijqmr');
   const [smtpHost, setSmtpHost] = useState('smtp.gmail.com');
   const [smtpPort, setSmtpPort] = useState('465');
   const [adminNoticeEmail, setAdminNoticeEmail] = useState('sarangan365@gmail.com');
+  const [emailjsServiceId, setEmailjsServiceId] = useState('service_billforge');
+  const [emailjsTemplateId, setEmailjsTemplateId] = useState('template_billforge');
+  const [emailjsPublicKey, setEmailjsPublicKey] = useState('user_billforge_key');
   const [smtpSaving, setSmtpSaving] = useState(false);
   const [smtpMsg, setSmtpMsg] = useState('');
+
 
 
   // Admin dashboard state
@@ -446,6 +450,43 @@ export default function AdminPortalScreen() {
                   </View>
                 </View>
 
+                {/* EmailJS Browser Dispatch Config */}
+                <View style={{ borderTopWidth: 1, borderTopColor: Colors.borderLight, paddingTop: 14, marginTop: 6, gap: 10 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.navy }}>✉️ EmailJS Direct Browser Dispatcher</Text>
+                  
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <View style={[styles.fieldGroup, { flex: 1 }]}>
+                      <Text style={styles.label}>EmailJS Service ID</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        value={emailjsServiceId}
+                        onChangeText={setEmailjsServiceId}
+                        placeholder="service_billforge"
+                      />
+                    </View>
+
+                    <View style={[styles.fieldGroup, { flex: 1 }]}>
+                      <Text style={styles.label}>EmailJS Template ID</Text>
+                      <TextInput
+                        style={styles.formInput}
+                        value={emailjsTemplateId}
+                        onChangeText={setEmailjsTemplateId}
+                        placeholder="template_billforge"
+                      />
+                    </View>
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.label}>EmailJS Public Key / User ID</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={emailjsPublicKey}
+                      onChangeText={setEmailjsPublicKey}
+                      placeholder="user_billforge_key"
+                    />
+                  </View>
+                </View>
+
                 <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
                   <TouchableOpacity
                     style={[styles.btnPrimary, { flex: 1, backgroundColor: Colors.primary }]}
@@ -458,8 +499,11 @@ export default function AdminPortalScreen() {
                           host: smtpHost,
                           port: parseInt(smtpPort) || 465,
                           toMeEmail: adminNoticeEmail,
+                          emailjsServiceId,
+                          emailjsTemplateId,
+                          emailjsPublicKey,
                         });
-                        Alert.alert('Settings Saved 💾', 'SMTP configuration & Admin Email updated successfully.');
+                        Alert.alert('Settings Saved 💾', 'EmailJS & SMTP configurations updated successfully.');
                       } catch (e) {
                         Alert.alert('Error', 'Failed to save settings.');
                       }
@@ -468,6 +512,7 @@ export default function AdminPortalScreen() {
                     <Ionicons name="save-outline" size={18} color="#FFF" />
                     <Text style={styles.btnText}>Save Settings</Text>
                   </TouchableOpacity>
+
 
                   <TouchableOpacity
                     style={[styles.btnPrimary, { backgroundColor: '#2E7D32' }]}

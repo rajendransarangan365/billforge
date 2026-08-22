@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Welcome to BillForge Platform</title>
+</head>
+<body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; margin: 0; padding: 20px;">
+  <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #e2e8f0;">
+    <!-- Header -->
+    <div style="background: linear-gradient(135deg, #0F2050 0%, #1E3A8A 100%); padding: 32px 24px; text-align: center; color: #ffffff;">
+      <h1 style="margin: 0; font-size: 26px; font-weight: 800; letter-spacing: 0.5px;">BillForge</h1>
+      <p style="margin: 6px 0 0 0; font-size: 13px; color: #93c5fd; text-transform: uppercase; letter-spacing: 1px;">Quarry Operations Platform</p>
+    </div>
+
+    <!-- Body -->
+    <div style="padding: 32px 28px;">
+      <h2 style="color: #0F2050; font-size: 20px; margin-top: 0;">Welcome, <%= ownerName %>! 🎉</h2>
+      <p style="font-size: 15px; color: #334155; line-height: 1.6;">
+        Your business registration for <strong><%= quarryName %></strong> has been reviewed and approved!
+      </p>
+
+      <div style="background-color: #f0fdf4; border: 1.5px solid #bbf7d0; border-radius: 12px; padding: 20px; margin: 24px 0;">
+        <div style="font-size: 14px; font-weight: 700; color: #166534; margin-bottom: 8px;">Business Status: <%= status.toUpperCase() %></div>
+        <p style="margin: 0; font-size: 13px; color: #15803d; line-height: 1.5;">
+          You can now generate automated tax bills, dispatch lorry consignments, track real-time fleet delivery, and manage customer credit balances.
+        </p>
+      </div>
+
+      <div style="text-align: center; margin-top: 28px;">
+        <a href="https://billforge-lovat.vercel.app/quarry-owner-portal" style="background-color: #E65100; color: #ffffff; padding: 14px 28px; text-decoration: none; font-size: 15px; font-weight: 700; borderRadius: 10px; display: inline-block;">Access Owner Portal 🚀</a>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b;">
+      <p style="margin: 0;">Need developer support? Contact <strong>+91 9894698049</strong></p>
+      <p style="margin: 4px 0 0 0; color: #94a3b8;">© 2026 BillForge Platform. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
