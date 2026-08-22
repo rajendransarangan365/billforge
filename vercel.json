@@ -6,9 +6,8 @@
   "outputDirectory": "dist",
   "framework": null,
   "rewrites": [
+    { "source": "/api/email", "destination": "/api/email.js" },
     { "source": "/api/auth", "destination": "/api/auth.js" },
-
-
     { "source": "/api/drivers", "destination": "/api/drivers.js" },
     { "source": "/api/enquiries", "destination": "/api/enquiries.js" },
     { "source": "/api/consignments", "destination": "/api/consignments.js" },
@@ -16,8 +15,9 @@
     { "source": "/api/walkie", "destination": "/api/walkie.js" },
     { "source": "/api/marketplace", "destination": "/api/marketplace.js" },
     { "source": "/api/health", "destination": "/api/health.js" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
+
 }
 
 
