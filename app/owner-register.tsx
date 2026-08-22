@@ -91,10 +91,10 @@ export default function OwnerRegisterScreen() {
             vehicle_no: vehicleNo.trim() || 'TN 38 AB 1234',
           },
         ],
-        status: 'pending_approval',
+        status: 'active',
       };
 
-      await registerCompanyOwner(db, payload);
+      const newQuarry = await registerCompanyOwner(db, payload);
       
       // Dispatch Onboarding Notification Email
       try {
@@ -103,26 +103,37 @@ export default function OwnerRegisterScreen() {
           toEmail: email.trim() || 'sarangan365@gmail.com',
           ownerName: ownerName.trim() || companyName.trim(),
           quarryName: companyName.trim(),
-          status: 'pending_approval',
+          status: 'active',
         });
       } catch (err) {}
 
-      Alert.alert(
-        'Registration Submitted ⏳',
-        `Thank you for registering ${companyName.trim()}!\n\nAn onboarding confirmation email has been sent to ${email.trim() || 'sarangan365@gmail.com'}.\n\nYour quarry registration is currently pending approval by the Admin. Once Admin approves your business, you can log in to your portal.`,
-        [
-          {
-            text: 'Go to Owner Login',
-            onPress: () => router.replace('/owner-login'),
-          },
-        ]
-      );
+      loginOwner({
+        id: newQuarry.id,
+        quarry_id: newQuarry.id,
+        name: newQuarry.name,
+        owner_name: newQuarry.owner_name,
+        phone: newQuarry.phone,
+        location: newQuarry.location,
+        role: 'quarry_owner',
+      });
+
+      if (Platform.OS === 'web') {
+        alert(`Quarry Business "${companyName.trim()}" Registered Successfully! 🎉`);
+        router.replace('/(tabs)');
+      } else {
+        Alert.alert(
+          'Registration Successful 🎉',
+          `Quarry "${companyName.trim()}" registered successfully! Welcome to BillForge.`,
+          [{ text: 'Go to Dashboard', onPress: () => router.replace('/(tabs)') }]
+        );
+      }
     } catch (e) {
       console.error('Registration failed:', e);
-      setError('Registration failed. Please check details and try again.');
+      setError(e.message || 'Registration failed. Please check details and try again.');
     } finally {
       setLoading(false);
     }
+
   };
 
   return (

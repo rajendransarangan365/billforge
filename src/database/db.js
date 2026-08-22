@@ -637,11 +637,104 @@ export async function authenticateDriver(db, phone, password) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// QUARRY OWNER REGISTRATION
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function registerCompanyOwner(db, payload) {
+  const cleanPhone = String(payload.phone || payload.mobile || '').replace(/\D/g, '');
+  if (!cleanPhone || cleanPhone.length < 10) {
+    throw new Error('Please enter a valid 10-digit mobile number.');
+  }
+  if (!payload.password || String(payload.password).trim().length < 4) {
+    throw new Error('Password must be at least 4 characters long.');
+  }
+
+  if (IS_WEB) {
+    const quarries = webGet('bf_quarries') || [];
+    const existing = quarries.find(q => String(q.phone).replace(/\D/g, '') === cleanPhone);
+    if (existing) {
+      throw new Error('A quarry business with this mobile number already exists. Please log in.');
+    }
+
+    const nextId = quarries.reduce((max, q) => q.id > max ? q.id : max, 0) + 1;
+    const newQuarry = {
+      id: nextId,
+      quarry_id: nextId,
+      name: payload.name || payload.companyName || 'New Quarry Business',
+      owner_name: payload.ownerName || payload.name || 'Quarry Owner',
+      phone: cleanPhone,
+      email: payload.email || '',
+      password: String(payload.password).trim(),
+      location: payload.location || 'Tamil Nadu',
+      address: payload.address || '',
+      status: 'active',
+      is_verified: true,
+      created_at: new Date().toISOString(),
+    };
+
+    quarries.push(newQuarry);
+    webSet('bf_quarries', quarries);
+
+    // Save company profile & quarry key mappings
+    webSet('bf_company_profile', newQuarry);
+    webSet(qKey(nextId, 'profile'), newQuarry);
+
+    // Save initial material catalog
+    if (Array.isArray(payload.materials) && payload.materials.length > 0) {
+      const formattedMats = payload.materials.map((m, idx) => ({
+        id: idx + 1,
+        quarry_id: nextId,
+        name: m.name,
+        price_per_unit: parseFloat(m.price_per_unit || m.price) || 0,
+        price: parseFloat(m.price_per_unit || m.price) || 0,
+        unit_type: m.unit_type || 'unit',
+        unit: m.unit_type || 'unit',
+        created_at: new Date().toISOString(),
+      }));
+      webSet(qKey(nextId, 'materials'), formattedMats);
+      webSet(qKey(nextId, 'material_catalog'), formattedMats);
+      webSet(`bf_quarry_${nextId}_materials`, formattedMats);
+    }
+
+    // Save initial driver if provided
+    if (Array.isArray(payload.drivers) && payload.drivers.length > 0) {
+      const drivers = webGet('bf_drivers') || [];
+      for (const d of payload.drivers) {
+        if (d.name) {
+          drivers.push({
+            id: Date.now(),
+            quarry_id: nextId,
+            name: d.name,
+            phone: d.phone || cleanPhone,
+            vehicle_no: d.vehicle_no || 'Lorry',
+            status: 'Available',
+            password: 'driver123',
+          });
+        }
+      }
+      webSet('bf_drivers', drivers);
+    }
+
+    return newQuarry;
+  }
+
+  const res = await db.runAsync(
+    'INSERT INTO quarries (name, owner_name, phone, password, location, address, status) VALUES (?,?,?,?,?,?,?)',
+    [payload.name, payload.ownerName, cleanPhone, payload.password, payload.location || '', payload.address || '', 'active']
+  );
+  return { id: res.lastInsertRowId, quarry_id: res.lastInsertRowId, ...payload, status: 'active' };
+}
+
+export async function registerQuarry(db, payload) {
+  return registerCompanyOwner(db, payload);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // CUSTOMER AUTH
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function authenticateCustomer(db, phone) {
   return authenticateCustomerAccount(db, phone, '1234');
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // QUARRY PROFILE
