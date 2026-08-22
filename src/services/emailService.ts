@@ -148,6 +148,26 @@ export async function sendBillInvoiceEmail({
   return dispatchEmail({ to: targetEmail, subject, html: htmlBody });
 }
 
+export function getSMTPConfig() {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const saved = localStorage.getItem('bf_admin_smtp_config');
+      if (saved) {
+        return { ...SMTP_CONFIG, ...JSON.parse(saved) };
+      }
+    } catch {}
+  }
+  return SMTP_CONFIG;
+}
+
+export function saveSMTPConfig(config: any) {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem('bf_admin_smtp_config', JSON.stringify(config));
+    } catch {}
+  }
+}
+
 /**
  * Core Serverless SMTP Dispatcher
  */
@@ -160,6 +180,7 @@ async function dispatchEmail({ to, subject, html }: { to: string; subject: strin
       return 'https://billforge-lovat.vercel.app';
     };
 
+    const currentSmtp = getSMTPConfig();
     const apiUrl = `${getApiBase()}/api/email`;
     console.log(`[EmailService] Posting email request via Serverless API to ${to}...`);
 
@@ -168,7 +189,7 @@ async function dispatchEmail({ to, subject, html }: { to: string; subject: strin
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ to, subject, html }),
+      body: JSON.stringify({ to, subject, html, smtpConfig: currentSmtp }),
     });
 
     if (!response.ok) {
@@ -184,4 +205,5 @@ async function dispatchEmail({ to, subject, html }: { to: string; subject: strin
     return { success: false, error: error.message || String(error) };
   }
 }
+
 

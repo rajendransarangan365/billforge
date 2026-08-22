@@ -14,15 +14,16 @@ export default async function handler(req, res) {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
 
-  const { to, subject, html } = req.body || {};
+  const { to, subject, html, smtpConfig } = req.body || {};
   if (!to || !subject || !html) {
     return res.status(400).json({ success: false, error: 'Missing required parameters: to, subject, html' });
   }
 
-  const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
-  const smtpPort = parseInt(process.env.SMTP_PORT || '465');
-  const smtpUser = process.env.SMTP_USER || 'rightsight365@gmail.com';
-  const smtpPass = process.env.SMTP_PASS || 'ktgvoitoxfhijqmr';
+  const smtpHost = (smtpConfig && smtpConfig.host) || process.env.SMTP_HOST || 'smtp.gmail.com';
+  const smtpPort = parseInt((smtpConfig && smtpConfig.port) || process.env.SMTP_PORT || '465');
+  const smtpUser = (smtpConfig && smtpConfig.user) || process.env.SMTP_USER || 'rightsight365@gmail.com';
+  const smtpPass = (smtpConfig && smtpConfig.pass) || process.env.SMTP_PASS || 'ktgvoitoxfhijqmr';
+
 
   try {
     const transporter = nodemailer.createTransport({
