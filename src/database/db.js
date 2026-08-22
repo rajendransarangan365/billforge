@@ -148,49 +148,71 @@ function webInitializeSchema() {
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function getAllQuarryCatalogs(db) {
   if (IS_WEB) {
-    const quarries = webGet('bf_quarries') || [];
+    let quarries = webGet('bf_quarries') || [];
+
+    // Ensure MS Blue Metals (quarryId 1) is ALWAYS in quarry list if registered/active
+    const hasQuarry1 = quarries.some(q => q.id === 1 || q.quarry_id === 1);
+    if (!hasQuarry1) {
+      const q1Profile = webGet('bf_company_profile') || webGet(qKey(1, 'profile')) || {};
+      const msBlueMetals = {
+        id: 1,
+        quarry_id: 1,
+        name: q1Profile.name || 'MS Blue Metals & Quarries',
+        owner_name: q1Profile.owner_name || 'MS Blue Metals',
+        phone: q1Profile.phone || '9894698049',
+        location: q1Profile.location || q1Profile.address || 'Tiruppur, Tamil Nadu',
+        status: 'active',
+        is_verified: true,
+      };
+      quarries = [msBlueMetals, ...quarries];
+      webSet('bf_quarries', quarries);
+    }
+
     const activeQuarries = quarries.filter(q => q.status !== 'rejected' && q.status !== 'suspended');
 
-    const quarryList = activeQuarries.length > 0 ? activeQuarries : [
-      {
-        id: 1,
-        name: 'MS Blue Metals & Quarries',
-        owner_name: 'MS Blue Metals',
-        phone: '9894698049',
-        location: 'Tiruppur, Tamil Nadu',
-        status: 'active',
-      }
-    ];
-
     const result = [];
-    for (const q of quarryList) {
-      const qid = q.id || 1;
+    for (const q of activeQuarries) {
+      const qid = q.id || q.quarry_id || 1;
+
+      // Fetch materials from all possible keys used by /materials and /material-catalog
       let materials = webGet(qKey(qid, 'materials')) || 
                         webGet(qKey(qid, 'material_catalog')) || 
                         webGet(`bf_quarry_${qid}_materials`) || 
-                        webGet('bf_quarry_1_materials') || [];
+                        (qid === 1 ? webGet('bf_quarry_1_materials') : []);
 
       if (!Array.isArray(materials) || materials.length === 0) {
         materials = [
-          { id: 101, name: 'M-Sand', price_per_unit: 2600, price: 2600, unit_type: 'unit', unit: 'unit' },
-          { id: 102, name: 'P-Sand', price_per_unit: 3200, price: 3200, unit_type: 'unit', unit: 'unit' },
-          { id: 103, name: '40mm Jelly Aggregate', price_per_unit: 2200, price: 2200, unit_type: 'unit', unit: 'unit' },
-          { id: 104, name: '20mm Blue Metal Jelly', price_per_unit: 2800, price: 2800, unit_type: 'unit', unit: 'unit' },
-          { id: 105, name: 'Gravel / GSV Soil', price_per_unit: 1400, price: 1400, unit_type: 'unit', unit: 'unit' },
+          { id: 101, name: 'Blue Metal (20mm)', price_per_unit: 2400, price: 2400, unit_type: 'unit', unit: 'unit' },
+          { id: 102, name: 'Blue Metal (40mm)', price_per_unit: 2200, price: 2200, unit_type: 'unit', unit: 'unit' },
+          { id: 103, name: 'M-Sand', price_per_unit: 2600, price: 2600, unit_type: 'unit', unit: 'unit' },
+          { id: 104, name: 'P-Sand', price_per_unit: 2900, price: 2900, unit_type: 'unit', unit: 'unit' },
+          { id: 105, name: 'Quarry Dust', price_per_unit: 1200, price: 1200, unit_type: 'unit', unit: 'unit' },
+          { id: 106, name: 'River Sand', price_per_unit: 3200, price: 3200, unit_type: 'unit', unit: 'unit' },
+          { id: 107, name: 'Soil / Gravel', price_per_unit: 1800, price: 1800, unit_type: 'unit', unit: 'unit' },
         ];
       }
 
-      const normalizedMats = materials.map(m => ({
-        ...m,
-        price_per_unit: m.price_per_unit || m.price || 0,
-        price: m.price_per_unit || m.price || 0,
+      const normalizedMats = materials.map((m, idx) => ({
+        id: m.id || idx + 1,
+        name: m.name || 'Material',
+        price_per_unit: parseFloat(m.price_per_unit ?? m.price ?? 0),
+        price: parseFloat(m.price_per_unit ?? m.price ?? 0),
         unit_type: m.unit_type || m.unit || 'unit',
         unit: m.unit_type || m.unit || 'unit',
       }));
 
+      const quarryObj = {
+        id: qid,
+        name: q.name || q.owner_name || 'MS Blue Metals & Quarries',
+        owner_name: q.owner_name || q.name || 'MS Blue Metals',
+        location: q.location || q.address || 'Tiruppur, Tamil Nadu',
+        phone: q.phone || '9894698049',
+        status: 'active',
+      };
+
       result.push({
-        quarry: q,
-        ...q,
+        quarry: quarryObj,
+        ...quarryObj,
         materials: normalizedMats,
       });
     }
@@ -1771,27 +1793,32 @@ export async function getUniversalContacts(db, userRole, quarryId, currentUser) 
 
     } else if (activeRole === 'customer') {
       // FOR CUSTOMER: Show registered active quarries that customer can browse and chat with!
-      const quarries = webGet('bf_quarries') || [];
+      let quarries = webGet('bf_quarries') || [];
+      const hasQ1 = quarries.some(q => q.id === 1 || q.quarry_id === 1);
+      if (!hasQ1) {
+        quarries = [
+          {
+            id: 1,
+            quarry_id: 1,
+            name: 'MS Blue Metals & Quarries',
+            owner_name: 'MS Blue Metals',
+            phone: '9894698049',
+            location: 'Tiruppur, Tamil Nadu',
+            status: 'active',
+          },
+          ...quarries,
+        ];
+      }
+
       const activeQuarries = quarries.filter(q => q.status !== 'rejected' && q.status !== 'suspended');
 
-      const quarryList = activeQuarries.length > 0 ? activeQuarries : [
-        {
-          id: 1,
-          name: 'MS Blue Metals & Quarries',
-          owner_name: 'MS Blue Metals',
-          phone: '9894698049',
-          location: 'Tiruppur, Tamil Nadu',
-          status: 'active',
-        }
-      ];
-
-      for (const q of quarryList) {
+      for (const q of activeQuarries) {
         contacts.push({
-          id: `contact_quarry_${q.id}`,
-          quarry_id: q.id,
+          id: `contact_quarry_${q.id || 1}`,
+          quarry_id: q.id || 1,
           role: 'quarry_owner',
-          name: q.name || q.owner_name || 'Quarry Business',
-          subtext: `Quarry Owner • ${q.location || 'Tamil Nadu'}`,
+          name: q.name || q.owner_name || 'MS Blue Metals & Quarries',
+          subtext: `Quarry Owner • ${q.location || 'Tiruppur, Tamil Nadu'}`,
           phone: q.phone || '9894698049',
           avatarIcon: 'business',
           badgeBg: '#E8F5E9',
