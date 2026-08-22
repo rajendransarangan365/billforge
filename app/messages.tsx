@@ -161,14 +161,19 @@ export default function MessagesScreen() {
   };
 
   const filteredContacts = contacts.filter((c) => {
-    const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          c.subtext.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          (c.phone || '').includes(searchQuery);
+    if (!c) return false;
+    const nameStr = (c.name || '').toLowerCase();
+    const subStr = (c.subtext || '').toLowerCase();
+    const phoneStr = String(c.phone || '');
+    const query = (searchQuery || '').toLowerCase();
+    const matchesSearch = nameStr.includes(query) || subStr.includes(query) || phoneStr.includes(query);
     if (roleFilter === 'all') return matchesSearch;
+    if (roleFilter === 'group') return matchesSearch && (c.isGroup || c.role === 'group');
     return matchesSearch && c.role === roleFilter;
   });
 
   const handleSelectContact = (c) => {
+    if (!c) return;
     setActiveContact(c);
     if (isMobile) {
       setShowMobileChat(true);
@@ -237,10 +242,11 @@ export default function MessagesScreen() {
             ) : (
               <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
                 {filteredContacts.map((c) => {
+                  if (!c) return null;
                   const isSelected = activeContact?.id === c.id;
                   return (
                     <TouchableOpacity
-                      key={c.id}
+                      key={c.id || `contact-${Math.random()}`}
                       style={[styles.contactCard, isSelected && styles.contactCardSelected]}
                       onPress={() => handleSelectContact(c)}
                       activeOpacity={0.7}
@@ -250,8 +256,8 @@ export default function MessagesScreen() {
                         <View style={styles.onlineBadgeDot} />
                       </View>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.contactName} numberOfLines={1}>{c.name}</Text>
-                        <Text style={styles.contactSub} numberOfLines={1}>{c.subtext}</Text>
+                        <Text style={styles.contactName} numberOfLines={1}>{c.name || 'Contact'}</Text>
+                        <Text style={styles.contactSub} numberOfLines={1}>{c.subtext || ''}</Text>
                       </View>
                       <Ionicons name="chevron-forward" size={16} color={isSelected ? Colors.primary : Colors.textDisabled} />
                     </TouchableOpacity>
@@ -261,6 +267,7 @@ export default function MessagesScreen() {
             )}
           </View>
         )}
+
 
         {/* Right Chat Main Area */}
         {(!isMobile || showMobileChat) && (
