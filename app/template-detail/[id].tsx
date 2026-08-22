@@ -10,7 +10,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
 import { Card, Button, Input } from '../../src/components';
-import { getDatabase, getTemplateById, deleteTemplate } from '../../src/database/db';
+import { getDatabase, getTemplateById, deleteTemplate, getCompanyProfile } from '../../src/database/db';
+import { useAuth } from '../../src/context/AuthContext';
 import * as FileSystem from 'expo-file-system';
 import { cacheDirectory, EncodingType } from 'expo-file-system';
 import { shareAsync } from 'expo-sharing';
@@ -22,7 +23,9 @@ export default function TemplateDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams();
+  const { quarryId } = useAuth();
   const [template, setTemplate] = useState(null);
+  const [companyProfile, setCompanyProfile] = useState(null);
   const [headerFields, setHeaderFields] = useState([]);
   const [tableFields, setTableFields] = useState([]);
 
@@ -41,11 +44,13 @@ export default function TemplateDetailScreen() {
   const [newFieldType, setNewFieldType] = useState('text'); // 'text', 'numeric', 'date', 'time', 'datetime'
 
   const openDesigner = () => {
+    const compName = companyProfile?.name || companyProfile?.owner_name;
+    const defaultTitle = (template?.name && template?.name !== 'Standard Billing Template') ? template.name : (compName || '');
     setDesignerSettings({
       themeColor: template.theme_color || '#0F2050',
       fontFamily: template.font_family || 'Arial',
       borderStyle: template.border_style || 'single',
-      titleText: template.name || 'Standard Billing Invoice',
+      titleText: designerSettings.titleText || defaultTitle,
     });
     setDesignerHeaderFields([...headerFields]);
     setDesignerTableFields([...tableFields]);
@@ -196,6 +201,8 @@ export default function TemplateDetailScreen() {
         setHeaderFields(JSON.parse(t.header_fields_json || '[]'));
         setTableFields(JSON.parse(t.table_fields_json || '[]'));
       }
+      const prof = await getCompanyProfile(db, quarryId || 1);
+      if (prof) setCompanyProfile(prof);
     } catch (error) {
       console.error('Error loading template:', error);
     }
@@ -773,7 +780,9 @@ export default function TemplateDetailScreen() {
                             📞 &lt;{shopNumField.name}&gt;
                           </Text>
                         ) : (
-                          <Text style={[styles.canvasMissingFieldPlaceholder, { fontSize: windowWidth < 500 ? 9 : 11 }]}>📞 &lt;ShopNumber&gt;</Text>
+                          <Text style={[styles.canvasShopNumText, { fontSize: windowWidth < 500 ? 9 : 11 }]}>
+                            {companyProfile?.phone ? `📞 ${companyProfile.phone}` : '📞 <ShopNumber>'}
+                          </Text>
                         )}
                       </View>
                     </View>
@@ -791,7 +800,9 @@ export default function TemplateDetailScreen() {
                           &lt;{shopLocField.name}&gt;
                         </Text>
                       ) : (
-                        <Text style={[styles.canvasMissingFieldPlaceholder, { fontSize: windowWidth < 500 ? 9 : 11 }]}>&lt;ShopLocation&gt;</Text>
+                        <Text style={[styles.canvasShopLocText, { fontSize: windowWidth < 500 ? 10 : 12 }]}>
+                          {[companyProfile?.address, companyProfile?.location].filter(Boolean).join(', ') || '<ShopLocation>'}
+                        </Text>
                       )}
                     </View>
                   </View>
