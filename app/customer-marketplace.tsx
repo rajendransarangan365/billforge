@@ -132,16 +132,20 @@ export default function CustomerMarketplaceScreen() {
     }
   };
 
-  const filteredCatalogs = catalogs.map(c => {
-    if (!searchQuery.trim()) return c;
-    const qName = (c.quarry.name || '').toLowerCase();
-    const qLoc = (c.quarry.location || '').toLowerCase();
-    const query = searchQuery.toLowerCase();
+  const catalogList = Array.isArray(catalogs) ? catalogs : [];
+  const filteredCatalogs = catalogList.map(c => {
+    if (!c || !c.quarry) return null;
+    const qName = (c.quarry.name || c.quarry.owner_name || '').toLowerCase();
+    const qLoc = (c.quarry.location || c.quarry.address || '').toLowerCase();
+    const query = (searchQuery || '').toLowerCase();
+    if (!query.trim()) return c;
     if (qName.includes(query) || qLoc.includes(query)) return c;
-    const matchedMats = c.materials.filter((m: any) => (m.name || '').toLowerCase().includes(query));
+    const matsList = Array.isArray(c.materials) ? c.materials : [];
+    const matchedMats = matsList.filter((m: any) => (m?.name || '').toLowerCase().includes(query));
     if (matchedMats.length > 0) return { ...c, materials: matchedMats };
     return null;
   }).filter(Boolean);
+
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>

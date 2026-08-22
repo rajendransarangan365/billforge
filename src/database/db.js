@@ -1505,10 +1505,44 @@ export async function acceptDeliveryOrder(db, orderId, quarryId, driverId, drive
 // ═══════════════════════════════════════════════════════════════════════════════
 // CATALOG (cross-quarry browsing for customer portal)
 // ═══════════════════════════════════════════════════════════════════════════════
-// (Legacy duplicate function removed)
+export async function getAllQuarryCatalogs(db) {
+  if (IS_WEB) {
+    const quarries = webGet('bf_quarries') || [];
+    const activeQuarries = quarries.filter(q => q.status === 'active');
+    
+    const quarryList = activeQuarries.length > 0 ? activeQuarries : [
+      {
+        id: 1,
+        name: 'MS Blue Metals & Quarries',
+        owner_name: 'MS Blue Metals',
+        phone: '9894698049',
+        location: 'Tiruppur, Tamil Nadu',
+        status: 'active',
+      }
+    ];
+
+    const result = [];
+    for (const q of quarryList) {
+      const materials = webGet(qKey(q.id, 'material_catalog')) || webGet(qKey(q.id, 'materials')) || [
+        { id: 101, name: 'M-Sand', price_per_unit: 2600, unit_type: 'unit', min_order: 5 },
+        { id: 102, name: 'P-Sand', price_per_unit: 3200, unit_type: 'unit', min_order: 5 },
+        { id: 103, name: '40mm Jelly Aggregate', price_per_unit: 2200, unit_type: 'unit', min_order: 5 },
+        { id: 104, name: '20mm Blue Metal Jelly', price_per_unit: 2800, unit_type: 'unit', min_order: 5 },
+        { id: 105, name: 'Gravel / GSV Soil', price_per_unit: 1400, unit_type: 'unit', min_order: 5 },
+      ];
+      result.push({
+        quarry: q,
+        materials: Array.isArray(materials) ? materials : [],
+      });
+    }
+    return result;
+  }
+  return [];
+}
 
 // Legacy compatibility exports
 export async function registerCompanyOwner(db, details) { return registerQuarry(db, details); }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PASSWORD RESET / UNLOCK (Admin task)
