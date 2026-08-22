@@ -1666,9 +1666,10 @@ export async function getDriverRateCard(db, driverId) {
 // UNIVERSAL MESSAGING & LIVE CHAT (1-to-1 Direct & Group Channels)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export async function getUniversalContacts(db, userRole, quarryId) {
+export async function getUniversalContacts(db, userRole, quarryId, currentUser) {
   if (IS_WEB) {
     const contacts = [];
+    const qid = parseInt(quarryId || currentUser?.quarryId || currentUser?.quarry_id || 1);
 
     // 0. Public Group Channels
     contacts.push(
@@ -1681,16 +1682,6 @@ export async function getUniversalContacts(db, userRole, quarryId) {
         avatarIcon: 'people',
         badgeBg: '#FFF3EB',
         badgeColor: '#E57025',
-      },
-      {
-        id: 'group_drivers',
-        role: 'group',
-        isGroup: true,
-        name: 'Drivers & Haulers Community',
-        subtext: 'Public Group • All Registered Drivers & Transporters',
-        avatarIcon: 'car-sport',
-        badgeBg: '#E3F2FD',
-        badgeColor: '#1565C0',
       },
       {
         id: 'group_enquiries',
@@ -1716,28 +1707,90 @@ export async function getUniversalContacts(db, userRole, quarryId) {
       badgeColor: '#E65100',
     });
 
-    // 2. Quarry Owners Contacts
-    const quarries = webGet('bf_quarries') || [];
-    const activeQuarries = quarries.filter(q => q.status === 'active');
-    if (activeQuarries.length === 0) {
-      contacts.push({
-        id: 'contact_quarry_1',
-        quarry_id: 1,
-        role: 'quarry_owner',
-        name: 'Demo Quarry & Crushers',
-        subtext: 'Quarry Owner • Madukkarai, Coimbatore',
-        phone: '9894698049',
-        avatarIcon: 'business',
-        badgeBg: '#E8F5E9',
-        badgeColor: '#2E7D32',
-      });
-    } else {
-      for (const q of activeQuarries) {
+    // 2. Targeted Role-Based Contact Routing (NO FAKE HARDCODED QUARRIES!)
+    const activeRole = userRole || currentUser?.role;
+
+    if (activeRole === 'quarry_owner') {
+      // FOR QUARRY OWNER: Show ONLY customers who inquired or chatted with THIS quarry!
+      const enquiries = webGet(qKey(qid, 'enquiries')) || [];
+      const chatsIndex = webGet(qKey(qid, 'chats_index')) || [];
+      const customerMap = new Map();
+
+      for (const e of enquiries) {
+        if (e.customer_phone) {
+          customerMap.set(e.customer_phone, {
+            id: `contact_customer_${e.customer_phone}`,
+            customer_id: e.customer_phone,
+            role: 'customer',
+            name: e.customer_name || `Customer ${e.customer_phone.slice(-4)}`,
+            subtext: `Material Enquiry: ${e.material_name || 'Quarry Trade'}`,
+            phone: e.customer_phone,
+            avatarIcon: 'person',
+            badgeBg: '#F3E8FF',
+            badgeColor: '#7C3AED',
+          });
+        }
+      }
+
+      for (const c of chatsIndex) {
+        if (c.customer_phone && !customerMap.has(c.customer_phone)) {
+          customerMap.set(c.customer_phone, {
+            id: `contact_customer_${c.customer_phone}`,
+            customer_id: c.customer_phone,
+            role: 'customer',
+            name: c.customer_name || `Customer ${c.customer_phone.slice(-4)}`,
+            subtext: 'Live Negotiation Chat',
+            phone: c.customer_phone,
+            avatarIcon: 'person',
+            badgeBg: '#F3E8FF',
+            badgeColor: '#7C3AED',
+          });
+        }
+      }
+
+      for (const custContact of customerMap.values()) {
+        contacts.push(custContact);
+      }
+
+      // Drivers associated with THIS quarry
+      const drivers = webGet('bf_drivers') || [];
+      const quarryDrivers = drivers.filter(d => d.quarry_id === qid);
+      for (const d of quarryDrivers) {
+        contacts.push({
+          id: `contact_driver_${d.id}`,
+          driver_id: d.id,
+          role: 'driver',
+          name: `${d.name} (${d.vehicle_no || 'Lorry'})`,
+          subtext: 'Assigned Transport Fleet Driver',
+          phone: d.phone,
+          avatarIcon: 'car-sport',
+          badgeBg: '#E3F2FD',
+          badgeColor: '#1565C0',
+        });
+      }
+
+    } else if (activeRole === 'customer') {
+      // FOR CUSTOMER: Show registered active quarries that customer can browse and chat with!
+      const quarries = webGet('bf_quarries') || [];
+      const activeQuarries = quarries.filter(q => q.status !== 'rejected' && q.status !== 'suspended');
+
+      const quarryList = activeQuarries.length > 0 ? activeQuarries : [
+        {
+          id: 1,
+          name: 'MS Blue Metals & Quarries',
+          owner_name: 'MS Blue Metals',
+          phone: '9894698049',
+          location: 'Tiruppur, Tamil Nadu',
+          status: 'active',
+        }
+      ];
+
+      for (const q of quarryList) {
         contacts.push({
           id: `contact_quarry_${q.id}`,
           quarry_id: q.id,
           role: 'quarry_owner',
-          name: q.name,
+          name: q.name || q.owner_name || 'Quarry Business',
           subtext: `Quarry Owner • ${q.location || 'Tamil Nadu'}`,
           phone: q.phone || '9894698049',
           avatarIcon: 'business',
@@ -1745,88 +1798,38 @@ export async function getUniversalContacts(db, userRole, quarryId) {
           badgeColor: '#2E7D32',
         });
       }
-    }
 
-    // 3. Drivers Contacts
-    const drivers = webGet('bf_drivers') || [];
-    if (drivers.length === 0) {
-      contacts.push(
-        {
-          id: 'contact_driver_101',
-          driver_id: 101,
-          role: 'driver',
-          name: 'Murali Transports (TN 38 AB 1234)',
-          subtext: 'In-House Quarry Fleet Driver',
-          phone: '9876543210',
-          avatarIcon: 'car-sport',
-          badgeBg: '#E3F2FD',
-          badgeColor: '#1565C0',
-        },
-        {
-          id: 'contact_driver_102',
-          driver_id: 102,
-          role: 'driver',
-          name: 'Selvam Logistics (TN 37 C 9988)',
-          subtext: 'Private Freelance Transporter',
-          phone: '9123456789',
-          avatarIcon: 'car-sport',
-          badgeBg: '#F3E8FF',
-          badgeColor: '#7C3AED',
-        }
-      );
-    } else {
-      for (const d of drivers) {
+    } else if (activeRole === 'driver') {
+      // FOR DRIVER: Show quarry owner(s) who dispatched trips to this driver
+      const quarries = webGet('bf_quarries') || [];
+      const activeQuarries = quarries.length > 0 ? quarries : [{ id: 1, name: 'MS Blue Metals & Quarries', phone: '9894698049', location: 'Tiruppur' }];
+      for (const q of activeQuarries) {
         contacts.push({
-          id: `contact_driver_${d.id}`,
-          driver_id: d.id,
-          role: 'driver',
-          name: `${d.name} (${d.vehicle_no || 'Lorry'})`,
-          subtext: d.category === 'private' ? 'Private Freelance Transporter' : 'In-House Quarry Driver',
-          phone: d.phone,
-          avatarIcon: 'car-sport',
-          badgeBg: '#E3F2FD',
-          badgeColor: '#1565C0',
+          id: `contact_quarry_${q.id}`,
+          quarry_id: q.id,
+          role: 'quarry_owner',
+          name: q.name || 'Quarry Owner',
+          subtext: `Quarry Owner • ${q.location || ''}`,
+          phone: q.phone || '',
+          avatarIcon: 'business',
+          badgeBg: '#E8F5E9',
+          badgeColor: '#2E7D32',
         });
       }
-    }
-
-    // 4. Customers Contacts
-    const customers = webGet('bf_customers') || [];
-    if (customers.length === 0) {
-      contacts.push(
-        {
-          id: 'contact_customer_1',
-          role: 'customer',
-          name: 'Kovai Builders & Developers',
-          subtext: 'Customer / Buyer • 9123456789',
-          phone: '9123456789',
-          avatarIcon: 'person',
-          badgeBg: '#E8F5E9',
-          badgeColor: '#2E7D32',
-        },
-        {
-          id: 'contact_customer_2',
-          role: 'customer',
-          name: 'Sarangan Constructions',
-          subtext: 'Customer / Buyer • 9894698049',
-          phone: '9894698049',
-          avatarIcon: 'person',
-          badgeBg: '#E8F5E9',
-          badgeColor: '#2E7D32',
-        }
-      );
     } else {
-      for (const c of customers) {
+      // Default view
+      const quarries = webGet('bf_quarries') || [];
+      for (const q of quarries) {
         contacts.push({
-          id: `contact_customer_${c.id}`,
-          customer_id: c.id,
-          role: 'customer',
-          name: c.name,
-          subtext: `Customer / Buyer • ${c.phone || ''}`,
-          phone: c.phone || '9894698049',
-          avatarIcon: 'person',
-          badgeBg: '#F3E8FF',
-          badgeColor: '#7C3AED',
+          id: `contact_quarry_${q.id}`,
+          quarry_id: q.id,
+          role: 'quarry_owner',
+          name: q.name || 'Quarry',
+          subtext: `Quarry Owner • ${q.location || ''}`,
+          phone: q.phone || '',
+          avatarIcon: 'business',
+          badgeBg: '#E8F5E9',
+          badgeColor: '#2E7D32',
         });
       }
     }
@@ -1835,6 +1838,7 @@ export async function getUniversalContacts(db, userRole, quarryId) {
   }
   return [];
 }
+
 
 export function getEntityId(entity) {
   if (!entity) return 'guest';

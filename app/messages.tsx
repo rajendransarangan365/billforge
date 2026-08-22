@@ -40,7 +40,7 @@ export default function MessagesScreen() {
   const loadContacts = useCallback(async () => {
     try {
       const db = await getDatabase();
-      const list = await getUniversalContacts(db, myRole, quarryId);
+      const list = await getUniversalContacts(db, myRole, quarryId, user);
       setContacts(list);
       if (list.length > 0 && !activeContact) {
         setActiveContact(list[0]);
@@ -50,7 +50,8 @@ export default function MessagesScreen() {
     } finally {
       setLoading(false);
     }
-  }, [myRole, quarryId, activeContact]);
+  }, [myRole, quarryId, user, activeContact]);
+
 
   useEffect(() => {
     loadContacts();
