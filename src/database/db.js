@@ -1865,13 +1865,27 @@ export function getEntityId(entity) {
   if (typeof entity === 'string') return entity;
   if (entity.isGroup || entity.role === 'group') return `group_${entity.id}`;
   if (entity.role === 'admin' || entity.id === 'contact_admin') return 'admin';
-  if (entity.role === 'quarry_owner') return `quarry_${entity.quarryId || entity.quarry_id || entity.id || '1'}`;
-  if (entity.role === 'driver') return `driver_${entity.phone || entity.driver_id || entity.id || '1'}`;
-  if (entity.role === 'customer') return `customer_${entity.phone || entity.customer_id || entity.id || '1'}`;
+  
+  if (entity.role === 'quarry_owner') {
+    const qid = entity.quarryId || entity.quarry_id || (entity.id ? String(entity.id).replace('contact_quarry_', '') : '1');
+    return `quarry_${qid}`;
+  }
+  
+  if (entity.role === 'driver') {
+    const did = entity.phone || entity.driver_id || (entity.id ? String(entity.id).replace('contact_driver_', '') : 'driver');
+    return `driver_${did}`;
+  }
+  
+  if (entity.role === 'customer') {
+    const cid = entity.phone || entity.customer_id || (entity.id ? String(entity.id).replace('contact_customer_', '') : 'customer');
+    return `customer_${cid}`;
+  }
+
   if (entity.phone) return `phone_${String(entity.phone).replace(/\D/g, '')}`;
   if (entity.id) return `user_${entity.id}`;
   return 'guest';
 }
+
 
 export function getSharedThreadKey(contact, currentUser) {
   if (!contact) return 'bf_chat_global';
