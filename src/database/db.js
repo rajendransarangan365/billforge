@@ -407,52 +407,9 @@ export async function getAllQuarries(db) {
 }
 
 export async function registerQuarry(db, details) {
-  const { name, owner_name, phone, password, address, location, materials = [], drivers = [], status = 'pending_approval' } = details;
-  if (IS_WEB) {
-    const quarries = webGet('bf_quarries') || [];
-    const nextId = quarries.reduce((max, q) => q.id > max ? q.id : max, 0) + 1;
-    const quarry = {
-      id: nextId, name, owner_name: owner_name || name, phone,
-      password: password || 'admin123', address: address || '', location: location || '',
-      status: status || 'pending_approval', created_at: new Date().toISOString(),
-    };
-    quarries.push(quarry);
-    webSet('bf_quarries', quarries);
-    // Initialize quarry-scoped data
-    const mats = materials.length > 0 ? materials.map((m, i) => ({
-      id: i + 1, name: m.name, price_per_unit: parseFloat(m.price_per_unit) || 0,
-      unit_type: m.unit_type || 'unit', created_at: new Date().toISOString(),
-    })) : getDefaultMaterials();
-    webSet(qKey(nextId, 'materials'), mats);
-    webSet(qKey(nextId, 'bills'), []);
-    webSet(qKey(nextId, 'customers'), []);
-    webSet(qKey(nextId, 'payments'), []);
-    webSet(qKey(nextId, 'reminders'), []);
-    webSet(qKey(nextId, 'enquiries'), []);
-    webSet(qKey(nextId, 'consignments'), []);
-    webSet(qKey(nextId, 'templates'), [getDefaultTemplate()]);
-    webSet(qKey(nextId, 'drivers'), []);
-    // Register drivers to global pool
-    const globalDrivers = webGet('bf_drivers') || [];
-    for (const d of drivers) {
-      if (d.name && d.phone) {
-        const did = globalDrivers.reduce((max, g) => g.id > max ? g.id : max, 0) + 1;
-        globalDrivers.push({
-          id: did, name: d.name, phone: d.phone,
-          vehicle_no: d.vehicle_no || '', password: d.password || 'driver123',
-          status: 'Available', quarry_id: nextId, created_at: new Date().toISOString(),
-        });
-      }
-    }
-    webSet('bf_drivers', globalDrivers);
-    return nextId;
-  }
-  const result = await db.runAsync(
-    'INSERT INTO quarries (name, owner_name, phone, password, address, location, status) VALUES (?,?,?,?,?,?,?)',
-    [name, owner_name || name, phone, password || 'admin123', address || '', location || '', status || 'pending_approval']
-  );
-  return result.lastInsertRowId;
+  return registerCompanyOwner(db, details);
 }
+
 
 export async function approveQuarry(db, quarryId) {
   if (IS_WEB) {
@@ -724,9 +681,6 @@ export async function registerCompanyOwner(db, payload) {
   return { id: res.lastInsertRowId, quarry_id: res.lastInsertRowId, ...payload, status: 'active' };
 }
 
-export async function registerQuarry(db, payload) {
-  return registerCompanyOwner(db, payload);
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CUSTOMER AUTH
