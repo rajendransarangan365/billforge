@@ -147,46 +147,44 @@ function webInitializeSchema() {
 // MARKETPLACE CATALOG — Customer-facing: all verified quarries + their materials
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function getAllQuarryCatalogs(db) {
-  // 1. Try real cloud MongoDB Atlas endpoint
-  const apiRes = await fetchApi('/api/marketplace');
-  if (apiRes && apiRes.success && Array.isArray(apiRes.catalogs) && apiRes.catalogs.length > 0) {
-    webSet('bf_quarries', apiRes.catalogs);
-    return apiRes.catalogs;
-  }
-
-  // 2. Fallback to local cache
   if (IS_WEB) {
     const quarries = webGet('bf_quarries') || [];
-    const active = quarries.filter(q =>
-      q.status !== 'rejected' && q.status !== 'suspended' &&
-      (q.is_verified === true || q.is_verified === undefined || q.is_verified === null)
-    );
+    const activeQuarries = quarries.filter(q => q.status !== 'rejected' && q.status !== 'suspended');
 
-    const catalogs = [];
-    for (const q of active) {
-      const materials = webGet(`bf_quarry_${q.id}_materials`) || [];
-      const activeMats = materials
-        .filter(m => m.is_active !== false)
-        .map(m => ({
-          ...m,
-          price: m.price ?? m.price_per_unit ?? 0,
-          unit: m.unit ?? m.unit_type ?? 'unit',
-        }));
-
-      if (activeMats.length > 0) {
-        catalogs.push({
-          ...q,
-          materials: activeMats,
-          material_count: activeMats.length,
-          min_price: Math.min(...activeMats.map(m => m.price || 0)),
-          max_price: Math.max(...activeMats.map(m => m.price || 0)),
-        });
+    const quarryList = activeQuarries.length > 0 ? activeQuarries : [
+      {
+        id: 1,
+        name: 'MS Blue Metals & Quarries',
+        owner_name: 'MS Blue Metals',
+        phone: '9894698049',
+        location: 'Tiruppur, Tamil Nadu',
+        status: 'active',
       }
+    ];
+
+    const result = [];
+    for (const q of quarryList) {
+      let materials = webGet(qKey(q.id, 'material_catalog')) || webGet(qKey(q.id, 'materials')) || webGet(`bf_quarry_${q.id}_materials`) || [];
+      if (!Array.isArray(materials) || materials.length === 0) {
+        materials = [
+          { id: 101, name: 'M-Sand', price_per_unit: 2600, price: 2600, unit_type: 'unit', unit: 'unit' },
+          { id: 102, name: 'P-Sand', price_per_unit: 3200, price: 3200, unit_type: 'unit', unit: 'unit' },
+          { id: 103, name: '40mm Jelly Aggregate', price_per_unit: 2200, price: 2200, unit_type: 'unit', unit: 'unit' },
+          { id: 104, name: '20mm Blue Metal Jelly', price_per_unit: 2800, price: 2800, unit_type: 'unit', unit: 'unit' },
+          { id: 105, name: 'Gravel / GSV Soil', price_per_unit: 1400, price: 1400, unit_type: 'unit', unit: 'unit' },
+        ];
+      }
+      result.push({
+        quarry: q,
+        ...q,
+        materials: Array.isArray(materials) ? materials : [],
+      });
     }
-    return catalogs;
+    return result;
   }
   return [];
 }
+
 
 
 function migrateOldData() {
@@ -1502,46 +1500,9 @@ export async function acceptDeliveryOrder(db, orderId, quarryId, driverId, drive
   return true;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CATALOG (cross-quarry browsing for customer portal)
-// ═══════════════════════════════════════════════════════════════════════════════
-export async function getAllQuarryCatalogs(db) {
-  if (IS_WEB) {
-    const quarries = webGet('bf_quarries') || [];
-    const activeQuarries = quarries.filter(q => q.status === 'active');
-    
-    const quarryList = activeQuarries.length > 0 ? activeQuarries : [
-      {
-        id: 1,
-        name: 'MS Blue Metals & Quarries',
-        owner_name: 'MS Blue Metals',
-        phone: '9894698049',
-        location: 'Tiruppur, Tamil Nadu',
-        status: 'active',
-      }
-    ];
-
-    const result = [];
-    for (const q of quarryList) {
-      const materials = webGet(qKey(q.id, 'material_catalog')) || webGet(qKey(q.id, 'materials')) || [
-        { id: 101, name: 'M-Sand', price_per_unit: 2600, unit_type: 'unit', min_order: 5 },
-        { id: 102, name: 'P-Sand', price_per_unit: 3200, unit_type: 'unit', min_order: 5 },
-        { id: 103, name: '40mm Jelly Aggregate', price_per_unit: 2200, unit_type: 'unit', min_order: 5 },
-        { id: 104, name: '20mm Blue Metal Jelly', price_per_unit: 2800, unit_type: 'unit', min_order: 5 },
-        { id: 105, name: 'Gravel / GSV Soil', price_per_unit: 1400, unit_type: 'unit', min_order: 5 },
-      ];
-      result.push({
-        quarry: q,
-        materials: Array.isArray(materials) ? materials : [],
-      });
-    }
-    return result;
-  }
-  return [];
-}
-
 // Legacy compatibility exports
 export async function registerCompanyOwner(db, details) { return registerQuarry(db, details); }
+
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
