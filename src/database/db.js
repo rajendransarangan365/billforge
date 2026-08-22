@@ -1637,6 +1637,47 @@ export async function getUniversalContacts(db, currentRole, currentQuarryId) {
   if (IS_WEB) {
     const contacts = [];
 
+    // ═══════════════════════════════════════════════════════════════════════════════
+// UNIVERSAL MESSAGING & LIVE CHAT (1-to-1 Direct & Group Channels)
+// ═══════════════════════════════════════════════════════════════════════════════
+export async function getUniversalContacts(db, userRole, quarryId) {
+  if (IS_WEB) {
+    const contacts = [];
+
+    // 0. Public Group Channels
+    contacts.push(
+      {
+        id: 'group_quarry_ops',
+        role: 'group',
+        isGroup: true,
+        name: 'Quarry Operations & Logistics Group',
+        subtext: 'Public Group • Quarry Owners, Drivers & Dispatch',
+        avatarIcon: 'people',
+        badgeBg: '#FFF3EB',
+        badgeColor: '#E57025',
+      },
+      {
+        id: 'group_drivers',
+        role: 'group',
+        isGroup: true,
+        name: 'Drivers & Haulers Community',
+        subtext: 'Public Group • All Registered Drivers & Transporters',
+        avatarIcon: 'car-sport',
+        badgeBg: '#E3F2FD',
+        badgeColor: '#1565C0',
+      },
+      {
+        id: 'group_enquiries',
+        role: 'group',
+        isGroup: true,
+        name: 'Customer Support & Enquiries Channel',
+        subtext: 'Public Group • Customer Help, Orders & Trade Enquiries',
+        avatarIcon: 'help-buoy',
+        badgeBg: '#F3E8FF',
+        badgeColor: '#7C3AED',
+      }
+    );
+
     // 1. Platform Admin Contact
     contacts.push({
       id: 'contact_admin',
@@ -1752,6 +1793,7 @@ export async function getUniversalContacts(db, currentRole, currentQuarryId) {
       for (const c of customers) {
         contacts.push({
           id: `contact_customer_${c.id}`,
+          customer_id: c.id,
           role: 'customer',
           name: c.name,
           subtext: `Customer / Buyer • ${c.phone || ''}`,
@@ -1771,16 +1813,21 @@ export async function getUniversalContacts(db, currentRole, currentQuarryId) {
 export function getEntityId(entity) {
   if (!entity) return 'guest';
   if (typeof entity === 'string') return entity;
-  if (entity.role === 'admin' || entity.id === 'contact_admin') return 'admin_1';
-  if (entity.quarry_id || entity.quarryId) return `quarry_${entity.quarry_id || entity.quarryId}`;
-  if (entity.driver_id || entity.driverId) return `driver_${entity.driver_id || entity.driverId}`;
-  if (entity.customer_id || entity.customerId) return `customer_${entity.customer_id || entity.customerId}`;
+  if (entity.isGroup || entity.role === 'group') return `group_${entity.id}`;
+  if (entity.role === 'admin' || entity.id === 'contact_admin') return 'admin';
+  if (entity.role === 'quarry_owner') return `quarry_${entity.quarryId || entity.quarry_id || entity.id || '1'}`;
+  if (entity.role === 'driver') return `driver_${entity.phone || entity.driver_id || entity.id || '1'}`;
+  if (entity.role === 'customer') return `customer_${entity.phone || entity.customer_id || entity.id || '1'}`;
   if (entity.phone) return `phone_${String(entity.phone).replace(/\D/g, '')}`;
-  if (entity.id) return `entity_${entity.id}`;
-  return 'user';
+  if (entity.id) return `user_${entity.id}`;
+  return 'guest';
 }
 
 export function getSharedThreadKey(contact, currentUser) {
+  if (!contact) return 'bf_chat_global';
+  if (contact.isGroup || contact.role === 'group') {
+    return `bf_chat_group_${contact.id}`;
+  }
   const idA = getEntityId(currentUser);
   const idB = getEntityId(contact);
   const pair = [String(idA), String(idB)].sort();
@@ -1805,12 +1852,15 @@ export async function getUniversalMessages(db, contact, currentUser) {
     let msgs = webGet(threadKey) || [];
     if (msgs.length > 0) return msgs;
 
+    const isGroup = contact?.isGroup || contact?.role === 'group';
     const welcomeMsgs = [
       {
         id: `msg-welcome-${Date.now()}`,
         sender_role: 'system',
         sender_name: 'BillForge Live Connect',
-        text: '👋 Start direct communication! Messages sent here sync in real-time across devices.',
+        text: isGroup
+          ? `💬 Welcome to ${contact.name}! Broadcast messages and discuss with members in real-time.`
+          : `🔒 End-to-end encrypted 1-to-1 direct chat with ${contact?.name || 'Contact'}.`,
         timestamp: new Date().toISOString(),
         status: 'delivered',
       }
@@ -1825,6 +1875,7 @@ export async function sendUniversalMessage(db, contact, senderRole, senderName, 
   const threadKey = typeof contact === 'string' ? `bf_chat_${contact}` : getSharedThreadKey(contact, currentUser);
   const qid = typeof contact === 'object' ? (contact?.quarry_id || currentUser?.quarryId) : 1;
   const phone = typeof contact === 'object' ? (contact?.phone || currentUser?.phone) : '9894698049';
+  const myEntityId = getEntityId(currentUser);
 
   // Send to MongoDB serverless API
   const apiRes = await fetchApi('/api/chat', {
@@ -1839,8 +1890,14 @@ export async function sendUniversalMessage(db, contact, senderRole, senderName, 
     }),
   });
 
-  const newMsg = (apiRes && apiRes.success && apiRes.message) ? apiRes.message : {
-    id: `msg-${Date.now()}`,
+  const newMsg = (apiRes && apiRes.success && apiRes.message) ? {
+    ...apiRes.message,
+    sender_id: myEntityId,
+    sender_phone: currentUser?.phone || '',
+  } : {
+    id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+    sender_id: myEntityId,
+    sender_phone: currentUser?.phone || '',
     sender_role: senderRole,
     sender_name: senderName,
     sender: senderRole === 'quarry_owner' ? 'owner' : senderRole === 'customer' ? 'customer' : 'driver',
@@ -1865,6 +1922,57 @@ export async function sendUniversalMessage(db, contact, senderRole, senderName, 
 
   return newMsg;
 }
+
+export async function editUniversalMessage(db, messageId, newText, threadKey) {
+  if (IS_WEB) {
+    const list = webGet(threadKey) || [];
+    const idx = list.findIndex(m => m.id === messageId);
+    if (idx !== -1) {
+      list[idx] = {
+        ...list[idx],
+        text: newText,
+        isEdited: true,
+        editedAt: new Date().toISOString(),
+      };
+      webSet(threadKey, list);
+      try {
+        if (typeof window !== 'undefined' && window.BroadcastChannel) {
+          const bc = new window.BroadcastChannel('billforge_chat');
+          bc.postMessage({ type: 'NEW_MESSAGE', threadKey });
+          bc.close();
+        }
+      } catch (e) {}
+    }
+    return list;
+  }
+  return [];
+}
+
+export async function deleteUniversalMessage(db, messageId, threadKey) {
+  if (IS_WEB) {
+    const list = webGet(threadKey) || [];
+    const idx = list.findIndex(m => m.id === messageId);
+    if (idx !== -1) {
+      list[idx] = {
+        ...list[idx],
+        text: 'This message was deleted',
+        isDeleted: true,
+        deletedAt: new Date().toISOString(),
+      };
+      webSet(threadKey, list);
+      try {
+        if (typeof window !== 'undefined' && window.BroadcastChannel) {
+          const bc = new window.BroadcastChannel('billforge_chat');
+          bc.postMessage({ type: 'NEW_MESSAGE', threadKey });
+          bc.close();
+        }
+      } catch (e) {}
+    }
+    return list;
+  }
+  return [];
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // LEGAL TRANSPORT DOCUMENTS (eWay Bill, Gate Pass, Delivery Challan)

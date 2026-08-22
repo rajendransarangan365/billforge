@@ -11,6 +11,7 @@ import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
 import {
   getDatabase, getUniversalContacts, getUniversalMessages, sendUniversalMessage,
+  editUniversalMessage, deleteUniversalMessage, getSharedThreadKey, getEntityId,
 } from '../src/database/db';
 
 import { useWindowDimensions } from 'react-native';
@@ -29,6 +30,7 @@ export default function MessagesScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [chatInput, setChatInput] = useState('');
+  const [editingMessage, setEditingMessage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
 
@@ -111,13 +113,41 @@ export default function MessagesScreen() {
     setSending(true);
     try {
       const db = await getDatabase();
-      await sendUniversalMessage(db, activeContact, myRole, myName, chatInput.trim(), currentUserObj);
+      const threadKey = getSharedThreadKey(activeContact, currentUserObj);
+      if (editingMessage) {
+        await editUniversalMessage(db, editingMessage.id, chatInput.trim(), threadKey);
+        setEditingMessage(null);
+      } else {
+        await sendUniversalMessage(db, activeContact, myRole, myName, chatInput.trim(), currentUserObj);
+      }
       setChatInput('');
       await loadMessages(activeContact);
     } catch (e) {
       Alert.alert('Error', 'Failed to send message.');
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleStartEdit = (msg) => {
+    setEditingMessage(msg);
+    setChatInput(msg.text || '');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessage(null);
+    setChatInput('');
+  };
+
+  const handleDeleteMessage = async (msg) => {
+    if (!activeContact) return;
+    try {
+      const db = await getDatabase();
+      const threadKey = getSharedThreadKey(activeContact, currentUserObj);
+      await deleteUniversalMessage(db, msg.id, threadKey);
+      await loadMessages(activeContact);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to delete message.');
     }
   };
 
@@ -185,6 +215,7 @@ export default function MessagesScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={{ paddingHorizontal: 12, gap: 6 }}>
               {[
                 { id: 'all', label: 'All' },
+                { id: 'group', label: 'Groups 👥' },
                 { id: 'quarry_owner', label: 'Quarries 🏢' },
                 { id: 'driver', label: 'Drivers 🚛' },
                 { id: 'customer', label: 'Buyers 👷' },
@@ -273,7 +304,8 @@ export default function MessagesScreen() {
                 showsVerticalScrollIndicator={false}
               >
                 {messages.map((m) => {
-                  const isMe = m.sender_role === myRole || m.sender_name === myName;
+                  const myEntityId = getEntityId(currentUserObj);
+                  const isMe = m.sender_id === myEntityId || (m.sender_phone && m.sender_phone === user?.phone) || (m.sender_name === myName && m.sender_role === myRole);
                   const isSystem = m.sender_role === 'system';
 
                   if (isSystem) {
@@ -291,17 +323,37 @@ export default function MessagesScreen() {
                       style={[
                         styles.bubbleWrap,
                         isMe ? styles.bubbleRight : styles.bubbleLeft,
+                        m.isDeleted && styles.bubbleDeleted,
                       ]}
                     >
-                      <Text style={[styles.senderName, isMe ? { color: '#1B5E20' } : { color: '#1565C0' }]}>
-                        {m.sender_name} ({m.sender_role || 'User'})
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                        <Text style={[styles.senderName, isMe ? { color: '#1B5E20' } : { color: '#1565C0' }]}>
+                          {m.sender_name} ({m.sender_role || 'User'})
+                        </Text>
+                        {isMe && !m.isDeleted && (
+                          <View style={{ flexDirection: 'row', gap: 6 }}>
+                            <TouchableOpacity onPress={() => handleStartEdit(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Ionicons name="pencil-outline" size={13} color="#555" />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => handleDeleteMessage(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
+                      
+                      <Text style={[styles.bubbleText, m.isDeleted && styles.deletedText]}>
+                        {m.isDeleted ? '🚫 This message was deleted' : m.text}
                       </Text>
-                      <Text style={styles.bubbleText}>{m.text}</Text>
+                      
                       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 4 }}>
+                        {m.isEdited && !m.isDeleted && (
+                          <Text style={styles.editedTag}>✏️ edited</Text>
+                        )}
                         <Text style={styles.timeStamp}>
                           {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </Text>
-                        {isMe && (
+                        {isMe && !m.isDeleted && (
                           m.status === 'read' ? <Ionicons name="checkmark-done" size={16} color="#0084FF" />
                           : m.status === 'delivered' ? <Ionicons name="checkmark-done" size={16} color="#757575" />
                           : <Ionicons name="checkmark" size={16} color="#757575" />
@@ -312,13 +364,26 @@ export default function MessagesScreen() {
                 })}
               </ScrollView>
 
+              {/* Editing Banner indicator */}
+              {editingMessage && (
+                <View style={styles.editingBanner}>
+                  <Ionicons name="pencil" size={14} color="#E57025" />
+                  <Text style={styles.editingBannerText} numberOfLines={1}>
+                    Editing message: "{editingMessage.text}"
+                  </Text>
+                  <TouchableOpacity onPress={handleCancelEdit}>
+                    <Ionicons name="close-circle" size={18} color="#666" />
+                  </TouchableOpacity>
+                </View>
+              )}
+
               {/* Chat Input Bar */}
               <View style={styles.inputBar}>
                 <TextInput
                   style={styles.msgInput}
                   value={chatInput}
                   onChangeText={setChatInput}
-                  placeholder={`Type message to ${activeContact.name}...`}
+                  placeholder={editingMessage ? 'Edit your message...' : `Type message to ${activeContact.name}...`}
                   placeholderTextColor={Colors.textDisabled}
                   onSubmitEditing={handleSendMessage}
                 />
@@ -328,7 +393,7 @@ export default function MessagesScreen() {
                   onPress={handleSendMessage}
                   disabled={sending}
                 >
-                  {sending ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="send" size={16} color="#FFF" />}
+                  {sending ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name={editingMessage ? 'checkmark' : 'send'} size={16} color="#FFF" />}
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -338,6 +403,7 @@ export default function MessagesScreen() {
                   <Ionicons name="logo-whatsapp" size={18} color="#FFF" />
                 </TouchableOpacity>
               </View>
+
             </>
           ) : (
             <View style={styles.emptyWrap}>
@@ -513,11 +579,32 @@ const styles = StyleSheet.create({
   },
   bubbleLeft: { alignSelf: 'flex-start', backgroundColor: '#FFFFFF' },
   bubbleRight: { alignSelf: 'flex-end', backgroundColor: '#DCF8C6' },
+  bubbleDeleted: { backgroundColor: '#F1F5F9', opacity: 0.8 },
   senderName: { fontSize: 10, fontWeight: '800', marginBottom: 2 },
   bubbleText: { fontSize: 13, color: '#000', lineHeight: 18 },
+  deletedText: { fontStyle: 'italic', color: '#64748B' },
+  editedTag: { fontSize: 9, fontStyle: 'italic', color: '#64748B', marginRight: 4 },
   timeStamp: { fontSize: 9, color: '#777', alignSelf: 'flex-end', marginTop: 4 },
 
+  editingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3EB',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#FFD8BE',
+    gap: 8,
+  },
+  editingBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#E57025',
+    fontWeight: '600',
+  },
+
   inputBar: {
+
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
