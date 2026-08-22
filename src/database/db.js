@@ -1665,9 +1665,9 @@ export async function getReminders(db, quarryId) {
 export async function getActiveReminders(db, quarryId) {
   if (IS_WEB) {
     const list = webGet(qKey(quarryId, 'reminders')) || [];
-    return list.filter(r => r.status === 'pending' || r.status === 'reminded').length;
+    return list.filter(r => r.status === 'pending' || r.status === 'reminded');
   }
-  return 0;
+  return [];
 }
 
 export async function getOverdueReminders(db, quarryId) {

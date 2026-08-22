@@ -69,7 +69,29 @@ export default function MessagesScreen() {
         badgeColor: '#1565C0',
       }));
 
-      setDirectoryUsers([...quarries, ...drivers]);
+      const customers = (webGet('bf_global_customers') || []).map(c => ({
+        id: `customer_${c.phone || c.id}`,
+        name: c.name,
+        subtext: `Customer • Phone: ${c.phone}`,
+        phone: c.phone,
+        role: 'customer',
+        avatarIcon: 'person',
+        badgeBg: '#F3E8FF',
+        badgeColor: '#9333EA',
+      }));
+
+      const admins = [{
+        id: 'admin',
+        name: 'Platform Admin',
+        subtext: 'System Administrator',
+        phone: 'admin',
+        role: 'admin',
+        avatarIcon: 'shield-checkmark',
+        badgeBg: '#FEF2F2',
+        badgeColor: '#DC2626',
+      }];
+
+      setDirectoryUsers([...quarries, ...drivers, ...customers, ...admins]);
       setNewChatModalVisible(true);
     } catch (e) {}
   };

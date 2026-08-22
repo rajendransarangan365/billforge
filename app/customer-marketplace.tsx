@@ -150,6 +150,16 @@ export default function CustomerMarketplaceScreen() {
         });
       } catch (e) {}
 
+      // Auto-start Chat Conversation
+      try {
+        const { sendUniversalMessage } = require('../src/database/db');
+        const customerEntity = { role: 'customer', phone: customerPhone, name: customerName };
+        const quarryEntity = { role: 'quarry_owner', id: `quarry_${targetQuarry.id}`, quarry_id: targetQuarry.id, name: targetQuarry.name };
+        await sendUniversalMessage(db, customerEntity, quarryEntity, `🔔 New Enquiry: I am looking for ${quantity} ${unitType} of ${selectedMaterial.name}.\n\n📍 Delivery Location: ${address.trim() || 'Not specified'}\n📞 Contact: ${customerPhone}`);
+      } catch (err) {
+        console.warn('Failed to auto-start chat:', err);
+      }
+
       Alert.alert('Enquiry Sent ✅', `Your enquiry for ${selectedMaterial.name} has been sent to ${targetQuarry.name}. They will call you shortly.`);
       setModalVisible(false);
     } catch (e) {
