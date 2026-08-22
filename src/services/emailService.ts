@@ -5,6 +5,7 @@
  */
 
 import { renderTemplate } from './templateEngine';
+import { encryptData, decryptData } from './cipherService';
 
 export const EMAIL_CONFIG = {
   // EmailJS Configuration (Service ID, Template ID, User/Public Key)
@@ -22,45 +23,12 @@ export const EMAIL_CONFIG = {
   toMeMobile: '1234567890',
 };
 
-const CIPHER_SALT = 'BillForge_Secure_v1_Secret';
-
-function encryptStr(data: any) {
-  try {
-    const jsonStr = JSON.stringify(data);
-    let encoded = '';
-    for (let i = 0; i < jsonStr.length; i++) {
-      const charCode = jsonStr.charCodeAt(i) ^ CIPHER_SALT.charCodeAt(i % CIPHER_SALT.length);
-      encoded += String.fromCharCode(charCode);
-    }
-    return `bf_enc_${btoa(unescape(encodeURIComponent(encoded)))}`;
-  } catch (e) {
-    return JSON.stringify(data);
-  }
-}
-
-function decryptStr(cipherText: string) {
-  try {
-    if (!cipherText) return null;
-    if (!cipherText.startsWith('bf_enc_')) return JSON.parse(cipherText);
-    const rawB64 = cipherText.replace('bf_enc_', '');
-    const decoded = decodeURIComponent(escape(atob(rawB64)));
-    let original = '';
-    for (let i = 0; i < decoded.length; i++) {
-      const charCode = decoded.charCodeAt(i) ^ CIPHER_SALT.charCodeAt(i % CIPHER_SALT.length);
-      original += String.fromCharCode(charCode);
-    }
-    return JSON.parse(original);
-  } catch (e) {
-    try { return JSON.parse(cipherText); } catch (err) { return null; }
-  }
-}
-
 export function getSMTPConfig() {
   if (typeof localStorage !== 'undefined') {
     try {
       const saved = localStorage.getItem('bf_admin_smtp_config');
       if (saved) {
-        const decrypted = decryptStr(saved);
+        const decrypted = decryptData(saved);
         if (decrypted) return { ...EMAIL_CONFIG, ...decrypted };
       }
     } catch {}
@@ -71,10 +39,11 @@ export function getSMTPConfig() {
 export function saveSMTPConfig(config: any) {
   if (typeof localStorage !== 'undefined') {
     try {
-      localStorage.setItem('bf_admin_smtp_config', encryptStr(config));
+      localStorage.setItem('bf_admin_smtp_config', encryptData(config));
     } catch {}
   }
 }
+
 
 
 /**
