@@ -83,7 +83,12 @@ export function SidebarNav() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
-  // Hide ONLY on these specific screens (not on dashboard '/' which is the Quarry Owner home)
+  // Hide sidebar whenever NO user is logged in
+  if (!user) {
+    return null;
+  }
+
+  // Hide on explicit auth/role-selection screens
   const AUTH_ROUTES = [
     '/select-role',
     '/owner-login', '/owner-register',
@@ -92,20 +97,15 @@ export function SidebarNav() {
     '/admin-login',
   ];
 
-  // It's a landing/auth page if:
-  // 1. No user logged in, OR
-  // 2. Pathname exactly matches a known auth/login/register screen
-  const isAuthPage = AUTH_ROUTES.includes(pathname) ||
+  const isAuthRoute = AUTH_ROUTES.includes(pathname) ||
     pathname.includes('login') ||
     pathname.includes('register') ||
     pathname === '/select-role';
 
-  // If no user is logged in AND we're on root '/', treat it as landing page
-  const isLandingPage = !user && (pathname === '/' || pathname === '' || pathname === '/index');
-
-  if (isAuthPage || isLandingPage) {
+  if (isAuthRoute) {
     return null;
   }
+
 
   const handleLogout = () => {
     logout();
