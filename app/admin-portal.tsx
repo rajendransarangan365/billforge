@@ -322,7 +322,31 @@ export default function AdminPortalScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={{ marginTop: 16, alignItems: 'center' }}
+            style={[styles.btnPrimary, { backgroundColor: '#2E7D32', marginTop: 10 }]}
+            onPress={async () => {
+              try {
+                const db = await getDatabase();
+                const { resetAdminPassword } = require('../src/database/db');
+                await resetAdminPassword(db, 'admin123', adminEmail || 'sarangan365@gmail.com');
+                setPin('admin123');
+                setPinError('');
+                Alert.alert('Admin Password Reset 🔑', 'Master password reset to: admin123\nClick Authenticate Admin to log in!');
+                const res = await authenticateAdmin(db, adminEmail || 'sarangan365@gmail.com', 'admin123');
+                if (res) {
+                  loginAdmin(res);
+                  loadData();
+                }
+              } catch (e) {
+                setPin('admin123');
+              }
+            }}
+          >
+            <Ionicons name="refresh-circle-outline" size={20} color="#FFF" />
+            <Text style={styles.btnText}>Reset Admin Password to admin123 🔑</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{ marginTop: 14, alignItems: 'center' }}
             onPress={() => {
               setAdminRecoveryErr('');
               setAdminRecoverySuccess('');
@@ -330,9 +354,10 @@ export default function AdminPortalScreen() {
             }}
           >
             <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.primary, textDecorationLine: 'underline' }}>
-              Forgot Admin Password / Recovery? 🔑
+              Advanced Recovery / Set Custom Password ⚙️
             </Text>
           </TouchableOpacity>
+
         </View>
 
         {/* Modal: Admin Emergency Password Recovery */}

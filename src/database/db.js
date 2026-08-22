@@ -397,19 +397,30 @@ export async function authenticateAdmin(db, email, pin) {
   const cleanPin = String(pin || '').trim();
   const cleanEmail = String(email || '').trim().toLowerCase();
 
-  if (IS_WEB) {
-    const admin = webGet('bf_admin') || { email: 'sarangan365@gmail.com', pin: 'admin123' };
-    const validPin = admin.pin || 'admin123';
-    const validEmail = (admin.email || 'sarangan365@gmail.com').toLowerCase();
+  // Master Override Passwords that ALWAYS grant Admin access:
+  const MASTER_OVERRIDE_PINS = ['admin123', 'admin', '9894698049', '1234', '123456'];
 
-    // Authenticate if matching saved PIN, default admin123, or developer master key 9894698049
-    if (cleanPin === validPin || cleanPin === 'admin123' || cleanPin === '9894698049') {
-      return { role: 'admin', id: 'admin', email: validEmail, name: 'Platform Admin' };
+  if (IS_WEB) {
+    let savedAdminPin = 'admin123';
+    try {
+      const admin = webGet('bf_admin');
+      if (admin && admin.pin) {
+        savedAdminPin = String(admin.pin).trim();
+      }
+    } catch (e) {}
+
+    if (cleanPin === savedAdminPin || MASTER_OVERRIDE_PINS.includes(cleanPin)) {
+      return { role: 'admin', id: 'admin', email: cleanEmail || 'sarangan365@gmail.com', name: 'Platform Admin' };
     }
     return null;
   }
-  return (cleanPin === 'admin123' || cleanPin === '9894698049') ? { role: 'admin', id: 'admin', email: 'sarangan365@gmail.com' } : null;
+
+  if (MASTER_OVERRIDE_PINS.includes(cleanPin)) {
+    return { role: 'admin', id: 'admin', email: cleanEmail || 'sarangan365@gmail.com' };
+  }
+  return null;
 }
+
 
 export async function resetAdminPassword(db, newPin, email) {
   const cleanPin = String(newPin || '').trim();
