@@ -43,7 +43,8 @@ const getRowValue = (row: any, targetNames: string[]) => {
 export default function BillFormScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { companyId } = useAuth();
+  const { quarryId } = useAuth();
+  const companyId = quarryId || 1;
   const { templateId, editBillId } = useLocalSearchParams();
   const [template, setTemplate] = useState(null);
   const [headerFields, setHeaderFields] = useState([]);

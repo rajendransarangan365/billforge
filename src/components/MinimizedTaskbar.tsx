@@ -14,12 +14,12 @@ export function MinimizedTaskbar() {
   const [minimizedDrafts, setMinimizedDrafts] = useState<any[]>([]);
 
   const loadDrafts = useCallback(async () => {
-    if (!isOwner && quarryId !== 1) return;
     try {
       const list = await getMinimizedDrafts(activeQuarryId);
       setMinimizedDrafts(list);
     } catch (e) {}
-  }, [activeQuarryId, isOwner]);
+  }, [activeQuarryId]);
+
 
   useEffect(() => {
     loadDrafts();

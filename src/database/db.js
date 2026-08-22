@@ -928,7 +928,6 @@ export async function saveDraft(templateId, draftData, quarryId = 1) {
 }
 
 export async function minimizeDraft(templateId, draftData, quarryId = 1) {
-  if (!isMeaningfulDraft(draftData)) return;
   const key = qKey(quarryId, `draft_${templateId}`);
   const payload = { ...draftData, isMinimized: true, lastSaved: new Date().toISOString() };
   try { localStorage.setItem(key, JSON.stringify(payload)); } catch { }
@@ -940,7 +939,7 @@ export async function getDraft(templateId, quarryId = 1) {
     const d = localStorage.getItem(key);
     if (!d) return null;
     const parsed = JSON.parse(d);
-    if (!isMeaningfulDraft(parsed)) {
+    if (!isMeaningfulDraft(parsed) && !parsed.isMinimized) {
       localStorage.removeItem(key);
       return null;
     }
@@ -961,7 +960,7 @@ export async function getAllDrafts(quarryId = 1) {
       const k = localStorage.key(i);
       if (k && k.startsWith(prefix)) {
         const data = JSON.parse(localStorage.getItem(k));
-        if (data && isMeaningfulDraft(data)) {
+        if (data && (isMeaningfulDraft(data) || data.isMinimized)) {
           const tid = k.replace(prefix, '');
           drafts.push({ templateId: tid, data });
         }
@@ -970,6 +969,7 @@ export async function getAllDrafts(quarryId = 1) {
   } catch { }
   return drafts;
 }
+
 
 export async function getMinimizedDrafts(quarryId = 1) {
   const all = await getAllDrafts(quarryId);
