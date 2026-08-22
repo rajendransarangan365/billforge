@@ -1631,15 +1631,9 @@ export async function getDriverRateCard(db, driverId) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// UNIVERSAL MESSAGING SYSTEM (Owner, Admin, Driver, Customer WhatsApp-style)
-// ═══════════════════════════════════════════════════════════════════════════════
-export async function getUniversalContacts(db, currentRole, currentQuarryId) {
-  if (IS_WEB) {
-    const contacts = [];
-
-    // ═══════════════════════════════════════════════════════════════════════════════
 // UNIVERSAL MESSAGING & LIVE CHAT (1-to-1 Direct & Group Channels)
 // ═══════════════════════════════════════════════════════════════════════════════
+
 export async function getUniversalContacts(db, userRole, quarryId) {
   if (IS_WEB) {
     const contacts = [];
