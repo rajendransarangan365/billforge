@@ -150,21 +150,21 @@ export async function getAllQuarryCatalogs(db) {
   if (IS_WEB) {
     let quarries = webGet('bf_quarries') || [];
 
-    // Ensure MS Blue Metals (quarryId 1) is ALWAYS in quarry list if registered/active
+    // Dynamically include active quarry profile if registered or saved in profile settings
     const hasQuarry1 = quarries.some(q => q.id === 1 || q.quarry_id === 1);
     if (!hasQuarry1) {
       const q1Profile = webGet('bf_company_profile') || webGet(qKey(1, 'profile')) || {};
-      const msBlueMetals = {
+      const activeQuarry = {
         id: 1,
         quarry_id: 1,
-        name: q1Profile.name || 'MS Blue Metals & Quarries',
-        owner_name: q1Profile.owner_name || 'MS Blue Metals',
+        name: q1Profile.name || q1Profile.owner_name || 'MS Blue Metals & Quarries',
+        owner_name: q1Profile.owner_name || q1Profile.name || 'MS Blue Metals',
         phone: q1Profile.phone || '9894698049',
         location: q1Profile.location || q1Profile.address || 'Tiruppur, Tamil Nadu',
         status: 'active',
         is_verified: true,
       };
-      quarries = [msBlueMetals, ...quarries];
+      quarries = [activeQuarry, ...quarries];
       webSet('bf_quarries', quarries);
     }
 
@@ -173,23 +173,15 @@ export async function getAllQuarryCatalogs(db) {
     const result = [];
     for (const q of activeQuarries) {
       const qid = q.id || q.quarry_id || 1;
+      const qProfile = qid === 1 ? (webGet('bf_company_profile') || q) : q;
 
-      // Fetch materials from all possible keys used by /materials and /material-catalog
+      // Dynamically load exact material catalog added/managed by this quarry owner
       let materials = webGet(qKey(qid, 'materials')) || 
                         webGet(qKey(qid, 'material_catalog')) || 
-                        webGet(`bf_quarry_${qid}_materials`) || 
-                        (qid === 1 ? webGet('bf_quarry_1_materials') : []);
+                        webGet(`bf_quarry_${qid}_materials`) || [];
 
       if (!Array.isArray(materials) || materials.length === 0) {
-        materials = [
-          { id: 101, name: 'Blue Metal (20mm)', price_per_unit: 2400, price: 2400, unit_type: 'unit', unit: 'unit' },
-          { id: 102, name: 'Blue Metal (40mm)', price_per_unit: 2200, price: 2200, unit_type: 'unit', unit: 'unit' },
-          { id: 103, name: 'M-Sand', price_per_unit: 2600, price: 2600, unit_type: 'unit', unit: 'unit' },
-          { id: 104, name: 'P-Sand', price_per_unit: 2900, price: 2900, unit_type: 'unit', unit: 'unit' },
-          { id: 105, name: 'Quarry Dust', price_per_unit: 1200, price: 1200, unit_type: 'unit', unit: 'unit' },
-          { id: 106, name: 'River Sand', price_per_unit: 3200, price: 3200, unit_type: 'unit', unit: 'unit' },
-          { id: 107, name: 'Soil / Gravel', price_per_unit: 1800, price: 1800, unit_type: 'unit', unit: 'unit' },
-        ];
+        materials = getDefaultMaterials();
       }
 
       const normalizedMats = materials.map((m, idx) => ({
@@ -203,10 +195,10 @@ export async function getAllQuarryCatalogs(db) {
 
       const quarryObj = {
         id: qid,
-        name: q.name || q.owner_name || 'MS Blue Metals & Quarries',
-        owner_name: q.owner_name || q.name || 'MS Blue Metals',
-        location: q.location || q.address || 'Tiruppur, Tamil Nadu',
-        phone: q.phone || '9894698049',
+        name: qProfile.name || qProfile.owner_name || q.name || 'Quarry Business',
+        owner_name: qProfile.owner_name || qProfile.name || q.owner_name || 'Quarry Owner',
+        location: qProfile.location || qProfile.address || q.location || 'Tamil Nadu',
+        phone: qProfile.phone || q.phone || '',
         status: 'active',
       };
 
@@ -220,6 +212,7 @@ export async function getAllQuarryCatalogs(db) {
   }
   return [];
 }
+
 
 
 
