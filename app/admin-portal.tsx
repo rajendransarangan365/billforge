@@ -174,19 +174,43 @@ export default function AdminPortalScreen() {
     }
   };
 
-  const handleImpersonateQuarry = (quarry: any) => {
-    loginOwner({
-      id: quarry.id,
-      quarry_id: quarry.id,
-      name: quarry.name,
-      owner_name: quarry.owner_name,
-      phone: quarry.phone,
-      location: quarry.location,
-      address: quarry.address,
-      role: 'quarry_owner',
-    });
-    router.push('/(tabs)');
+  // Security Modal State for Admin Accessing Quarry
+  const [accessModalVisible, setAccessModalVisible] = useState(false);
+  const [targetQuarry, setTargetQuarry] = useState<any>(null);
+  const [accessPassword, setAccessPassword] = useState('');
+  const [accessError, setAccessError] = useState('');
+
+  const openAccessModal = (quarry: any) => {
+    setTargetQuarry(quarry);
+    setAccessPassword('');
+    setAccessError('');
+    setAccessModalVisible(true);
   };
+
+  const handleConfirmQuarryAccess = () => {
+    if (!accessPassword.trim()) {
+      setAccessError('Please enter Quarry Password or Admin Master PIN.');
+      return;
+    }
+    const validQuarryPass = targetQuarry?.password || 'owner123';
+    if (accessPassword.trim() === validQuarryPass || accessPassword.trim() === 'admin123') {
+      setAccessModalVisible(false);
+      loginOwner({
+        id: targetQuarry.id,
+        quarry_id: targetQuarry.id,
+        name: targetQuarry.name,
+        owner_name: targetQuarry.owner_name,
+        phone: targetQuarry.phone,
+        location: targetQuarry.location,
+        address: targetQuarry.address,
+        role: 'quarry_owner',
+      });
+      router.push('/(tabs)');
+    } else {
+      setAccessError('Invalid password / Master PIN. Verification failed.');
+    }
+  };
+
 
   // If not logged in as Admin, show PIN entry modal
   if (!isAdmin) {
@@ -359,7 +383,7 @@ export default function AdminPortalScreen() {
                   </View>
                 </View>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <TouchableOpacity style={[styles.manageBtn, { flex: 1 }]} onPress={() => handleImpersonateQuarry(q)}>
+                  <TouchableOpacity style={[styles.manageBtn, { flex: 1 }]} onPress={() => openAccessModal(q)}>
                     <Ionicons name="open-outline" size={16} color={Colors.primary} />
                     <Text style={styles.manageBtnText}>Manage & View Bills</Text>
                   </TouchableOpacity>
@@ -436,9 +460,60 @@ export default function AdminPortalScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Modal: Admin Password Security Access Authorization */}
+      <Modal visible={accessModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, { maxWidth: 420 }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="lock-closed" size={20} color="#E65100" />
+                <Text style={styles.modalTitle}>Security Access Prompt</Text>
+              </View>
+              <TouchableOpacity onPress={() => setAccessModalVisible(false)}>
+                <Ionicons name="close" size={22} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 13, color: Colors.textSecondary, marginBottom: 16 }}>
+              Enter password for <Text style={{ fontWeight: '700', color: Colors.navy }}>{targetQuarry?.name}</Text> or Master Admin PIN (admin123) to access quarry operations:
+            </Text>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Quarry Password or Master PIN *</Text>
+              <TextInput
+                style={styles.formInput}
+                value={accessPassword}
+                onChangeText={setAccessPassword}
+                placeholder="Enter password or Master PIN"
+                secureTextEntry
+                autoFocus
+                onSubmitEditing={handleConfirmQuarryAccess}
+              />
+            </View>
+
+            {accessError ? (
+              <View style={[styles.errorBox, { marginBottom: 12 }]}>
+                <Ionicons name="alert-circle-outline" size={14} color={Colors.danger} />
+                <Text style={styles.errorText}>{accessError}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setAccessModalVisible(false)}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.saveBtn, { backgroundColor: '#E65100' }]} onPress={handleConfirmQuarryAccess}>
+                <Text style={styles.saveText}>Authorize Access 🔓</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },

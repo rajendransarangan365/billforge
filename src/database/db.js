@@ -549,7 +549,8 @@ export async function authenticateOwner(db, phone, password) {
       return { error: 'not_found', message: 'No registered quarry business found with this phone number. Please register your quarry account first.' };
     }
 
-    if (q.password && q.password !== password.trim()) {
+    const storedPassword = String(q.password || 'owner123').trim();
+    if (storedPassword !== String(password).trim()) {
       return { error: 'invalid_password', message: 'Incorrect password. Please verify your credentials and try again.' };
     }
 
@@ -576,7 +577,8 @@ export async function authenticateOwner(db, phone, password) {
 
   const q = await db.getFirstAsync('SELECT * FROM quarries WHERE phone = ?', [cleanPhone]);
   if (!q) return { error: 'not_found', message: 'No registered quarry business found with this phone number.' };
-  if (q.password && q.password !== password.trim()) return { error: 'invalid_password', message: 'Incorrect password.' };
+  const storedPassword = String(q.password || 'owner123').trim();
+  if (storedPassword !== String(password).trim()) return { error: 'invalid_password', message: 'Incorrect password.' };
 
   const token = generateAuthToken({ ...q, role: 'quarry_owner' });
   return { id: q.id, quarry_id: q.id, name: q.name, phone: q.phone, role: 'quarry_owner', token };
@@ -606,7 +608,8 @@ export async function authenticateDriver(db, phone, password) {
       throw new Error('Driver account not found. Please register your lorry account first.');
     }
 
-    if (d.password && d.password !== password.trim()) {
+    const storedPassword = String(d.password || 'driver123').trim();
+    if (storedPassword !== String(password).trim()) {
       throw new Error('Incorrect password / PIN. Please try again.');
     }
 
@@ -625,11 +628,13 @@ export async function authenticateDriver(db, phone, password) {
 
   const d = await db.getFirstAsync('SELECT * FROM drivers WHERE phone = ?', [cleanPhone]);
   if (!d) throw new Error('Driver account not found. Please register first.');
-  if (d.password && d.password !== password.trim()) throw new Error('Incorrect password / PIN.');
+  const storedPassword = String(d.password || 'driver123').trim();
+  if (storedPassword !== String(password).trim()) throw new Error('Incorrect password / PIN.');
 
   const token = generateAuthToken({ ...d, role: 'driver' });
   return { id: d.id, driver_id: d.id, name: d.name, phone: d.phone, vehicle_no: d.vehicle_no, role: 'driver', token };
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CUSTOMER AUTH
@@ -1146,11 +1151,12 @@ export async function authenticateCustomerAccount(db, phone, password) {
     const customer = customers.find(c => String(c.phone).replace(/\D/g, '') === cleanPhone);
 
     if (!customer) {
-      throw new Error('Account not found with this mobile number. Please register your customer account first.');
+      throw new Error('Account not found with this mobile number. Please click "Register your business account here" to register first.');
     }
 
-    if (customer.password && customer.password !== password.trim()) {
-      throw new Error('Incorrect password / PIN. Please try again.');
+    const storedPassword = String(customer.password || '').trim();
+    if (!storedPassword || storedPassword !== String(password).trim()) {
+      throw new Error('Incorrect password / PIN. Please enter the password used during registration.');
     }
 
     const token = generateAuthToken(customer);
@@ -1166,11 +1172,13 @@ export async function authenticateCustomerAccount(db, phone, password) {
 
   const c = await db.getFirstAsync('SELECT * FROM customers WHERE phone = ?', [cleanPhone]);
   if (!c) throw new Error('Account not found with this mobile number. Please register first.');
-  if (c.password && c.password !== password.trim()) throw new Error('Incorrect password / PIN.');
+  const storedPassword = String(c.password || '').trim();
+  if (!storedPassword || storedPassword !== String(password).trim()) throw new Error('Incorrect password / PIN.');
 
   const token = generateAuthToken({ ...c, role: 'customer' });
   return { ...c, role: 'customer', token };
 }
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CUSTOMERS (quarry-scoped)
