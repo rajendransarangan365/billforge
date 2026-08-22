@@ -12,13 +12,58 @@ let dbInstance = null;
 // Global keys: bf_admin, bf_quarries, bf_drivers, bf_customers, bf_user_session
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// === Web LocalStorage Utilities ===
+// === Security Cipher Engine (Obfuscates & Encrypts Local Storage Data) ===
+const CIPHER_SALT = 'BillForge_Secure_v1_Secret';
+
+function encryptData(data) {
+  try {
+    const jsonStr = JSON.stringify(data);
+    let encoded = '';
+    for (let i = 0; i < jsonStr.length; i++) {
+      const charCode = jsonStr.charCodeAt(i) ^ CIPHER_SALT.charCodeAt(i % CIPHER_SALT.length);
+      encoded += String.fromCharCode(charCode);
+    }
+    return `bf_enc_${btoa(unescape(encodeURIComponent(encoded)))}`;
+  } catch (e) {
+    return JSON.stringify(data);
+  }
+}
+
+function decryptData(cipherText) {
+  try {
+    if (!cipherText) return null;
+    if (!cipherText.startsWith('bf_enc_')) {
+      return JSON.parse(cipherText);
+    }
+    const rawB64 = cipherText.replace('bf_enc_', '');
+    const decoded = decodeURIComponent(escape(atob(rawB64)));
+    let original = '';
+    for (let i = 0; i < decoded.length; i++) {
+      const charCode = decoded.charCodeAt(i) ^ CIPHER_SALT.charCodeAt(i % CIPHER_SALT.length);
+      original += String.fromCharCode(charCode);
+    }
+    return JSON.parse(original);
+  } catch (e) {
+    try { return JSON.parse(cipherText); } catch (err) { return null; }
+  }
+}
+
 function webGet(key) {
-  try { const d = localStorage.getItem(key); return d ? JSON.parse(d) : null; } catch { return null; }
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? decryptData(raw) : null;
+  } catch {
+    return null;
+  }
 }
+
 function webSet(key, val) {
-  try { localStorage.setItem(key, JSON.stringify(val)); } catch { }
+  try {
+    const encrypted = encryptData(val);
+    localStorage.setItem(key, encrypted);
+  } catch {}
 }
+
 
 // Quarry-scoped key helper
 function qKey(quarryId, suffix) { return `bf_quarry_${quarryId}_${suffix}`; }
