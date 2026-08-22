@@ -175,6 +175,37 @@ export default function MessagesScreen() {
     }
   }, [activeContact, loadMessages]);
 
+  const handleShareLocation = async () => {
+    if (!activeContact) return;
+    try {
+      if (!navigator.geolocation) {
+        Alert.alert('Error', 'Geolocation is not supported by your browser.');
+        return;
+      }
+      setSending(true);
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const locMsg = `📍 My Current Location\nLatitude: ${lat}\nLongitude: ${lng}\nhttps://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+          
+          const db = await getDatabase();
+          await sendUniversalMessage(db, currentUserObj, activeContact, locMsg);
+          await loadMessages(activeContact);
+          setSending(false);
+        },
+        (err) => {
+          Alert.alert('Error', `Location access denied: ${err.message}`);
+          setSending(false);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      );
+    } catch (e) {
+      setSending(false);
+      Alert.alert('Error', 'Failed to share location.');
+    }
+  };
+
   const handleSendMessage = async () => {
     if (!chatInput.trim() || !activeContact) return;
     setSending(true);
@@ -471,6 +502,14 @@ export default function MessagesScreen() {
 
               {/* Chat Input Bar */}
               <View style={styles.inputBar}>
+                <TouchableOpacity
+                  style={styles.locationBtn}
+                  onPress={handleShareLocation}
+                  disabled={sending}
+                >
+                  <Ionicons name="location" size={18} color="#FFF" />
+                </TouchableOpacity>
+
                 <TextInput
                   style={styles.msgInput}
                   value={chatInput}
@@ -749,12 +788,19 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 42,
     backgroundColor: Colors.background,
-    borderRadius: 21,
+    borderRadius: 20,
     paddingHorizontal: 16,
     fontSize: 14,
-    color: Colors.text,
     borderWidth: 1,
-    borderColor: Colors.borderLight,
+    borderColor: Colors.border,
+  },
+  locationBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#E57025',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sendBtn: {
     width: 42,

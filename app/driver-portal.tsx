@@ -23,6 +23,7 @@ export default function DriverPortalScreen() {
   const driverId = user?.id || 1;
   const driverName = user?.name || 'Ramesh (Driver)';
   const vehicleNo = user?.vehicle_no || 'TN 38 AB 1234';
+  const driverPhone = user?.phone || '9876543210';
 
   const [consignments, setConsignments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -210,6 +211,26 @@ export default function DriverPortalScreen() {
           vehicle_no: vehicleNo,
         });
       } catch (e) {}
+
+      // Auto-start Chats based on stage
+      try {
+        const { sendUniversalMessage } = require('../src/database/db');
+        const driverEntity = { role: 'driver', id: `driver_${driverPhone || driverId}`, driver_id: driverId, name: driverName, phone: driverPhone };
+        
+        if (newStatus === 'reached_quarry') {
+          const quarryEntity = { role: 'quarry_owner', id: `quarry_${consignment.quarry_id}`, quarry_id: consignment.quarry_id, name: 'Quarry Owner' };
+          await sendUniversalMessage(db, driverEntity, quarryEntity, `📍 I have reached the pickup location (${consignment.pickup_address || 'Quarry'}). Ready to load the material.`);
+        } else if (newStatus === 'reached_customer' || newStatus === 'delivered') {
+          // If customer phone is available, send them a message
+          if (consignment.customer_phone) {
+            const customerEntity = { role: 'customer', id: `customer_${consignment.customer_phone}`, name: consignment.customer_name || 'Customer', phone: consignment.customer_phone };
+            const msg = newStatus === 'delivered' ? `✅ Material delivered successfully to ${consignment.customer_address}. Thank you!` : `📍 I have reached your delivery location (${consignment.customer_address}). Please guide me.`;
+            await sendUniversalMessage(db, driverEntity, customerEntity, msg);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to auto-send chat for stage:', newStatus, e);
+      }
 
       Alert.alert('✅ Status Updated', `Trip status: ${label}`);
       loadData();

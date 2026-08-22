@@ -242,6 +242,19 @@ export default function EnquiriesScreen() {
 
       await saveEnquiry(db, { ...selectedEnquiry, status: 'assigned' });
 
+      // Auto-start Chat (Quarry -> Driver)
+      try {
+        const { sendUniversalMessage } = require('../src/database/db');
+        const quarryEntity = { role: 'quarry_owner', id: `quarry_${activeQuarryId}`, quarry_id: activeQuarryId, name: user?.name || 'Quarry Owner' };
+        const driverEntity = { role: 'driver', id: `driver_${driver.phone || driver.id}`, driver_id: driver.id, name: driver.name, phone: driver.phone };
+        
+        const pickupLoc = selectedEnquiry.pickup_address || 'Quarry Location';
+        const dropLoc = selectedEnquiry.customer_address || 'Customer Location';
+        await sendUniversalMessage(db, quarryEntity, driverEntity, `🔔 New Trip Assigned:\n\n📦 Material: ${selectedEnquiry.quantity} ${selectedEnquiry.unit_type} of ${selectedEnquiry.material_name}\n📍 Pickup: ${pickupLoc}\n🚩 Drop: ${dropLoc}\n\nPlease check your Driver Portal to accept and start the trip.`);
+      } catch (e) {
+        console.warn('Failed to auto-start chat with driver', e);
+      }
+
       setAssignModalVisible(false);
       setSelectedEnquiry(null);
       Alert.alert('Success 🎉', `Consignment assigned to driver ${driver.name}.`);
@@ -436,7 +449,27 @@ export default function EnquiriesScreen() {
             <Text style={styles.dialogSub}>Select an available driver or chat to negotiate transport rates for {selectedEnquiry?.customer_name}</Text>
 
             <ScrollView style={{ maxHeight: 220, marginVertical: 12 }}>
-              {drivers.map(d => (
+              {(() => {
+                const pLat = selectedEnquiry?.pickup_lat || 11.0;
+                const pLng = selectedEnquiry?.pickup_lng || 77.0;
+                const sortedDrivers = [...drivers].map(d => {
+                  const dLat = d.lat || 11.1;
+                  const dLng = d.lng || 77.1;
+                  // Haversine distance
+                  const R = 6371; 
+                  const dLatRad = (pLat - dLat) * Math.PI / 180;
+                  const dLngRad = (pLng - dLng) * Math.PI / 180;
+                  const a = Math.sin(dLatRad/2) * Math.sin(dLatRad/2) +
+                            Math.cos(dLat * Math.PI / 180) * Math.cos(pLat * Math.PI / 180) *
+                            Math.sin(dLngRad/2) * Math.sin(dLngRad/2);
+                  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                  const dist = R * c;
+                  
+                  const estCost = Math.round((d.rate_per_km || 15) * dist) + (d.min_charge || 500);
+                  return { ...d, radarDist: dist, estCost };
+                }).sort((a, b) => a.radarDist - b.radarDist);
+
+                return sortedDrivers.map(d => (
                 <TouchableOpacity
                   key={d.id}
                   style={[
@@ -449,9 +482,10 @@ export default function EnquiriesScreen() {
                   <Ionicons name="person-circle" size={26} color={selectedDriverId === d.id ? Colors.primary : Colors.textSecondary} />
                   <View style={{ flex: 1, marginLeft: 8 }}>
                     <Text style={[styles.driverName, selectedDriverId === d.id && { color: Colors.primary }]}>
-                      {d.name} {d.isLocal ? '(In-house)' : '(External/Transport)'}
+                      {d.name} {d.isLocal ? '(In-house)' : '(External)'}
                     </Text>
-                    <Text style={styles.driverMeta}>Vehicle: {d.vehicle_no || 'Lorry'} • Mobile: {d.phone}</Text>
+                    <Text style={styles.driverMeta}>Vehicle: {d.vehicle_no || 'Lorry'}</Text>
+                    <Text style={[styles.driverMeta, { color: '#E57025', fontWeight: '600' }]}>📍 {d.radarDist.toFixed(1)} km away • Est: ₹{d.estCost}</Text>
                   </View>
                   <TouchableOpacity
                     style={{ backgroundColor: '#E3F2FD', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8 }}
@@ -465,7 +499,8 @@ export default function EnquiriesScreen() {
                   </TouchableOpacity>
                   {selectedDriverId === d.id && <Ionicons name="checkmark" size={20} color={Colors.primary} style={{ marginLeft: 8 }} />}
                 </TouchableOpacity>
-              ))}
+                ));
+              })()}
             </ScrollView>
 
             <View style={{ flexDirection: 'row', gap: 10 }}>
