@@ -10,13 +10,16 @@ module.exports = async (req, res) => {
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
   );
 
-  if (req.method === 'OPTIONS') {
+  const reqMethod = String(req.method || 'POST').toUpperCase();
+
+  if (reqMethod === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ success: false, error: 'Method not allowed' });
+  if (reqMethod !== 'POST') {
+    return res.status(405).json({ success: false, error: `Method ${req.method} not allowed` });
   }
+
 
   let body = req.body;
   if (typeof body === 'string') {
