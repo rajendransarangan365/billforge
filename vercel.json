@@ -5,9 +5,12 @@
   "buildCommand": "npx expo export -p web",
   "outputDirectory": "dist",
   "framework": null,
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  "builds": [
+    { "src": "api/email.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/email", "dest": "/api/email.js" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
-
 }
