@@ -100,6 +100,19 @@ export default function EnquiriesScreen() {
         pickup_address: pickupAddress.trim(),
         customer_address: customerAddress.trim(),
       });
+
+      // Trigger Real-Time Notification & Live Broadcast
+      try {
+        const { broadcastRealtimeEvent } = require('../src/services/realtimeService');
+        broadcastRealtimeEvent('NEW_ENQUIRY', {
+          customer_name: customerName.trim(),
+          material: materialName.trim(),
+          quantity: quantity,
+          pickup: pickupAddress.trim(),
+          delivery: customerAddress.trim(),
+        });
+      } catch (e) {}
+
       setModalVisible(false);
       resetForm();
       loadData();
@@ -127,12 +140,24 @@ export default function EnquiriesScreen() {
 
   const handleSendOwnerMessage = async () => {
     if (!chatInput.trim() || !activeChatPhone) return;
+    const msgText = chatInput.trim();
     setSendingChat(true);
     try {
       const db = await getDatabase();
-      await sendChatMessage(db, activeQuarryId, activeChatPhone, 'owner', user?.name || 'Quarry Owner', chatInput.trim());
+      await sendChatMessage(db, activeQuarryId, activeChatPhone, 'owner', user?.name || 'Quarry Owner', msgText);
+
+      try {
+        const { broadcastRealtimeEvent } = require('../src/services/realtimeService');
+        broadcastRealtimeEvent('CHAT_MESSAGE', {
+          sender_name: user?.name || 'Quarry Owner',
+          text: msgText,
+          phone: activeChatPhone,
+        });
+      } catch (e) {}
+
       setChatInput('');
       await loadChatMessages(activeChatPhone);
+
     } catch (e) {
       Alert.alert('Error', 'Failed to send message.');
     } finally {

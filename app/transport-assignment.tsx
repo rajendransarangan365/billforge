@@ -105,6 +105,19 @@ export default function TransportAssignmentScreen() {
         distance_km: chosenDriver.distance_km || request.distance_km || 10,
         estimated_cost: chosenDriver.estimated_cost || 0,
       });
+
+      // Broadcast Real-Time Notification & Live Event
+      try {
+        const { broadcastRealtimeEvent } = require('../src/services/realtimeService');
+        broadcastRealtimeEvent('DELIVERY_STAGE_UPDATE', {
+          order_id: request.id,
+          status: 'assigned',
+          status_label: `Trip Assigned to ${chosenDriver.name} (${chosenDriver.vehicle_no || 'N/A'})`,
+          driver_name: chosenDriver.name,
+          vehicle_no: chosenDriver.vehicle_no,
+        });
+      } catch (e) {}
+
       Alert.alert(
         '✅ Trip Created!',
         `${chosenDriver.name} (${chosenDriver.vehicle_no}) has been notified and assigned to deliver ${request.material_name}.`,

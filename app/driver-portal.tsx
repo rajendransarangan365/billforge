@@ -189,12 +189,26 @@ export default function DriverPortalScreen() {
       } else {
         await saveConsignment(db, { ...consignment, status: newStatus });
       }
+
+      // Broadcast Real-time Live Event
+      try {
+        const { broadcastRealtimeEvent } = require('../src/services/realtimeService');
+        broadcastRealtimeEvent('DELIVERY_STAGE_UPDATE', {
+          order_id: consignment.id,
+          status: newStatus,
+          status_label: label,
+          driver_name: driverName,
+          vehicle_no: vehicleNo,
+        });
+      } catch (e) {}
+
       Alert.alert('✅ Status Updated', `Trip status: ${label}`);
       loadData();
     } catch (e) {
       Alert.alert('Error', 'Failed to update trip status.');
     }
   };
+
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>

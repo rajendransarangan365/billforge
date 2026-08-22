@@ -64,6 +64,16 @@ export default function CustomerMarketplaceScreen() {
     try {
       const db = await getDatabase();
       await sendChatMessage(db, chatQuarry.id, customerPhone, 'customer', customerName, chatInput.trim());
+
+      try {
+        const { broadcastRealtimeEvent } = require('../src/services/realtimeService');
+        broadcastRealtimeEvent('CHAT_MESSAGE', {
+          sender_name: customerName,
+          text: chatInput.trim(),
+          phone: customerPhone,
+        });
+      } catch (e) {}
+
       setChatInput('');
       await loadChatMessages(chatQuarry.id);
     } catch (e) {
@@ -123,6 +133,18 @@ export default function CustomerMarketplaceScreen() {
         pickup_address: targetQuarry.location || targetQuarry.name,
       });
 
+      // Broadcast Real-time Enquiry Event to Quarry Owner
+      try {
+        const { broadcastRealtimeEvent } = require('../src/services/realtimeService');
+        broadcastRealtimeEvent('NEW_ENQUIRY', {
+          customer_name: customerName,
+          material: selectedMaterial.name,
+          quantity: quantity,
+          quarry_name: targetQuarry.name,
+          delivery: address.trim(),
+        });
+      } catch (e) {}
+
       Alert.alert('Enquiry Sent ✅', `Your enquiry for ${selectedMaterial.name} has been sent to ${targetQuarry.name}. They will call you shortly.`);
       setModalVisible(false);
     } catch (e) {
@@ -131,6 +153,7 @@ export default function CustomerMarketplaceScreen() {
       setSubmitting(false);
     }
   };
+
 
   const catalogList = Array.isArray(catalogs) ? catalogs : [];
   const filteredCatalogs = catalogList.map(c => {
