@@ -41,8 +41,6 @@ export default function DriverPortalScreen() {
   const [currentDocs, setCurrentDocs] = useState([]);
   const [selectedTrip, setSelectedTrip] = useState(null);
 
-  const [selectedTrip, setSelectedTrip] = useState(null);
-
   // Profile State
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [currentUserProfile, setCurrentUserProfile] = useState(user);

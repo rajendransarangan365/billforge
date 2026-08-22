@@ -72,17 +72,6 @@ export default function AdminPortalScreen() {
   const [regAddress, setRegAddress] = useState('');
   const [regSaving, setRegSaving] = useState(false);
 
-  // SMTP & EmailJS config state
-  const [smtpUser, setSmtpUser] = useState('');
-  const [smtpPass, setSmtpPass] = useState('');
-  const [smtpHost, setSmtpHost] = useState('');
-  const [smtpPort, setSmtpPort] = useState('465');
-  const [adminNoticeEmail, setAdminNoticeEmail] = useState('');
-  const [emailjsServiceId, setEmailjsServiceId] = useState('');
-  const [emailjsTemplateId, setEmailjsTemplateId] = useState('');
-  const [emailjsPublicKey, setEmailjsPublicKey] = useState('');
-
-
   const loadData = useCallback(async () => {
     try {
       const db = await getDatabase();
@@ -851,9 +840,6 @@ export default function AdminPortalScreen() {
                     </TouchableOpacity>
                   </View>
                 </View>
-              ))}
-            </View>
-          ) : (/View>
               ))}
             </View>
           ) : (
