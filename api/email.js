@@ -37,6 +37,9 @@ module.exports = async function handler(req, res) {
       port,
       secure: port === 465,
       auth: { user, pass },
+      connectionTimeout: 10000,
+      greetingTimeout: 5000,
+      socketTimeout: 10000,
       tls: { rejectUnauthorized: false },
     });
 
@@ -58,6 +61,8 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({
       success: false,
       error: err.message || 'SMTP transmission error',
+      details: String(err),
     });
   }
+
 };
