@@ -1,6 +1,6 @@
 const nodemailer = require('nodemailer');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -14,10 +14,24 @@ export default async function handler(req, res) {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
 
-  const { to, subject, html, smtpConfig } = req.body || {};
-  if (!to || !subject || !html) {
-    return res.status(400).json({ success: false, error: 'Missing required parameters: to, subject, html' });
+  let body = req.body;
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch (e) {
+      console.error('Failed to parse request body string:', e);
+    }
   }
+
+  const { to, subject, html, smtpConfig } = body || {};
+  if (!to || !subject || !html) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameters: to, subject, html',
+      received: body,
+    });
+  }
+
 
   const smtpHost = (smtpConfig && smtpConfig.host) || process.env.SMTP_HOST || 'smtp.gmail.com';
   const smtpPort = parseInt((smtpConfig && smtpConfig.port) || process.env.SMTP_PORT || '465');
