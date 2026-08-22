@@ -196,41 +196,57 @@ export default function CustomerMarketplaceScreen() {
               <Text style={styles.emptySub}>No active quarry catalogs match your search query.</Text>
             </View>
           ) : (
-            filteredCatalogs.map(({ quarry, materials }: any) => (
-              <View key={quarry.id} style={styles.quarryCard}>
-                <View style={styles.quarryHeader}>
-                  <View style={styles.quarryBadge}>
-                    <Ionicons name="business" size={20} color="#2E7D32" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.quarryName}>{quarry.name}</Text>
-                    <Text style={styles.quarrySub}><Ionicons name="location-outline" size={12} /> {quarry.location || 'Tamil Nadu'} • Phone: {quarry.phone}</Text>
-                  </View>
-                  <TouchableOpacity style={[styles.enquireBtn, { backgroundColor: '#1565C0' }]} onPress={() => openChatModal(quarry)}>
-                    <Ionicons name="chatbubbles-outline" size={14} color="#FFF" />
-                    <Text style={styles.enquireBtnText}>Live Chat</Text>
-                  </TouchableOpacity>
-                </View>
+            filteredCatalogs.map((item: any) => {
+              if (!item || !item.quarry) return null;
+              const quarry = item.quarry;
+              const materials = Array.isArray(item.materials) ? item.materials : [];
+              const quarryName = quarry.name || quarry.owner_name || 'Quarry Owner';
+              const quarryLoc = quarry.location || quarry.address || 'Tamil Nadu';
+              const quarryPhone = quarry.phone || '';
 
-                {/* Materials List */}
-                <Text style={styles.matSectionTitle}>Available Materials & Prices</Text>
-                <View style={styles.matsGrid}>
-                  {materials.map((m: any) => (
-                    <View key={m.id || m.name} style={styles.matCard}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.matName}>{m.name}</Text>
-                        <Text style={styles.matPrice}>₹{m.price_per_unit || 0} <Text style={styles.unitText}>/ {m.unit_type || 'unit'}</Text></Text>
-                      </View>
-                      <TouchableOpacity style={styles.enquireBtn} onPress={() => openEnquiryModal(quarry, m)}>
-                        <Text style={styles.enquireBtnText}>Enquire</Text>
-                        <Ionicons name="send" size={12} color="#FFF" />
-                      </TouchableOpacity>
+              return (
+                <View key={quarry.id || `q_${Math.random()}`} style={styles.quarryCard}>
+                  <View style={styles.quarryHeader}>
+                    <View style={styles.quarryBadge}>
+                      <Ionicons name="business" size={20} color="#2E7D32" />
                     </View>
-                  ))}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.quarryName}>{quarryName}</Text>
+                      <Text style={styles.quarrySub}><Ionicons name="location-outline" size={12} /> {quarryLoc} • Phone: {quarryPhone}</Text>
+                    </View>
+                    <TouchableOpacity style={[styles.enquireBtn, { backgroundColor: '#1565C0' }]} onPress={() => openChatModal(quarry)}>
+                      <Ionicons name="chatbubbles-outline" size={14} color="#FFF" />
+                      <Text style={styles.enquireBtnText}>Live Chat</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Materials List */}
+                  <Text style={styles.matSectionTitle}>Available Materials & Prices</Text>
+                  <View style={styles.matsGrid}>
+                    {materials.map((m: any) => {
+                      if (!m) return null;
+                      const matName = m.name || 'Material';
+                      const matPrice = m.price_per_unit || m.price || 0;
+                      const unit = m.unit_type || m.unit || 'unit';
+                      return (
+                        <View key={m.id || matName} style={styles.matCard}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.matName}>{matName}</Text>
+                            <Text style={styles.matPrice}>₹{matPrice} <Text style={styles.unitText}>/ {unit}</Text></Text>
+                          </View>
+                          <TouchableOpacity style={styles.enquireBtn} onPress={() => openEnquiryModal(quarry, m)}>
+                            <Text style={styles.enquireBtnText}>Enquire</Text>
+                            <Ionicons name="send" size={12} color="#FFF" />
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
+                  </View>
                 </View>
-              </View>
-            ))
+              );
+            })
           )}
+
         </ScrollView>
       )}
 
