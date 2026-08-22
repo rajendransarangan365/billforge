@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Dimensions, Image,
 } from 'react-native';
@@ -7,12 +7,26 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
+import { useAuth } from '../src/context/AuthContext';
 
 const { width: W } = Dimensions.get('window');
 
 export default function LandingPageScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user, role } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      if (role === 'driver') {
+        router.replace('/driver-portal');
+      } else if (role === 'customer') {
+        router.replace('/customer-marketplace');
+      } else {
+        router.replace('/(tabs)');
+      }
+    }
+  }, [user, role]);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -31,16 +45,29 @@ export default function LandingPageScreen() {
         </View>
 
         <View style={styles.navActions}>
-          <TouchableOpacity style={styles.navBtnOutline} onPress={() => router.push('/admin-portal')}>
-            <Ionicons name="shield-checkmark-outline" size={16} color={Colors.navy} />
-            <Text style={styles.navBtnOutlineText}>Admin Tower</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navBtnPrimary} onPress={() => router.push('/select-role')}>
-            <Text style={styles.navBtnPrimaryText}>Launch Portals</Text>
-            <Ionicons name="arrow-forward" size={16} color="#FFF" />
-          </TouchableOpacity>
+          {user ? (
+            <TouchableOpacity
+              style={styles.navBtnPrimary}
+              onPress={() => router.push(role === 'driver' ? '/driver-portal' : role === 'customer' ? '/customer-marketplace' : '/(tabs)')}
+            >
+              <Ionicons name="speedometer-outline" size={16} color="#FFF" />
+              <Text style={styles.navBtnPrimaryText}>Go to Dashboard</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              <TouchableOpacity style={styles.navBtnOutline} onPress={() => router.push('/admin-portal')}>
+                <Ionicons name="shield-checkmark-outline" size={16} color={Colors.navy} />
+                <Text style={styles.navBtnOutlineText}>Admin Tower</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.navBtnPrimary} onPress={() => router.push('/select-role')}>
+                <Text style={styles.navBtnPrimaryText}>Launch Portals</Text>
+                <Ionicons name="arrow-forward" size={16} color="#FFF" />
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </View>
+
 
       <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
         {/* Hero Section */}
