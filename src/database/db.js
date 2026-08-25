@@ -1614,10 +1614,27 @@ export async function deleteReminder(db, id, quarryId) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // ENQUIRIES (quarry-scoped)
 // ═══════════════════════════════════════════════════════════════════════════════
+function normQid(id) {
+  if (!id) return 1;
+  const num = parseInt(String(id).replace(/\D/g, ''), 10);
+  return isNaN(num) || num === 0 ? 1 : num;
+}
+
 export async function getEnquiries(db, quarryId = 1) {
-  const qid = quarryId || 1;
+  const qid = normQid(quarryId);
   if (IS_WEB) {
     let list = webGet(qKey(qid, 'enquiries')) || [];
+    const globalList = webGet('bf_global_enquiries') || [];
+
+    // Always merge global enquiries submitted by customers
+    for (const g of globalList) {
+      if (!list.some(e => String(e.id) === String(g.id))) {
+        list.push(g);
+      }
+    }
+
+    // All real enquiries are stored in qKey(qid, 'enquiries') by saveEnquiry()
+    // If empty, just return empty — don't seed fake data
 
     // Merge customer live chats into the enquiries list
     const chatsIndex = webGet(qKey(qid, 'chats_index')) || [];
@@ -1644,30 +1661,22 @@ export async function getEnquiries(db, quarryId = 1) {
       }
     }
 
-    // Fallback: If no enquiries exist for specific quarry ID, pull from global list
-    if (list.length === 0) {
-      const globalList = webGet('bf_global_enquiries') || [];
-      if (globalList.length > 0) {
-        list = [...globalList];
-      }
-    }
-
-    return list.sort((a, b) => new Date(b.created_at || b.updated_at) - new Date(a.created_at || a.updated_at));
+    return list.sort((a, b) => new Date(b.created_at || b.updated_at || 0) - new Date(a.created_at || a.updated_at || 0));
   }
   return await db.getAllAsync('SELECT * FROM enquiries WHERE quarry_id = ? ORDER BY created_at DESC', [qid]);
 }
 
 export async function saveEnquiry(db, enquiry) {
-  const qid = enquiry.quarry_id || 1;
+  const qid = normQid(enquiry.quarry_id);
   if (IS_WEB) {
     const list = webGet(qKey(qid, 'enquiries')) || [];
     let savedId = enquiry.id;
     if (enquiry.id) {
-      const idx = list.findIndex(e => e.id === parseInt(enquiry.id));
+      const idx = list.findIndex(e => String(e.id) === String(enquiry.id));
       if (idx !== -1) { list[idx] = { ...list[idx], ...enquiry }; }
       webSet(qKey(qid, 'enquiries'), list);
     } else {
-      const nextId = list.reduce((max, e) => e.id > max ? e.id : max, 0) + 1;
+      const nextId = list.reduce((max, e) => (typeof e.id === 'number' && e.id > max ? e.id : max), 0) + 1;
       savedId = nextId;
       const newEnq = { ...enquiry, id: nextId, quarry_id: qid, status: enquiry.status || 'pending', created_at: new Date().toISOString() };
       list.push(newEnq);
@@ -1679,18 +1688,27 @@ export async function saveEnquiry(db, enquiry) {
       webSet('bf_global_enquiries', globalList);
 
       // Auto-seed live chat thread for instant 1-to-1 messaging
+      // CRITICAL: Must use same key as getSharedThreadKey() to appear in Messages screen
       if (enquiry.customer_phone) {
         const custPhone = String(enquiry.customer_phone).replace(/\D/g, '');
-        const threadKey = `bf_chat_customer_${custPhone}_quarry_${qid}`;
+        
+        // Build entity IDs exactly as getEntityId() does
+        const customerEntityId = `customer_${custPhone}`;
+        const quarryEntityId = `quarry_${qid}`;
+        
+        // Build sorted thread key — must match getSharedThreadKey()
+        const pair = [customerEntityId, quarryEntityId].sort();
+        const threadKey = `bf_chat_${pair.join('_')}`;
+        
         const chatList = webGet(threadKey) || [];
         
         const enquiryMsg = {
           id: `msg_enq_${Date.now()}`,
-          sender_id: `customer_${custPhone}`,
+          sender_id: customerEntityId,
           sender_phone: custPhone,
           sender_role: 'customer',
           sender_name: enquiry.customer_name || 'Customer',
-          text: `📦 Material Rate Enquiry:\n\n• Material: ${enquiry.material_name}\n• Quantity: ${enquiry.quantity || 1} ${enquiry.unit_type || 'units'}\n• Delivery Site: ${enquiry.customer_address || 'Tiruppur'}\n• Contact: ${enquiry.customer_name} (${custPhone})`,
+          text: `📦 New Material Enquiry\n\n• Material: ${enquiry.material_name}\n• Quantity: ${enquiry.quantity || 1} ${enquiry.unit_type || 'units'}\n• Quoted Rate: ₹${enquiry.quoted_rate || 0}\n• Delivery Site: ${enquiry.customer_address || 'Not specified'}\n• Contact: ${enquiry.customer_name} (${custPhone})`,
           timestamp: new Date().toISOString(),
           status: 'delivered',
         };
@@ -1698,7 +1716,40 @@ export async function saveEnquiry(db, enquiry) {
         chatList.push(enquiryMsg);
         webSet(threadKey, chatList);
 
-        // Also add to quarry's chats_index
+        // Also write to legacy chat keys for backward compat
+        const legacyKey = `bf_chat_${qid}_${custPhone}`;
+        const legacyList = webGet(legacyKey) || [];
+        if (!legacyList.some(m => m.id === enquiryMsg.id)) {
+          legacyList.push(enquiryMsg);
+          webSet(legacyKey, legacyList);
+        }
+
+        // Also seed the conversation in bf_conversations so quarry owner sees customer in contact list
+        const allConvs = webGet('bf_conversations') || [];
+        const convId = `conv_${pair.join('_')}`;
+        const existingConvIdx = allConvs.findIndex(c => c.id === convId);
+        const convData = {
+          id: convId,
+          thread_key: threadKey,
+          participant_ids: [customerEntityId, quarryEntityId],
+          participant_details: [
+            { id: customerEntityId, name: enquiry.customer_name || 'Customer', role: 'customer', phone: custPhone, avatarIcon: 'person', badgeBg: '#F3E8FF', badgeColor: '#9333EA' },
+            { id: quarryEntityId, name: enquiry.pickup_address || 'Quarry Owner', role: 'quarry_owner', quarry_id: qid, avatarIcon: 'business', badgeBg: '#E8F5E9', badgeColor: '#2E7D32' },
+          ],
+          last_message: enquiryMsg.text.slice(0, 80),
+          last_message_time: enquiryMsg.timestamp,
+          unread_counts: { [quarryEntityId]: 1 },
+          created_at: enquiryMsg.timestamp,
+          updated_at: enquiryMsg.timestamp,
+        };
+        if (existingConvIdx !== -1) {
+          allConvs[existingConvIdx] = { ...allConvs[existingConvIdx], ...convData, updated_at: enquiryMsg.timestamp };
+        } else {
+          allConvs.push(convData);
+        }
+        webSet('bf_conversations', allConvs);
+
+        // Add to quarry's chats_index
         const chatsKey = qKey(qid, 'chats_index');
         const index = webGet(chatsKey) || [];
         if (!index.some(c => c.customer_phone === custPhone)) {
@@ -1933,18 +1984,31 @@ export async function resetQuarryPassword(db, quarryId, newTempPassword) {
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function getChatMessages(db, quarryId = 1, customerPhone = '9894698049') {
   const qid = parseInt(quarryId) || 1;
-  const phone = (customerPhone || '9894698049').trim();
+  const phone = (customerPhone || '9894698049').trim().replace(/\D/g, '');
   if (IS_WEB) {
-    const key = `bf_chat_${qid}_${phone}`;
-    const msgs = webGet(key) || [];
-    if (msgs.length === 0) {
-      // Fallback: check across all quarries if phone thread exists
-      const quarries = webGet('bf_quarries') || [];
-      for (const q of quarries) {
-        const foundMsgs = webGet(`bf_chat_${q.id}_${phone}`);
-        if (foundMsgs && foundMsgs.length > 0) return foundMsgs;
+    // Compute the canonical sorted thread key (same as getSharedThreadKey)
+    const customerEntityId = `customer_${phone}`;
+    const quarryEntityId = `quarry_${qid}`;
+    const pair = [customerEntityId, quarryEntityId].sort();
+    const universalKey = `bf_chat_${pair.join('_')}`;
+    
+    // Also check legacy key
+    const legacyKey = `bf_chat_${qid}_${phone}`;
+    
+    let msgs = webGet(universalKey) || [];
+    const legacyMsgs = webGet(legacyKey) || [];
+    
+    // Merge legacy msgs
+    if (legacyMsgs.length > 0) {
+      const existingIds = new Set(msgs.map(m => m.id));
+      for (const lm of legacyMsgs) {
+        if (!existingIds.has(lm.id)) {
+          msgs.push(lm);
+        }
       }
+      msgs.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     }
+    
     return msgs;
   }
   return [];
@@ -1952,10 +2016,14 @@ export async function getChatMessages(db, quarryId = 1, customerPhone = '9894698
 
 export async function sendChatMessage(db, quarryId = 1, customerPhone = '9894698049', sender = 'customer', senderName = 'Customer', text = '') {
   const qid = parseInt(quarryId) || 1;
-  const phone = (customerPhone || '9894698049').trim();
+  const phone = (customerPhone || '9894698049').trim().replace(/\D/g, '');
   if (IS_WEB) {
     const key = `bf_chat_${qid}_${phone}`;
-    const threadKey = `bf_chat_customer_${phone}_quarry_${qid}`;
+    // Use canonical sorted thread key — same as getSharedThreadKey()
+    const customerEntityId = `customer_${phone}`;
+    const quarryEntityId = `quarry_${qid}`;
+    const pair = [customerEntityId, quarryEntityId].sort();
+    const threadKey = `bf_chat_${pair.join('_')}`;
     const list = webGet(key) || [];
     const msg = {
       id: `msg-${Date.now()}`,
@@ -1969,19 +2037,45 @@ export async function sendChatMessage(db, quarryId = 1, customerPhone = '9894698
     list.push(msg);
     webSet(key, list);
 
-    // Sync with 1-to-1 thread key
+    // Sync with canonical universal thread key for Messages screen
     const universalList = webGet(threadKey) || [];
-    universalList.push({
+    const universalMsg = {
       id: msg.id,
-      sender_id: sender === 'customer' ? `customer_${phone}` : `quarry_${qid}`,
+      sender_id: sender === 'customer' ? customerEntityId : quarryEntityId,
       sender_phone: phone,
       sender_role: sender === 'customer' ? 'customer' : 'quarry_owner',
       sender_name: msg.sender_name,
       text,
       timestamp: msg.timestamp,
       status: 'delivered',
-    });
+    };
+    universalList.push(universalMsg);
     webSet(threadKey, universalList);
+
+    // Update bf_conversations so quarry owner contact list shows this chat
+    const allConvs = webGet('bf_conversations') || [];
+    const convId = `conv_${pair.join('_')}`;
+    const existingConvIdx = allConvs.findIndex(c => c.id === convId);
+    const convUpdate = {
+      id: convId,
+      thread_key: threadKey,
+      participant_ids: [customerEntityId, quarryEntityId],
+      participant_details: [
+        { id: customerEntityId, name: senderName || 'Customer', role: 'customer', phone, avatarIcon: 'person', badgeBg: '#F3E8FF', badgeColor: '#9333EA' },
+        { id: quarryEntityId, name: 'Quarry Owner', role: 'quarry_owner', quarry_id: qid, avatarIcon: 'business', badgeBg: '#E8F5E9', badgeColor: '#2E7D32' },
+      ],
+      last_message: text.slice(0, 80),
+      last_message_time: msg.timestamp,
+      unread_counts: sender === 'customer' ? { [quarryEntityId]: ((allConvs[existingConvIdx]?.unread_counts?.[quarryEntityId] || 0) + 1) } : { [customerEntityId]: ((allConvs[existingConvIdx]?.unread_counts?.[customerEntityId] || 0) + 1) },
+      created_at: allConvs[existingConvIdx]?.created_at || msg.timestamp,
+      updated_at: msg.timestamp,
+    };
+    if (existingConvIdx !== -1) {
+      allConvs[existingConvIdx] = { ...allConvs[existingConvIdx], ...convUpdate };
+    } else {
+      allConvs.push(convUpdate);
+    }
+    webSet('bf_conversations', allConvs);
 
     const chatsKey = qKey(qid, 'chats_index');
     const index = webGet(chatsKey) || [];

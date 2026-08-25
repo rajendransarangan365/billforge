@@ -146,8 +146,9 @@ export default function MessagesScreen() {
         if (typeof window !== 'undefined' && window.BroadcastChannel) {
           bc = new window.BroadcastChannel('billforge_chat');
           bc.onmessage = (event) => {
-            if (event.data?.type === 'NEW_MESSAGE') {
+            if (event.data?.type === 'NEW_MESSAGE' || event.data?.type === 'NEW_ENQUIRY') {
               loadMessages(activeContact);
+              loadContacts();
             }
           };
         }
@@ -422,22 +423,21 @@ export default function MessagesScreen() {
                   const myEntityId = getEntityId(currentUserObj);
                   const isMe = Boolean(
                     (myEntityId && String(m.sender_id) === String(myEntityId)) ||
-                    (m.sender_name && m.sender_name === myName && m.sender_name !== 'Customer' && m.sender_name !== 'Quarry Owner')
+                    (user?.phone && m.sender_phone && String(m.sender_phone).replace(/\D/g, '') === String(user.phone).replace(/\D/g, ''))
                   );
 
                   const isSystem = m.sender_role === 'system' || m.sender === 'system';
 
-
                   if (isSystem) {
                     return (
                       <View key={m.id} style={styles.systemBanner}>
-                        <Ionicons name="information-circle-outline" size={16} color="#1565C0" />
+                        <Ionicons name="information-circle-outline" size={16} color="#818CF8" />
                         <Text style={styles.systemText}>{m.text}</Text>
                       </View>
                     );
                   }
 
-                  const displayName = isMe ? 'You' : (m.sender_name || 'Contact');
+                  const displayName = isMe ? 'You' : (m.sender_name || activeContact.name || 'Contact');
 
                   return (
                     <View
@@ -448,38 +448,38 @@ export default function MessagesScreen() {
                         m.isDeleted && styles.bubbleDeleted,
                       ]}
                     >
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                        <Text style={[styles.senderName, isMe ? { color: '#1B5E20' } : { color: '#1565C0' }]}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, gap: 12 }}>
+                        <Text style={[styles.senderName, isMe ? { color: '#E0E7FF' } : { color: '#818CF8' }]}>
                           {displayName}
                         </Text>
 
                         {isMe && !m.isDeleted && (
                           <View style={{ flexDirection: 'row', gap: 6 }}>
                             <TouchableOpacity onPress={() => handleStartEdit(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                              <Ionicons name="pencil-outline" size={13} color="#555" />
+                              <Ionicons name="pencil-outline" size={13} color="#CBD5E1" />
                             </TouchableOpacity>
                             <TouchableOpacity onPress={() => handleDeleteMessage(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                              <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                              <Ionicons name="trash-outline" size={13} color="#FB7185" />
                             </TouchableOpacity>
                           </View>
                         )}
                       </View>
                       
-                      <Text style={[styles.bubbleText, m.isDeleted && styles.deletedText]}>
+                      <Text style={[styles.bubbleText, isMe ? { color: '#FFFFFF' } : { color: '#1a1a1a' }, m.isDeleted && styles.deletedText]}>
                         {m.isDeleted ? '🚫 This message was deleted' : m.text}
                       </Text>
                       
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 4 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 6 }}>
                         {m.isEdited && !m.isDeleted && (
                           <Text style={styles.editedTag}>✏️ edited</Text>
                         )}
-                        <Text style={styles.timeStamp}>
-                          {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <Text style={[styles.timeStamp, isMe ? { color: '#E0E7FF' } : { color: '#94A3B8' }]}>
+                          {new Date(m.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </Text>
                         {isMe && !m.isDeleted && (
-                          m.status === 'read' ? <Ionicons name="checkmark-done" size={16} color="#0084FF" />
-                          : m.status === 'delivered' ? <Ionicons name="checkmark-done" size={16} color="#757575" />
-                          : <Ionicons name="checkmark" size={16} color="#757575" />
+                          m.status === 'read' ? <Ionicons name="checkmark-done" size={16} color="#38BDF8" />
+                          : m.status === 'delivered' ? <Ionicons name="checkmark-done" size={16} color="#CBD5E1" />
+                          : <Ionicons name="checkmark" size={16} color="#CBD5E1" />
                         )}
                       </View>
                     </View>

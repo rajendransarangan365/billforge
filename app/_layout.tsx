@@ -2,17 +2,39 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { StyleSheet, Platform, View } from 'react-native';
+import { StyleSheet, Platform, View, useWindowDimensions } from 'react-native';
 import { AuthProvider } from '../src/context/AuthContext';
 import { SidebarNav, MinimizedTaskbar } from '../src/components';
 
+import React, { useEffect } from 'react';
+
 export default function RootLayout() {
+  const { width } = useWindowDimensions();
+  const isDesktop = Platform.OS === 'web' && width >= 768;
+
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const style = document.createElement('style');
+      style.textContent = `
+        html, body, #root {
+          overflow-x: hidden !important;
+          max-width: 100vw !important;
+          width: 100% !important;
+        }
+        * {
+          box-sizing: border-box !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  }, []);
+
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <AuthProvider>
-          <StatusBar style="dark" translucent={false} backgroundColor="transparent" />
-          <View style={styles.appContainer}>
+          <StatusBar style="light" translucent={false} backgroundColor="transparent" />
+          <View style={[styles.appContainer, { flexDirection: isDesktop ? 'row' : 'column' }]}>
             <SidebarNav />
             <View style={styles.contentArea}>
               <Stack
@@ -49,14 +71,19 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, width: '100%', overflow: 'hidden' },
   appContainer: {
     flex: 1,
-    flexDirection: Platform.OS === 'web' ? 'row' : 'column',
-    backgroundColor: '#F8FAFC',
+    width: '100%',
+    maxWidth: '100%',
+    backgroundColor: '#020617',
+    overflow: 'hidden',
   },
   contentArea: {
     flex: 1,
     height: '100%',
+    width: '100%',
+    maxWidth: '100%',
+    overflow: 'hidden',
   },
 });

@@ -31,15 +31,15 @@ export function Card({ children, style, variant = 'default', noPadding = false }
 const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg + 2, // 18px rounding for an ultra-modern aesthetic
-    padding: Spacing.xl, // More breathing room
-    shadowColor: 'rgba(15, 32, 80, 0.06)', // Ultra-soft subtle shadow
+    borderRadius: BorderRadius.lg + 2,
+    padding: Spacing.xl,
+    shadowColor: 'rgba(0, 0, 0, 0.5)',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 1,
     shadowRadius: 24,
     elevation: 4,
     borderWidth: 1,
-    borderColor: '#EDF1F7', // Elegant fine border outline
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   elevated: {
     shadowColor: 'rgba(15, 32, 80, 0.10)',

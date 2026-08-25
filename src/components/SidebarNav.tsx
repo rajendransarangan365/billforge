@@ -155,8 +155,8 @@ export function SidebarNav() {
           <TouchableOpacity style={mobileStyles.menuBtn} onPress={() => setMobileDrawerOpen(!mobileDrawerOpen)}>
             <Ionicons name={mobileDrawerOpen ? 'close' : 'menu'} size={24} color={Colors.navy} />
           </TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <Text style={mobileStyles.mobileBrand}>{brandName}</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={mobileStyles.mobileBrand} numberOfLines={1}>{brandName}</Text>
             <Text style={mobileStyles.mobileSub} numberOfLines={1}>{subLabel}</Text>
           </View>
           <TouchableOpacity style={mobileStyles.roleSwitchBtn} onPress={() => router.push('/select-role')}>
@@ -247,7 +247,7 @@ export function SidebarNav() {
               const active = isCurrentRoute(item.route);
               return (
                 <TouchableOpacity key={item.route || iIdx} style={[styles.navItem, active && styles.navItemActive]} onPress={() => router.push(item.route)} activeOpacity={0.78}>
-                  <Ionicons name={active ? item.activeIcon : item.icon} size={20} color={active ? Colors.primary : Colors.textSecondary} />
+                  <Ionicons name={active ? item.activeIcon : item.icon} size={20} color={active ? '#818CF8' : '#94A3B8'} />
                   {!collapsed && <Text style={[styles.navLabel, active && styles.navLabelActive]} numberOfLines={1}>{item.label}</Text>}
                   {active && !collapsed && <View style={styles.activeDot} />}
                 </TouchableOpacity>
@@ -279,41 +279,41 @@ export function SidebarNav() {
 }
 
 const styles = StyleSheet.create({
-  sidebar: { width: 240, backgroundColor: Colors.surface, borderRightWidth: 1, borderRightColor: Colors.borderLight, height: '100%', flexDirection: 'column', zIndex: 100 },
+  sidebar: { width: 240, backgroundColor: '#0F172A', borderRightWidth: 1, borderRightColor: '#1E293B', height: '100%', flexDirection: 'column', zIndex: 100 },
   sidebarCollapsed: { width: 64 },
-  brandHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: Colors.borderLight, gap: 10 },
-  logoWrap: { width: 36, height: 36, borderRadius: 10, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
+  brandHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1E293B', gap: 10 },
+  logoWrap: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#6366F1', alignItems: 'center', justifyContent: 'center' },
   brandTextWrap: { flex: 1 },
-  appName: { fontSize: 16, fontWeight: '800', color: Colors.navy, letterSpacing: -0.3 },
-  companySub: { fontSize: 11, color: Colors.textSecondary, marginTop: 1 },
-  collapseToggle: { width: 26, height: 26, borderRadius: 7, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.border },
+  appName: { fontSize: 16, fontWeight: '800', color: '#F8FAFC', letterSpacing: -0.3 },
+  companySub: { fontSize: 11, color: '#94A3B8', marginTop: 1 },
+  collapseToggle: { width: 26, height: 26, borderRadius: 7, backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)' },
   scroll: { flex: 1, paddingTop: 10 },
   sectionWrap: { marginBottom: 16, paddingHorizontal: 10 },
-  sectionHeader: { fontSize: 10, fontWeight: '700', color: Colors.textTertiary, letterSpacing: 1, marginBottom: 6, paddingHorizontal: 8 },
+  sectionHeader: { fontSize: 10, fontWeight: '700', color: '#64748B', letterSpacing: 1, marginBottom: 6, paddingHorizontal: 8 },
   navItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, marginBottom: 2, gap: 10 },
-  navItemActive: { backgroundColor: Colors.primarySurface },
-  navLabel: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary, flex: 1 },
-  navLabelActive: { color: Colors.primary, fontWeight: '700' },
-  activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.primary },
-  sidebarFooter: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: 1, borderTopColor: Colors.borderLight, backgroundColor: Colors.background, gap: 8 },
-  userStatusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.success },
-  userStatusText: { fontSize: 12, fontWeight: '700', color: Colors.navy },
-  userRoleText: { fontSize: 10, color: Colors.textSecondary },
-  footerLogoutBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: '#FFEBEE', alignItems: 'center', justifyContent: 'center' },
+  navItemActive: { backgroundColor: 'rgba(99, 102, 241, 0.15)', borderWidth: 1, borderColor: 'rgba(99, 102, 241, 0.3)' },
+  navLabel: { fontSize: 13, fontWeight: '600', color: '#94A3B8', flex: 1 },
+  navLabelActive: { color: '#818CF8', fontWeight: '700' },
+  activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#818CF8' },
+  sidebarFooter: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#1E293B', backgroundColor: '#0B0F19', gap: 8 },
+  userStatusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#34D399' },
+  userStatusText: { fontSize: 12, fontWeight: '700', color: '#F8FAFC' },
+  userRoleText: { fontSize: 10, color: '#94A3B8' },
+  footerLogoutBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(244, 63, 94, 0.15)', alignItems: 'center', justifyContent: 'center' },
 });
 
 const mobileStyles = StyleSheet.create({
-  topMobileWrap: { width: '100%', backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight, zIndex: 999 },
+  topMobileWrap: { width: '100%', backgroundColor: '#0F172A', borderBottomWidth: 1, borderBottomColor: '#1E293B', zIndex: 999 },
   topMobileBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 56, gap: 12 },
-  menuBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.borderLight },
-  mobileBrand: { fontSize: 16, fontWeight: '800', color: Colors.navy },
-  mobileSub: { fontSize: 11, color: Colors.textSecondary },
-  roleSwitchBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.primarySurface, alignItems: 'center', justifyContent: 'center' },
-  drawerOverlay: { backgroundColor: Colors.surface, borderTopWidth: 1, borderTopColor: Colors.borderLight, padding: 14, maxHeight: 380 },
+  menuBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)' },
+  mobileBrand: { fontSize: 16, fontWeight: '800', color: '#F8FAFC' },
+  mobileSub: { fontSize: 11, color: '#94A3B8' },
+  roleSwitchBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(99, 102, 241, 0.2)', alignItems: 'center', justifyContent: 'center' },
+  drawerOverlay: { backgroundColor: '#0F172A', borderTopWidth: 1, borderTopColor: '#1E293B', padding: 14, maxHeight: 380 },
   drawerScroll: { flex: 1 },
-  sectionHeader: { fontSize: 10, fontWeight: '800', color: Colors.textTertiary, letterSpacing: 1, marginBottom: 8 },
+  sectionHeader: { fontSize: 10, fontWeight: '800', color: '#64748B', letterSpacing: 1, marginBottom: 8 },
   navItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4, gap: 12 },
-  navItemActive: { backgroundColor: Colors.primarySurface },
-  navText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
-  navTextActive: { color: Colors.primary, fontWeight: '700' },
+  navItemActive: { backgroundColor: 'rgba(99, 102, 241, 0.15)', borderWidth: 1, borderColor: 'rgba(99, 102, 241, 0.3)' },
+  navText: { fontSize: 14, fontWeight: '600', color: '#94A3B8' },
+  navTextActive: { color: '#818CF8', fontWeight: '700' },
 });

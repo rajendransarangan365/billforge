@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Modal, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
@@ -90,7 +90,30 @@ export default function EnquiriesScreen() {
   const [pickupAddress, setPickupAddress] = useState('Quarry Yard 1');
   const [customerAddress, setCustomerAddress] = useState('Customer Site');
 
-  useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
+  useFocusEffect(useCallback(() => { 
+    loadData();
+
+    // Real-time: listen for new enquiries from customer marketplace (same browser, different tab/window)
+    let bc;
+    try {
+      if (typeof window !== 'undefined' && window.BroadcastChannel) {
+        bc = new window.BroadcastChannel('billforge_chat');
+        bc.onmessage = (event) => {
+          if (event.data?.type === 'NEW_ENQUIRY') {
+            loadData();
+          }
+        };
+      }
+    } catch (e) {}
+
+    // Also poll every 5 seconds for new enquiries
+    const interval = setInterval(() => { loadData(); }, 5000);
+
+    return () => {
+      clearInterval(interval);
+      if (bc) bc.close();
+    };
+  }, [loadData]));
 
   const handleCreateEnquiry = async () => {
     if (!customerName.trim() || !materialName.trim() || !quotedRate) {
@@ -135,11 +158,25 @@ export default function EnquiriesScreen() {
     }
   };
 
+  const chatPollInterval = useRef(null);
+
   const openChatModal = async (phone: string, name: string) => {
     setActiveChatPhone(phone);
     setActiveChatName(name || phone);
     setChatModalVisible(true);
     await loadChatMessages(phone);
+
+    // Start polling for new messages every 2 seconds
+    if (chatPollInterval.current) clearInterval(chatPollInterval.current);
+    chatPollInterval.current = setInterval(() => loadChatMessages(phone), 2000);
+  };
+
+  const closeChatModal = () => {
+    setChatModalVisible(false);
+    if (chatPollInterval.current) {
+      clearInterval(chatPollInterval.current);
+      chatPollInterval.current = null;
+    }
   };
 
   const loadChatMessages = async (phone: string) => {
@@ -520,7 +557,7 @@ export default function EnquiriesScreen() {
                 <Text style={{ fontSize: 16, fontWeight: '700', color: Colors.navy }}>Chat with {activeChatName}</Text>
                 <Text style={{ fontSize: 11, color: Colors.textSecondary }}>Mobile: {activeChatPhone}</Text>
               </View>
-              <TouchableOpacity onPress={() => setChatModalVisible(false)}>
+              <TouchableOpacity onPress={closeChatModal}>
                 <Ionicons name="close" size={22} color={Colors.textSecondary} />
               </TouchableOpacity>
             </View>
@@ -535,7 +572,7 @@ export default function EnquiriesScreen() {
                 </View>
               ) : (
                 chatMessages.map((msg) => {
-                  const isOwner = msg.sender === 'owner';
+                  const isOwner = msg.sender === 'owner' || msg.sender_role === 'quarry_owner';
                   return (
                     <View key={msg.id} style={[{ marginBottom: 8, maxWidth: '80%', padding: 10, borderRadius: 10 }, isOwner ? { alignSelf: 'flex-end', backgroundColor: Colors.primarySurface } : { alignSelf: 'flex-start', backgroundColor: Colors.backgroundSecondary }]}>
                       <Text style={{ fontSize: 10, fontWeight: '700', color: isOwner ? Colors.primary : Colors.text, marginBottom: 2 }}>{msg.sender_name}</Text>

@@ -150,15 +150,8 @@ export default function CustomerMarketplaceScreen() {
         });
       } catch (e) {}
 
-      // Auto-start Chat Conversation
-      try {
-        const { sendUniversalMessage } = require('../src/database/db');
-        const customerEntity = { role: 'customer', phone: customerPhone, name: customerName };
-        const quarryEntity = { role: 'quarry_owner', id: `quarry_${targetQuarry.id}`, quarry_id: targetQuarry.id, name: targetQuarry.name };
-        await sendUniversalMessage(db, customerEntity, quarryEntity, `🔔 New Enquiry: I am looking for ${quantity} ${unitType} of ${selectedMaterial.name}.\n\n📍 Delivery Location: ${address.trim() || 'Not specified'}\n📞 Contact: ${customerPhone}`);
-      } catch (err) {
-        console.warn('Failed to auto-start chat:', err);
-      }
+      // The saveEnquiry function above already auto-seeds the chat thread.
+      // No need for an extra sendUniversalMessage call here.
 
       Alert.alert('Enquiry Sent ✅', `Your enquiry for ${selectedMaterial.name} has been sent to ${targetQuarry.name}. They will call you shortly.`);
       setModalVisible(false);
@@ -192,9 +185,9 @@ export default function CustomerMarketplaceScreen() {
         <TouchableOpacity onPress={() => router.push('/select-role')} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={20} color={Colors.navy} />
         </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Welcome, {currentUserProfile?.name || customerName}</Text>
-          <Text style={styles.subTitle}>Find nearest quarries & best prices</Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.title} numberOfLines={1}>Welcome, {currentUserProfile?.name || customerName}</Text>
+          <Text style={styles.subTitle} numberOfLines={1}>Find nearest quarries & best prices</Text>
         </View>
         <TouchableOpacity style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#E8F5E9', alignItems: 'center', justifyContent: 'center' }} onPress={() => setProfileModalVisible(true)}>
           <Ionicons name="person-circle" size={24} color="#2E7D32" />
@@ -251,9 +244,9 @@ export default function CustomerMarketplaceScreen() {
                     <View style={styles.quarryBadge}>
                       <Ionicons name="business" size={20} color="#2E7D32" />
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.quarryName}>{quarryName}</Text>
-                      <Text style={styles.quarrySub}><Ionicons name="location-outline" size={12} /> {quarryLoc} • Phone: {quarryPhone}</Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.quarryName} numberOfLines={1}>{quarryName}</Text>
+                      <Text style={styles.quarrySub} numberOfLines={1}><Ionicons name="location-outline" size={12} /> {quarryLoc} • Phone: {quarryPhone}</Text>
                     </View>
                     <TouchableOpacity style={[styles.enquireBtn, { backgroundColor: '#1565C0' }]} onPress={() => openChatModal(quarry)}>
                       <Ionicons name="chatbubbles-outline" size={14} color="#FFF" />
@@ -362,7 +355,8 @@ export default function CustomerMarketplaceScreen() {
                 </View>
               ) : (
                 chatMessages.map((msg) => {
-                  const isMe = msg.sender === 'customer';
+                  const isMe = msg.sender === 'customer' || msg.sender_role === 'customer' || 
+                    (customerPhone && msg.sender_phone && String(msg.sender_phone).replace(/\D/g, '') === String(customerPhone).replace(/\D/g, ''));
                   return (
                     <View key={msg.id} style={[{ marginBottom: 10, maxWidth: '80%', padding: 10, borderRadius: 10 }, isMe ? { alignSelf: 'flex-end', backgroundColor: '#E3F2FD' } : { alignSelf: 'flex-start', backgroundColor: '#F1F5F9' }]}>
                       <Text style={{ fontSize: 11, fontWeight: '700', color: isMe ? '#1565C0' : Colors.navy, marginBottom: 2 }}>{msg.sender_name}</Text>

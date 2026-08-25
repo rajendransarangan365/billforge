@@ -1,11 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   TextInput,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Animated,
 } from 'react-native';
 import { Colors, Typography, BorderRadius, Spacing } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,53 +30,18 @@ export function Input({
   readOnly = false,
 }) {
   const [focused, setFocused] = useState(false);
-  const borderAnim = useRef(new Animated.Value(0)).current;
 
-  const handleFocus = () => {
-    setFocused(true);
-    Animated.timing(borderAnim, {
-      toValue: 1,
-      duration: 160,
-      useNativeDriver: false,
-    }).start();
-  };
+  const wrapperBorderColor = error
+    ? Colors.danger
+    : focused
+    ? Colors.primary
+    : 'rgba(255, 255, 255, 0.12)';
 
-  const handleBlur = () => {
-    setFocused(false);
-    Animated.timing(borderAnim, {
-      toValue: 0,
-      duration: 160,
-      useNativeDriver: false,
-    }).start();
-  };
-
-  const borderColor = borderAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [error ? Colors.danger : Colors.border, error ? Colors.danger : Colors.accent],
-  });
-
-  const backgroundColor = borderAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [
-      error ? Colors.dangerLight : Colors.surfaceElevated,
-      error ? Colors.dangerLight : '#FFFFFF'
-    ],
-  });
-
-  const shadowOpacity = borderAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 0.08],
-  });
-
-  const shadowRadius = borderAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 8],
-  });
-
-  const wrapperStyle = [
-    styles.inputWrapper,
-    !editable && !readOnly ? styles.inputDisabled : null,
-  ];
+  const wrapperBg = error
+    ? 'rgba(251, 113, 133, 0.15)'
+    : focused
+    ? 'rgba(30, 41, 59, 0.9)'
+    : 'rgba(30, 41, 59, 0.6)';
 
   if (readOnly || onPress) {
     return (
@@ -89,7 +53,7 @@ export function Input({
           </Text>
         ) : null}
         <TouchableOpacity
-          style={[styles.inputWrapper, { borderColor: error ? Colors.danger : Colors.border, backgroundColor: error ? Colors.dangerLight : Colors.surfaceElevated }]}
+          style={[styles.inputWrapper, { borderColor: wrapperBorderColor, backgroundColor: wrapperBg }]}
           onPress={onPress}
           activeOpacity={0.7}
         >
@@ -120,12 +84,12 @@ export function Input({
           {required ? <Text style={styles.required}> *</Text> : null}
         </Text>
       ) : null}
-      <Animated.View style={[wrapperStyle, { borderColor, backgroundColor, shadowOpacity, shadowRadius }]}>
+      <View style={[styles.inputWrapper, { borderColor: wrapperBorderColor, backgroundColor: wrapperBg }, !editable && styles.inputDisabled]}>
         {icon ? (
           <Ionicons
             name={icon}
             size={17}
-            color={focused ? Colors.accent : Colors.textTertiary}
+            color={focused ? Colors.primary : Colors.textTertiary}
             style={styles.icon}
           />
         ) : null}
@@ -133,21 +97,21 @@ export function Input({
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={Colors.textTertiary}
+          placeholderTextColor="#64748B"
           keyboardType={keyboardType}
           multiline={multiline}
           numberOfLines={numberOfLines}
           editable={editable}
           style={[styles.input, multiline && styles.inputMultiline, inputStyle]}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
         />
         {rightIcon ? (
           <TouchableOpacity onPress={onRightIconPress} style={styles.rightIconBtn}>
             <Ionicons name={rightIcon} size={17} color={Colors.textTertiary} />
           </TouchableOpacity>
         ) : null}
-      </Animated.View>
+      </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {hint && !error ? <Text style={styles.hint}>{hint}</Text> : null}
     </View>
@@ -160,13 +124,13 @@ const styles = StyleSheet.create({
   },
   label: {
     ...Typography.captionSemibold,
-    color: Colors.textSecondary,
+    color: '#94A3B8',
     marginBottom: Spacing.xs + 2,
     fontSize: 12,
     letterSpacing: 0.2,
   },
   labelFocused: {
-    color: Colors.accent,
+    color: '#818CF8',
   },
   required: {
     color: Colors.danger,
@@ -175,15 +139,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1.5,
-    borderRadius: BorderRadius.lg, // 16px rounding for trendy feel
+    borderRadius: BorderRadius.lg,
     paddingHorizontal: Spacing.md,
-    minHeight: 52, // 52px taller height
-    shadowColor: Colors.accent,
-    shadowOffset: { width: 0, height: 4 },
+    minHeight: 52,
   },
-  inputError: {},
   inputDisabled: {
-    backgroundColor: Colors.divider,
     opacity: 0.6,
   },
   icon: {
@@ -195,7 +155,7 @@ const styles = StyleSheet.create({
   },
   input: {
     ...Typography.body,
-    color: Colors.text,
+    color: '#F8FAFC',
     flex: 1,
     paddingVertical: Spacing.sm + 2,
     minWidth: 0,
@@ -207,7 +167,7 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.md,
   },
   placeholder: {
-    color: Colors.textTertiary,
+    color: '#64748B',
   },
   error: {
     ...Typography.small,

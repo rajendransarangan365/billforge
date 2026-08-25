@@ -1,86 +1,86 @@
 export const Colors = {
-  // ─── Brand / Primary (Rapido-inspired deep orange) ───
-  primary: '#FF6B00',
-  primaryDark: '#CC5500',
-  primaryLight: '#FF8C33',
-  primarySurface: '#FFF3EA',
-  primaryBorder: '#FFD5B0',
+  // ─── Primary / Accent (Indigo & Neon Glow) ───
+  primary: '#818CF8',
+  primaryDark: '#6366F1',
+  primaryLight: '#A5B4FC',
+  primarySurface: 'rgba(99, 102, 241, 0.15)',
+  primaryBorder: 'rgba(99, 102, 241, 0.3)',
 
-  // ─── Accent (Swiggy-orange warm accent) ───
-  accent: '#FC8019',
-  accentSurface: '#FFF0E5',
+  // ─── Accent ───
+  accent: '#C084FC',
+  accentSurface: 'rgba(192, 132, 252, 0.15)',
 
-  // ─── Navy (header/text anchor) ───
-  navy: '#0A1628',
-  navyMid: '#1C2E4A',
-  navySoft: '#2D4266',
+  // ─── Dark Navy Canvas ───
+  navy: '#F8FAFC',
+  navyMid: '#CBD5E1',
+  navySoft: '#94A3B8',
 
-  // ─── Backgrounds ───
-  background: '#F4F5F7',
-  backgroundCard: '#FFFFFF',
-  backgroundSheet: '#FAFAFA',
-  backgroundMuted: '#EEF0F4',
+  // ─── Dark Glass Backgrounds ───
+  background: '#020617',
+  backgroundCard: 'rgba(30, 41, 59, 0.6)',
+  backgroundSheet: '#0F172A',
+  backgroundMuted: 'rgba(15, 23, 42, 0.8)',
 
   // ─── Surface ───
-  surface: '#FFFFFF',
-  surfaceElevated: '#FFFFFF',
+  surface: 'rgba(30, 41, 59, 0.6)',
+  surfaceElevated: 'rgba(30, 41, 59, 0.8)',
 
-  // ─── Text ───
-  text: '#0A1628',
-  textSecondary: '#4A5568',
-  textTertiary: '#8D97AD',
-  textDisabled: '#BCC3CE',
-  textInverse: '#FFFFFF',
+  // ─── Typography (Crisp Light Text) ───
+  text: '#F8FAFC',
+  textSecondary: '#94A3B8',
+  textTertiary: '#64748B',
+  textDisabled: '#475569',
+  textInverse: '#020617',
 
-  // ─── Borders ───
-  border: '#E2E6EE',
-  borderLight: '#EDF0F5',
-  borderMedium: '#CBD3DF',
+  // ─── Glass Borders ───
+  border: 'rgba(255, 255, 255, 0.1)',
+  borderLight: 'rgba(255, 255, 255, 0.08)',
+  borderMedium: 'rgba(255, 255, 255, 0.15)',
 
-  // ─── Semantic ───
-  success: '#27AE60',
-  successLight: '#E9F7EF',
-  successBorder: '#A9DFBF',
+  // ─── Semantic Colors ───
+  success: '#34D399',
+  successLight: 'rgba(52, 211, 153, 0.15)',
+  successBorder: 'rgba(52, 211, 153, 0.3)',
 
-  warning: '#F39C12',
-  warningLight: '#FEF9E7',
-  warningBorder: '#F9E4B7',
+  warning: '#FBBF24',
+  warningLight: 'rgba(251, 191, 36, 0.15)',
+  warningBorder: 'rgba(251, 191, 36, 0.3)',
 
-  danger: '#E74C3C',
-  dangerLight: '#FDEDEC',
-  dangerBorder: '#F5B7B1',
+  danger: '#FB7185',
+  dangerLight: 'rgba(251, 113, 133, 0.15)',
+  dangerBorder: 'rgba(251, 113, 133, 0.3)',
 
-  info: '#2980B9',
-  infoLight: '#EBF5FB',
-  infoBorder: '#A9CCE3',
+  info: '#38BDF8',
+  infoLight: 'rgba(56, 189, 248, 0.15)',
+  infoBorder: 'rgba(56, 189, 248, 0.3)',
 
   // ─── Status Chips ───
-  statusNew: '#3498DB',
-  statusNewBg: '#EBF5FB',
-  statusQuoted: '#8E44AD',
-  statusQuotedBg: '#F4ECF7',
-  statusAgreed: '#27AE60',
-  statusAgreedBg: '#E9F7EF',
-  statusBidding: '#E67E22',
-  statusBiddingBg: '#FEF5E7',
-  statusAssigned: '#2980B9',
-  statusAssignedBg: '#EBF5FB',
-  statusLoaded: '#F39C12',
-  statusLoadedBg: '#FEF9E7',
-  statusTransit: '#16A085',
-  statusTransitBg: '#E8F8F5',
-  statusDelivered: '#27AE60',
-  statusDeliveredBg: '#E9F7EF',
-  statusSettled: '#7F8C8D',
-  statusSettledBg: '#F2F3F4',
+  statusNew: '#38BDF8',
+  statusNewBg: 'rgba(56, 189, 248, 0.15)',
+  statusQuoted: '#C084FC',
+  statusQuotedBg: 'rgba(192, 132, 252, 0.15)',
+  statusAgreed: '#34D399',
+  statusAgreedBg: 'rgba(52, 211, 153, 0.15)',
+  statusBidding: '#FBBF24',
+  statusBiddingBg: 'rgba(251, 191, 36, 0.15)',
+  statusAssigned: '#818CF8',
+  statusAssignedBg: 'rgba(129, 140, 248, 0.15)',
+  statusLoaded: '#F59E0B',
+  statusLoadedBg: 'rgba(245, 158, 11, 0.15)',
+  statusTransit: '#34D399',
+  statusTransitBg: 'rgba(52, 211, 153, 0.15)',
+  statusDelivered: '#34D399',
+  statusDeliveredBg: 'rgba(52, 211, 153, 0.15)',
+  statusSettled: '#94A3B8',
+  statusSettledBg: 'rgba(148, 163, 184, 0.15)',
 
   // ─── Shadows ───
-  shadow: 'rgba(10, 22, 40, 0.08)',
-  shadowMedium: 'rgba(10, 22, 40, 0.14)',
-  shadowDeep: 'rgba(10, 22, 40, 0.22)',
-  overlay: 'rgba(10, 22, 40, 0.6)',
+  shadow: 'rgba(0, 0, 0, 0.4)',
+  shadowMedium: 'rgba(0, 0, 0, 0.6)',
+  shadowDeep: 'rgba(0, 0, 0, 0.8)',
+  overlay: 'rgba(2, 6, 23, 0.8)',
 
   // ─── Utility ───
-  skeleton: '#E8ECF1',
-  divider: '#EDF0F5',
+  skeleton: 'rgba(255, 255, 255, 0.05)',
+  divider: 'rgba(255, 255, 255, 0.08)',
 };

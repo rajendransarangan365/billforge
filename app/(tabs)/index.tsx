@@ -2,12 +2,13 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  RefreshControl, Linking, Alert, Dimensions,
+  RefreshControl, Linking, Alert, Dimensions, Platform,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Typography, Spacing, BorderRadius } from '../../src/theme';
+import LiquidGlassDashboard from '../../src/components/LiquidGlassDashboard';
 import {
   getDatabase, getBillCount, getBillsThisMonth, getTemplates,
   getBills, getAllDrafts, getAllPayments, getActiveReminders, getOverdueReminders,
@@ -277,6 +278,28 @@ export default function DashboardScreen() {
 
 
   const { user, logout } = useAuth();
+
+  const handleActionClick = (actionType: string) => {
+    if (actionType === 'create_bill') router.push('/bill-form/1');
+    else if (actionType === 'view_all_transactions') router.push('/(tabs)/history');
+    else if (actionType === 'nav_invoices') router.push('/(tabs)/history');
+    else if (actionType === 'nav_customers') router.push('/customers');
+    else if (actionType === 'nav_settings') router.push('/profile');
+    else if (actionType === 'export_report') router.push('/ledger');
+  };
+
+  if (Platform.OS === 'web') {
+    return (
+      <LiquidGlassDashboard
+        userProfile={{
+          name: user?.name || 'MS Blue Metals & Quarries',
+          role: 'Quarry Owner & Operator',
+          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+        }}
+        onActionClick={handleActionClick}
+      />
+    );
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
