@@ -9,13 +9,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../src/theme';
 import { useAuth } from '../src/context/AuthContext';
-import { getDatabase, getQuarryDetails, saveQuarryDetails, saveDriver, saveCustomer } from '../src/database/db';
+import { useToast } from '../src/context/ToastContext';
+import { getDatabase, getQuarryDetails, saveQuarryDetails, saveCompanyProfile, saveDriver, saveCustomer } from '../src/database/db';
 import { LeafletMapModal } from '../src/components/LeafletMapModal';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, role, quarryId, logout } = useAuth();
+  const { user, role, quarryId, logout, updateUser } = useAuth();
+  const { showToast } = useToast();
 
   const userRole = user?.role || role || 'quarry_owner';
 
@@ -53,6 +55,7 @@ export default function ProfileScreen() {
         const q = await getQuarryDetails(db, quarryId || 1);
         if (q) {
           setName(q.name || q.owner_name || name);
+          setCompanyName(q.company_name || q.name || companyName);
           setPhone(q.phone || phone);
           setEmail(q.email || email);
           setLocationName(q.location || locationName);
@@ -107,12 +110,17 @@ export default function ProfileScreen() {
     setSuccessMsg('');
     try {
       const db = await getDatabase();
+      const targetQid = quarryId || 1;
+      const effectiveName = companyName || name || 'My Business';
+
       if (userRole === 'quarry_owner') {
-        await saveQuarryDetails(db, quarryId || 1, {
-          name,
+        await saveCompanyProfile(db, {
+          id: targetQid,
+          name: effectiveName,
           owner_name: name,
           phone,
           email,
+          address: locationName,
           location: locationName,
           lat,
           lng,
@@ -138,10 +146,22 @@ export default function ProfileScreen() {
         });
       }
 
+      updateUser({
+        name,
+        company_name: effectiveName,
+        phone,
+        email,
+        location: locationName,
+        lat,
+        lng,
+      });
+
       setSuccessMsg('Profile and settings updated successfully!');
+      showToast('Profile and settings updated successfully & synced to server! ✨', 'success', 'Saved Successfully');
       setTimeout(() => setSuccessMsg(''), 3000);
     } catch (e) {
-      Alert.alert('Error', 'Failed to save profile settings.');
+      console.error('Profile save error:', e);
+      showToast('Failed to save profile settings.', 'error', 'Save Error');
     } finally {
       setSaving(false);
     }

@@ -91,7 +91,7 @@ export default function CustomersScreen() {
 
   const handleSave = async () => {
     if (!formData.name.trim()) {
-      Alert.alert('Required', 'Please enter a customer name.');
+      showToast('Please enter a customer name.', 'error', 'Required Field');
       return;
     }
 
@@ -103,15 +103,16 @@ export default function CustomersScreen() {
         name: formData.name.trim(),
         phone: formData.phone.trim(),
         address: formData.address.trim(),
+        quarry_id: companyId,
       });
 
       setModalVisible(false);
       resetForm();
       await loadCustomersData();
-      Alert.alert('Success', editingCustomer ? 'Customer updated successfully.' : 'Customer added successfully.');
+      showToast(editingCustomer ? 'Customer updated successfully! 👤' : 'Customer added successfully! 👤', 'success');
     } catch (error) {
       console.error('Save customer error:', error);
-      Alert.alert('Error', 'Failed to save customer details.');
+      showToast('Failed to save customer details.', 'error', 'Save Failed');
     } finally {
       setSaving(false);
     }

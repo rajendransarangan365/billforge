@@ -894,25 +894,68 @@ export async function authenticateCustomer(db, phone) {
 // QUARRY PROFILE
 // ═══════════════════════════════════════════════════════════════════════════════
 export async function getCompanyProfile(db, quarryId) {
+  const qid = parseInt(quarryId) || 1;
   if (IS_WEB) {
+    const qProfile = webGet('bf_company_profile') || webGet(qKey(qid, 'profile'));
+    if (qProfile && (qProfile.name || qProfile.phone)) return qProfile;
+
     const quarries = webGet('bf_quarries') || [];
-    return quarries.find(q => q.id === parseInt(quarryId)) || null;
+    const found = quarries.find(q => (q.id || q.quarry_id) === qid);
+    if (found) return found;
+
+    return qProfile || null;
   }
-  return await db.getFirstAsync('SELECT * FROM quarries WHERE id = ?', [quarryId]);
+  const result = await db.getFirstAsync('SELECT * FROM quarries WHERE id = ?', [qid]);
+  return result;
 }
 
 export async function saveCompanyProfile(db, profile) {
+  const qid = parseInt(profile.id || profile.quarryId || profile.quarry_id) || 1;
+  const updatedProfile = {
+    id: qid,
+    quarry_id: qid,
+    name: profile.name || '',
+    owner_name: profile.owner_name || profile.name || '',
+    phone: profile.phone || '',
+    email: profile.email || '',
+    address: profile.address || '',
+    location: profile.location || profile.address || '',
+    lat: profile.lat || 0,
+    lng: profile.lng || 0,
+    updated_at: new Date().toISOString(),
+  };
+
   if (IS_WEB) {
+    webSet('bf_company_profile', updatedProfile);
+    webSet(qKey(qid, 'profile'), updatedProfile);
+
     const quarries = webGet('bf_quarries') || [];
-    const idx = quarries.findIndex(q => q.id === parseInt(profile.id));
+    const idx = quarries.findIndex(q => (q.id || q.quarry_id) === qid);
     if (idx !== -1) {
-      quarries[idx] = { ...quarries[idx], name: profile.name, address: profile.address, location: profile.location, phone: profile.phone };
-      webSet('bf_quarries', quarries);
+      quarries[idx] = { ...quarries[idx], ...updatedProfile };
+    } else {
+      quarries.push(updatedProfile);
     }
-    return;
+    webSet('bf_quarries', quarries);
+
+    // Sync to server API in background
+    fetchApi('/api/profile', {
+      method: 'POST',
+      body: JSON.stringify(updatedProfile),
+    }).catch(err => console.warn('Failed to sync company profile to server API:', err));
+
+    return updatedProfile;
   }
-  await db.runAsync('UPDATE quarries SET name=?, address=?, location=?, phone=? WHERE id=?',
-    [profile.name, profile.address || '', profile.location || '', profile.phone || '', profile.id]);
+
+  try {
+    await db.runAsync(
+      'UPDATE quarries SET name=?, address=?, location=?, phone=?, email=?, lat=?, lng=? WHERE id=?',
+      [updatedProfile.name, updatedProfile.address, updatedProfile.location, updatedProfile.phone, updatedProfile.email, updatedProfile.lat, updatedProfile.lng, qid]
+    );
+  } catch (err) {
+    console.warn('SQLite update quarry error:', err);
+  }
+  return updatedProfile;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

@@ -8,6 +8,7 @@
   "rewrites": [
     { "source": "/api/email", "destination": "/api/email.js" },
     { "source": "/api/auth", "destination": "/api/auth.js" },
+    { "source": "/api/profile", "destination": "/api/profile.js" },
     { "source": "/api/drivers", "destination": "/api/drivers.js" },
     { "source": "/api/enquiries", "destination": "/api/enquiries.js" },
     { "source": "/api/consignments", "destination": "/api/consignments.js" },

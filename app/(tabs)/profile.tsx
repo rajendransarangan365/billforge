@@ -12,10 +12,12 @@ import { Card, Button, Input } from '../../src/components';
 import { getDatabase, getCompanyProfile, saveCompanyProfile } from '../../src/database/db';
 
 import { useAuth } from '../../src/context/AuthContext';
+import { useToast } from '../../src/context/ToastContext';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { quarryId } = useAuth();
+  const { quarryId, updateUser } = useAuth();
+  const { showToast } = useToast();
   const [profile, setProfile] = useState({ name: '', address: '', location: '', phone: '' });
   const [saving, setSaving] = useState(false);
 
@@ -24,10 +26,10 @@ export default function ProfileScreen() {
       (async () => {
         try {
           const db = await getDatabase();
-          const existing = await getCompanyProfile(db, quarryId);
+          const existing = await getCompanyProfile(db, quarryId || 1);
           if (existing) {
             setProfile({
-              name: existing.name || '',
+              name: existing.name || existing.company_name || '',
               address: existing.address || '',
               location: existing.location || '',
               phone: existing.phone || '',
@@ -42,16 +44,27 @@ export default function ProfileScreen() {
 
   const handleSave = async () => {
     if (!profile.name.trim()) {
-      Alert.alert('Required', 'Company name is required.');
+      showToast('Company name is required.', 'error', 'Missing Information');
       return;
     }
     setSaving(true);
     try {
       const db = await getDatabase();
-      await saveCompanyProfile(db, { ...profile, id: quarryId });
-      Alert.alert('Saved', 'Company profile updated successfully.');
+      const targetQid = quarryId || 1;
+      const savedData = await saveCompanyProfile(db, { ...profile, id: targetQid });
+      
+      updateUser({
+        company_name: profile.name,
+        name: profile.name,
+        phone: profile.phone,
+        location: profile.location,
+        address: profile.address,
+      });
+
+      showToast('Company profile saved successfully & synced to server! ✨', 'success', 'Saved Successfully');
     } catch (error) {
-      Alert.alert('Error', 'Failed to save profile.');
+      console.error('Save Profile Error:', error);
+      showToast('Failed to save profile. Please check connection and try again.', 'error', 'Save Failed');
     } finally {
       setSaving(false);
     }

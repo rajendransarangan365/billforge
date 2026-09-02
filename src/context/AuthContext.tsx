@@ -60,6 +60,14 @@ export function AuthProvider({ children }) {
     persist(u);
   };
 
+  const updateUser = (updatedFields: any) => {
+    setUser((prev: any) => {
+      const newU = { ...(prev || {}), ...updatedFields };
+      persist(newU);
+      return newU;
+    });
+  };
+
   const logout = () => {
     setUser(null);
     Storage.removeItem(SESSION_KEY).catch(() => {});
@@ -74,7 +82,7 @@ export function AuthProvider({ children }) {
 
 
   const role = user?.role || null;
-  const quarryId = user?.quarry_id || null;
+  const quarryId = user?.quarry_id || user?.id || 1;
 
   return (
     <AuthContext.Provider value={{
@@ -83,10 +91,11 @@ export function AuthProvider({ children }) {
       isOwner: role === 'quarry_owner',
       isDriver: role === 'driver',
       isCustomer: role === 'customer',
-      loginAdmin, loginOwner, loginDriver, loginCustomer, logout,
+      loginAdmin, loginOwner, loginDriver, loginCustomer, updateUser, logout,
     }}>
       {children}
     </AuthContext.Provider>
+  );
   );
 }
 

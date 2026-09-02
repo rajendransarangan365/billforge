@@ -31,6 +31,7 @@ import {
 import { getKeyboardTypeForField } from '../../src/services/templateParser';
 import { generatePDF, sharePDF, savePDFPermanently } from '../../src/services/pdfGenerator';
 import { useAuth } from '../../src/context/AuthContext';
+import { useToast } from '../../src/context/ToastContext';
 
 const normalizeKey = (key: string) => key ? key.toLowerCase().replace(/[\s_-]/g, '') : '';
 
@@ -43,8 +44,9 @@ const getRowValue = (row: any, targetNames: string[]) => {
 export default function BillFormScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { quarryId } = useAuth();
-  const companyId = quarryId || 1;
+  const { quarryId, user } = useAuth();
+  const { showToast } = useToast();
+  const companyId = quarryId || user?.quarry_id || 1;
   const { templateId, editBillId } = useLocalSearchParams();
   const [template, setTemplate] = useState(null);
   const [headerFields, setHeaderFields] = useState([]);
@@ -327,6 +329,11 @@ export default function BillFormScreen() {
 
         const nextBn = await getNextBillNumber(db, companyId);
 
+        // Effective company info from DB profile or auth context
+        const compName = profile?.name || profile?.owner_name || profile?.company_name || user?.company_name || user?.name || '';
+        const compLoc = profile?.location || profile?.address || user?.location || user?.address || '';
+        const compPhone = profile?.phone || user?.phone || '';
+
         // Initialize header data with current date for date/datetime fields and prefilled values
         const hData = {};
         hFields.forEach(f => { 
@@ -335,12 +342,12 @@ export default function BillFormScreen() {
             hData[f.name] = new Date().toISOString();
           } else if (norm === 'bn' || norm === 'billnumber' || norm === 'billno') {
             hData[f.name] = nextBn;
-          } else if (profile && (norm === 'shopname' || norm === 'companyname')) {
-            hData[f.name] = profile.name || '';
-          } else if (profile && (norm === 'shoplocation' || norm === 'shopaddress' || norm === 'address')) {
-            hData[f.name] = profile.location || profile.address || '';
-          } else if (profile && (norm === 'shopnumber' || norm === 'shopphone' || norm === 'phone')) {
-            hData[f.name] = profile.phone || '';
+          } else if (norm === 'shopname' || norm === 'companyname' || norm === 'name') {
+            hData[f.name] = compName;
+          } else if (norm === 'shoplocation' || norm === 'shopaddress' || norm === 'address' || norm === 'location') {
+            hData[f.name] = compLoc;
+          } else if (norm === 'shopnumber' || norm === 'shopphone' || norm === 'phone' || norm === 'mobile') {
+            hData[f.name] = compPhone;
           } else {
             hData[f.name] = ''; 
           }
@@ -623,19 +630,24 @@ export default function BillFormScreen() {
     const cellBorder = getCellBorderStyle();
     const tableHeaderBg = selectedBorderStyle === 'none' ? 'transparent' : '#F8FAFC';
 
-    // FIXED: Use real company profile — never fall back to template.name
-    const companyName = getRowValue(headerData, ['shopname', 'companyname'])
+    // Use real company profile & AuthContext session fallbacks
+    const companyName = getRowValue(headerData, ['shopname', 'companyname', 'name'])
       || companyProfile?.name
       || companyProfile?.owner_name
+      || user?.company_name
+      || user?.name
       || '';
     
-    let companyAddress = getRowValue(headerData, ['shoplocation', 'shopaddress', 'address']);
-    if (!companyAddress && companyProfile) {
-      companyAddress = [companyProfile.address, companyProfile.location].filter(p => p && p.trim() !== '').join(', ');
+    let companyAddress = getRowValue(headerData, ['shoplocation', 'shopaddress', 'address', 'location']);
+    if (!companyAddress) {
+      const activeLoc = companyProfile?.location || companyProfile?.address || user?.location || user?.address;
+      companyAddress = activeLoc || '';
     }
-    if (!companyAddress) companyAddress = '';
 
-    const companyPhone = getRowValue(headerData, ['shopnumber', 'shopphone', 'phone']) || companyProfile?.phone || '';
+    const companyPhone = getRowValue(headerData, ['shopnumber', 'shopphone', 'phone', 'mobile'])
+      || companyProfile?.phone
+      || user?.phone
+      || '';
     const billNumber = getRowValue(headerData, ['bn', 'billnumber']) || '';
     const partyName = getRowValue(headerData, ['partyname', 'customername', 'clientname']) || '';
     
@@ -1154,6 +1166,8 @@ export default function BillFormScreen() {
 
       // Clear draft after saving bill
       await clearDraft(templateId, companyId);
+
+      showToast(`Bill "${billNumber}" saved successfully! 📄`, 'success', 'Bill Saved');
 
       Alert.alert(
         'Bill Saved ✅',
