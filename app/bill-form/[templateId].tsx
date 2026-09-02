@@ -32,6 +32,7 @@ import { getKeyboardTypeForField } from '../../src/services/templateParser';
 import { generatePDF, sharePDF, savePDFPermanently } from '../../src/services/pdfGenerator';
 import { useAuth } from '../../src/context/AuthContext';
 import { useToast } from '../../src/context/ToastContext';
+import { sendDirectWhatsAppMessage, generateWhatsAppDocumentShareUrl } from '../../src/services/whatsappService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -152,6 +153,7 @@ export default function BillFormScreen() {
   const [savedDraftData, setSavedDraftData] = useState(null);
   const [whatsappModalVisible, setWhatsappModalVisible] = useState(false);
   const [whatsappPhone, setWhatsappPhone] = useState('');
+  const [whatsappSendMode, setWhatsappSendMode] = useState('direct'); // 'direct' | 'url'
   const [sharingWhatsApp, setSharingWhatsApp] = useState(false);
 
   // ── Calc Settings (no multiplyTrip) ──
@@ -656,6 +658,12 @@ export default function BillFormScreen() {
 
   const handleSaveAndShareWhatsAppPress = () => {
     setWhatsappPhone(customerPhone || '');
+    // Check saved sharing preference
+    try {
+      const s = typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem(`bf_wa_settings_${companyId}`) || '{}') : {};
+      if (s.sharing_mode === 'url_share') setWhatsappSendMode('url');
+      else setWhatsappSendMode('direct');
+    } catch { setWhatsappSendMode('direct'); }
     setWhatsappModalVisible(true);
   };
 
@@ -666,7 +674,9 @@ export default function BillFormScreen() {
     let formattedPhone = whatsappPhone.trim().replace(/[\s+-]/g, '');
     if (formattedPhone.length === 10) formattedPhone = `91${formattedPhone}`;
     let waWindow = null;
-    if (Platform.OS === 'web' && formattedPhone) waWindow = window.open('', '_blank');
+    if (Platform.OS === 'web' && formattedPhone && whatsappSendMode === 'url') {
+      waWindow = window.open('', '_blank');
+    }
 
     try {
       const db = await getDatabase();
@@ -699,29 +709,44 @@ export default function BillFormScreen() {
       });
 
       await clearDraft(templateId, companyId);
-      showToast(`Bill "${billNumber}" saved & shared on WhatsApp! 🟢`, 'success', 'Bill Saved & Sent');
 
-      const shopNameStr = getRowValue(headerData, ['shopname', 'companyname']) || companyProfile?.name || '';
-      const messageText = `Dear Customer, here is your invoice (No: ${billNumber}) from ${shopNameStr}. Total Amount: Rs. ${formatIndianNumber(totalAmount)}. Thank you for your business!`;
-      const encodedMsg = encodeURIComponent(messageText);
+      const shopNameStr = getRowValue(headerData, ['shopname', 'companyname']) || companyProfile?.name || 'BillForge';
+      const docPreviewUrl = Platform.OS === 'web' ? `${window.location.origin}/bill-preview/${savedId}` : `https://billforge-lovat.vercel.app/bill-preview/${savedId}`;
+      const messageText = `Dear ${customerName || 'Customer'}, here is your invoice (No: ${billNumber}) from ${shopNameStr}.\nTotal Amount: Rs. ${formatIndianNumber(totalAmount)}.\n\n📄 View Invoice Document:\n${docPreviewUrl}\n\nThank you for your business!`;
 
-      if (Platform.OS !== 'web' && pdfUri) {
-        await sharePDF(pdfUri);
-        if (formattedPhone) {
-          const waUrl = `whatsapp://send?phone=${formattedPhone}&text=${encodedMsg}`;
-          try {
-            const { Linking } = require('react-native');
-            const supported = await Linking.canOpenURL(waUrl);
-            if (supported) setTimeout(() => Linking.openURL(waUrl), 1200);
-          } catch (e) {}
+      // ── Method A: Direct Serverless / Baileys Cloud Send ──
+      if (whatsappSendMode === 'direct') {
+        const directRes = await sendDirectWhatsAppMessage({
+          quarryId: companyId,
+          to: formattedPhone,
+          message: messageText,
+          billNumber,
+          totalAmount,
+          customerName,
+          documentUrl: docPreviewUrl,
+        });
+
+        if (directRes && directRes.success) {
+          showToast(`Bill "${billNumber}" sent to WhatsApp directly via ${directRes.channel || 'serverless'}! 🚀`, 'success', 'WhatsApp Delivered');
+        } else {
+          showToast(`Bill "${billNumber}" queued for WhatsApp delivery! 🟢`, 'success', 'Bill Saved & Queued');
         }
-      } else if (Platform.OS === 'web') {
-        const webWaUrl = `https://wa.me/${formattedPhone || ''}?text=${encodedMsg}`;
-        if (waWindow && !waWindow.closed) waWindow.location.href = webWaUrl;
-        else window.open(webWaUrl, '_blank');
+      } else {
+        // ── Method B: URL-Based Document & App Share ──
+        const waUrl = generateWhatsAppDocumentShareUrl(formattedPhone, messageText, null);
+        if (Platform.OS === 'web') {
+          if (waWindow && !waWindow.closed) waWindow.location.href = waUrl;
+          else window.open(waUrl, '_blank');
+        } else {
+          if (pdfUri) await sharePDF(pdfUri);
+          const { Linking } = require('react-native');
+          const supported = await Linking.canOpenURL(waUrl);
+          if (supported) setTimeout(() => Linking.openURL(waUrl), 1000);
+        }
+        showToast(`Bill "${billNumber}" opened in WhatsApp! 🟢`, 'success', 'WhatsApp Share');
       }
 
-      Alert.alert('Bill Saved & Sent! ✅', `Bill "${billNumber}" saved.`, [
+      Alert.alert('Bill Saved & Shared! ✅', `Bill "${billNumber}" saved successfully.${whatsappSendMode === 'direct' ? '\n\nSent directly via Serverless WhatsApp integration.' : '\n\nOpened WhatsApp with prefilled invoice message.'}`, [
         { text: 'View Invoice', onPress: () => router.replace(`/bill-preview/${savedId}`) },
         { text: 'History', onPress: () => router.replace('/(tabs)/history') },
       ]);
@@ -1884,25 +1909,66 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
       {/* ── WhatsApp Modal ── */}
       <Modal visible={whatsappModalVisible} animationType="slide" transparent onRequestClose={() => setWhatsappModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { maxHeight: 340 }]}>
+          <View style={[styles.modalSheet, { maxHeight: 460 }]}>
             <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Ionicons name="logo-whatsapp" size={22} color="#25D366" />
-                <Text style={styles.modalTitle}>Confirm WhatsApp Number</Text>
+                <Text style={styles.modalTitle}>Share on WhatsApp</Text>
               </View>
               <TouchableOpacity onPress={() => setWhatsappModalVisible(false)}>
                 <Ionicons name="close" size={24} color={Colors.text} />
               </TouchableOpacity>
             </View>
-            <View style={{ paddingHorizontal: 24, paddingVertical: 20 }}>
-              <Text style={{ color: Colors.textSecondary, marginBottom: 16, fontSize: 14 }}>
-                Send this invoice PDF to a WhatsApp number. Edit if needed.
+            <View style={{ paddingHorizontal: 20, paddingVertical: 16 }}>
+              <Text style={{ color: Colors.textSecondary, marginBottom: 12, fontSize: 13 }}>
+                Select how you would like to send the invoice and document link:
               </Text>
-              <Input label="WhatsApp Number (10 digits)" value={whatsappPhone} onChangeText={setWhatsappPhone} placeholder="Enter 10-digit number" keyboardType="phone-pad" icon="call-outline" />
-              <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+
+              {/* Mode Selection Chips */}
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+                <TouchableOpacity
+                  style={{
+                    flex: 1, padding: 10, borderRadius: 12,
+                    backgroundColor: whatsappSendMode === 'direct' ? Colors.primarySurface : Colors.surfaceElevated,
+                    borderWidth: 1.5, borderColor: whatsappSendMode === 'direct' ? Colors.primary : Colors.border,
+                  }}
+                  onPress={() => setWhatsappSendMode('direct')}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <Ionicons name="flash" size={14} color={whatsappSendMode === 'direct' ? Colors.primary : Colors.textTertiary} />
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: whatsappSendMode === 'direct' ? Colors.primary : Colors.text }}>Direct Send</Text>
+                  </View>
+                  <Text style={{ fontSize: 10, color: Colors.textSecondary }}>Serverless background dispatch</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={{
+                    flex: 1, padding: 10, borderRadius: 12,
+                    backgroundColor: whatsappSendMode === 'url' ? Colors.successLight : Colors.surfaceElevated,
+                    borderWidth: 1.5, borderColor: whatsappSendMode === 'url' ? Colors.success : Colors.border,
+                  }}
+                  onPress={() => setWhatsappSendMode('url')}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <Ionicons name="globe-outline" size={14} color={whatsappSendMode === 'url' ? Colors.success : Colors.textTertiary} />
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: whatsappSendMode === 'url' ? Colors.success : Colors.text }}>WhatsApp URL</Text>
+                  </View>
+                  <Text style={{ fontSize: 10, color: Colors.textSecondary }}>Open WhatsApp Web / App</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Input label="Customer WhatsApp Number (10 digits)" value={whatsappPhone} onChangeText={setWhatsappPhone} placeholder="Enter 10-digit number" keyboardType="phone-pad" icon="call-outline" />
+
+              <View style={{ flexDirection: 'row', gap: 12, marginTop: 14 }}>
                 <Button title="Cancel" onPress={() => setWhatsappModalVisible(false)} variant="secondary" style={{ flex: 1 }} />
-                <Button title="Send Invoice" onPress={confirmSaveAndShareWhatsApp} variant="success" style={{ flex: 1.2 }} icon="send" />
+                <Button
+                  title={whatsappSendMode === 'direct' ? "Send Directly" : "Open WhatsApp"}
+                  onPress={confirmSaveAndShareWhatsApp}
+                  variant="success"
+                  style={{ flex: 1.3 }}
+                  icon={whatsappSendMode === 'direct' ? "flash" : "logo-whatsapp"}
+                />
               </View>
             </View>
           </View>
