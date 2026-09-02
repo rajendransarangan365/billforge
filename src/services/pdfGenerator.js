@@ -123,47 +123,11 @@ export async function sharePDF(uri) {
  */
 export async function savePDFPermanently(tempUri, billNumber, customerName = '') {
   try {
-    const cleanCustomer = customerName ? customerName.trim().replace(/[^A-Za-z0-9]/g, '_') : 'Customer';
-    const cleanBillNo = billNumber ? billNumber.trim().replace(/[^A-Za-z0-9_-]/g, '_') : 'BF';
-    
-    const now = new Date();
-    const day = String(now.getDate()).padStart(2, '0');
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const month = monthNames[now.getMonth()];
-    const year = now.getFullYear();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const mins = String(now.getMinutes()).padStart(2, '0');
-    const secs = String(now.getSeconds()).padStart(2, '0');
-    
-    const timestamp = `${day}${month}${year}_${hours}${mins}${secs}`;
-    const fileName = `${cleanCustomer}_${cleanBillNo}_${timestamp}.pdf`;
-
-    if (Platform.OS === 'web') {
-      try {
-        if (tempUri && (tempUri.startsWith('blob:') || tempUri.startsWith('data:'))) {
-          const a = document.createElement('a');
-          a.href = tempUri;
-          a.download = fileName;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        }
-      } catch (e) {
-        console.error('Web PDF download trigger error:', e);
-      }
-      return tempUri;
-    }
-
-    const dir = `${documentDirectory}BillForge_Invoices/`;
-    const dirInfo = await FileSystem.getInfoAsync(dir);
-    if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-    }
-    
-    const destUri = `${dir}${fileName}`;
-    await FileSystem.copyAsync({ from: tempUri, to: destUri });
-    console.log(`[PDF Saved] File saved permanently to ${destUri}`);
-    return destUri;
+    return await savePdfToStorageDestination({
+      tempUri,
+      partyName: customerName,
+      billNumber,
+    });
   } catch (error) {
     console.error('Error saving PDF:', error);
     return tempUri;
@@ -192,8 +156,7 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
     return matchedKey ? obj[matchedKey] : undefined;
   };
 
-  // FIXED: Company name must ALWAYS come from the saved company profile.
-  // Never fall back to templateName (which was showing "Standard Billing Template").
+  // Company name must ALWAYS come from the saved company profile or headerData
   const companyName = getFieldVal(headerData, ['shopname', 'companyname'])
     || companyProfile?.name
     || companyProfile?.owner_name
@@ -214,13 +177,43 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
   const deliveryLoc = getFieldVal(headerData, ['deliveryloc', 'place', 'location']) || '';
 
   // Extract Balance Amount and Paid Amount if present
-  const balanceAmount = parseFloat(getFieldVal(headerData, ['balance', 'balanceamount', 'unclearedbalance']) || '0') || 0;
-  const paidAmount = parseFloat(getFieldVal(headerData, ['paid', 'paidamount', 'amountpaid']) || '0') || 0;
+  let balanceEntries = [];
+  if (headerData.balance_entries) {
+    try {
+      balanceEntries = typeof headerData.balance_entries === 'string'
+        ? JSON.parse(headerData.balance_entries)
+        : headerData.balance_entries;
+    } catch {}
+  }
+  const validBalanceEntries = Array.isArray(balanceEntries) ? balanceEntries.filter(e => e && parseFloat(e.amount || '0') > 0) : [];
+
+  let paidEntries = [];
+  if (headerData.paid_entries) {
+    try {
+      paidEntries = typeof headerData.paid_entries === 'string'
+        ? JSON.parse(headerData.paid_entries)
+        : headerData.paid_entries;
+    } catch {}
+  }
+  const validPaidEntries = Array.isArray(paidEntries) ? paidEntries.filter(e => e && parseFloat(e.amount || '0') > 0) : [];
+
+  const balanceAmount = validBalanceEntries.length > 0
+    ? validBalanceEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+    : (parseFloat(getFieldVal(headerData, ['balance', 'balanceamount', 'unclearedbalance']) || '0') || 0);
+
+  const paidAmount = validPaidEntries.length > 0
+    ? validPaidEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+    : (parseFloat(getFieldVal(headerData, ['paid', 'paidamount', 'amountpaid']) || '0') || 0);
+
   const rawPaidDate = getFieldVal(headerData, ['paiddate', 'datepaid', 'paymentdate']);
   let paidDateFormatted = '';
   if (rawPaidDate) {
     paidDateFormatted = formatDisplayValue(rawPaidDate, 'date');
   }
+
+  // Breakdown mode: 'itemized' (show each entry with date/note) vs 'summarized' (show single sum)
+  const breakdownMode = headerData.pdf_breakdown_mode || ((validBalanceEntries.length > 1 || validPaidEntries.length > 1) ? 'itemized' : 'summarized');
+  const showItemized = breakdownMode === 'itemized' && (validBalanceEntries.length > 0 || validPaidEntries.length > 0);
 
   const activeTableFields = tableFields.filter(f => {
     const norm = normalize(f.name);
@@ -285,7 +278,7 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
   const grandTotal = subTotal + balanceAmount + taxAmount - paidAmount;
 
   // Extract dynamic custom fields
-  const normalizedStandardFields = ['bn', 'shopname', 'shoplocation', 'shopnumber', 'partyname', 'billdate', 'deliveryloc', 'total', 'balance', 'balanceamount', 'unclearedbalance', 'paid', 'paidamount', 'amountpaid', 'paiddate', 'datepaid', 'paymentdate'];
+  const normalizedStandardFields = ['bn', 'shopname', 'shoplocation', 'shopaddress', 'shopnumber', 'partyname', 'billdate', 'deliveryloc', 'total', 'balance', 'balanceamount', 'unclearedbalance', 'paid', 'paidamount', 'amountpaid', 'paiddate', 'datepaid', 'paymentdate', 'pdf_breakdown_mode', 'balance_entries', 'paid_entries'];
   const customHeaderFields = headerFields.filter(f => !normalizedStandardFields.includes(normalize(f.name)));
   
   let customFieldsHTML = '';
@@ -381,7 +374,23 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
           </tr>
         `;
       }
-      if (balanceAmount > 0) {
+      
+      // ── Balance Rows (Itemized vs Summarized) ──
+      if (showItemized && validBalanceEntries.length > 0) {
+        validBalanceEntries.forEach((entry, idx) => {
+          const entryNum = validBalanceEntries.length > 1 ? ` #${idx + 1}` : '';
+          const datePart = entry.date ? ` (${formatDisplayValue(entry.date, 'date')})` : '';
+          const notePart = entry.note ? ` — ${entry.note}` : '';
+          const label = `Uncleared Balance${entryNum}${datePart}${notePart}`;
+          const amt = parseFloat(entry.amount || '0');
+          footerRowsHTML += `
+            <tr>
+              <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 8px 15px; font-weight: 600; text-align: right; font-size: 13px; color: #333;">${label}</td>
+              <td style="border: ${borderStyleCss}; padding: 8px 6px; font-weight: bold; text-align: right; font-size: 13px; color: #111;">+ ${formatIndianNumber(amt)}</td>
+            </tr>
+          `;
+        });
+      } else if (balanceAmount > 0) {
         footerRowsHTML += `
           <tr>
             <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 14px;">Uncleared Balance</td>
@@ -389,7 +398,23 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
           </tr>
         `;
       }
-      if (paidAmount > 0) {
+
+      // ── Paid Rows (Itemized vs Summarized) ──
+      if (showItemized && validPaidEntries.length > 0) {
+        validPaidEntries.forEach((entry, idx) => {
+          const entryNum = validPaidEntries.length > 1 ? ` #${idx + 1}` : '';
+          const datePart = entry.date ? ` (${formatDisplayValue(entry.date, 'date')})` : '';
+          const notePart = entry.note ? ` — ${entry.note}` : '';
+          const label = `Paid${entryNum}${datePart}${notePart}`;
+          const amt = parseFloat(entry.amount || '0');
+          footerRowsHTML += `
+            <tr>
+              <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 8px 15px; font-weight: 600; text-align: right; font-size: 13px; color: #047857;">${label}</td>
+              <td style="border: ${borderStyleCss}; padding: 8px 6px; font-weight: bold; text-align: right; font-size: 13px; color: #047857;">− ${formatIndianNumber(amt)}</td>
+            </tr>
+          `;
+        });
+      } else if (paidAmount > 0) {
         const paidLabel = paidDateFormatted ? `Paid (${paidDateFormatted})` : 'Paid';
         footerRowsHTML += `
           <tr>
@@ -398,6 +423,7 @@ function buildHTML({ companyProfile, headerData, rowData, headerFields, tableFie
           </tr>
         `;
       }
+
       footerRowsHTML += `
         <tr>
           <td colspan="${colSpan}" style="border: ${borderStyleCss}; padding: 10px 15px; font-weight: bold; text-align: right; font-size: 16px;">Total</td>

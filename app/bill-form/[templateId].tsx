@@ -30,6 +30,7 @@ import {
 } from '../../src/database/db';
 import { getKeyboardTypeForField } from '../../src/services/templateParser';
 import { generatePDF, sharePDF, savePDFPermanently } from '../../src/services/pdfGenerator';
+import { getStorageSettings, saveStorageSettings, pickAndroidStorageDirectory } from '../../src/services/storageService';
 import { useAuth } from '../../src/context/AuthContext';
 import { useToast } from '../../src/context/ToastContext';
 import { sendDirectWhatsAppMessage, generateWhatsAppDocumentShareUrl } from '../../src/services/whatsappService';
@@ -156,11 +157,22 @@ export default function BillFormScreen() {
   const [whatsappSendMode, setWhatsappSendMode] = useState('direct'); // 'direct' | 'url'
   const [sharingWhatsApp, setSharingWhatsApp] = useState(false);
 
-  // ── Calc Settings (no multiplyTrip) ──
+  // ── Calc & Display Settings ──
   const [calcSettings, setCalcSettings] = useState({
     includeTax: false,
     taxRate: 18,
     showTimeInTable: false,
+  });
+
+  // ── PDF Breakdown Mode: 'itemized' (separate lines) vs 'summarized' (single sum) ──
+  const [pdfBreakdownMode, setPdfBreakdownMode] = useState('itemized');
+
+  // ── Storage Settings (Folder & Android SAF) ──
+  const [storageSettings, setStorageSettings] = useState({
+    baseFolderName: 'Billing',
+    organizeByParty: true,
+    androidSafUri: null,
+    androidSafName: null,
   });
 
   // ── Payment entries (multiple) ──
@@ -193,12 +205,22 @@ export default function BillFormScreen() {
 
   const targetEditId = editBillId ? (Array.isArray(editBillId) ? editBillId[0] : editBillId) : null;
 
-  // ── Load Data ──
+  // ── Load Data & Storage Settings ──
   useEffect(() => {
     loadTemplate();
     loadMaterials();
     loadCustomers();
+    loadStorageConfig();
   }, [templateId, companyId, editBillId]);
+
+  const loadStorageConfig = async () => {
+    try {
+      const s = await getStorageSettings();
+      setStorageSettings(s);
+    } catch (e) {
+      console.error('Error loading storage config:', e);
+    }
+  };
 
   // Keyboard shortcuts (web)
   useEffect(() => {
@@ -569,12 +591,55 @@ export default function BillFormScreen() {
     calc_include_tax: calcSettings.includeTax ? 'true' : 'false',
     calc_tax_rate: String(calcSettings.taxRate),
     calc_show_time_in_table: calcSettings.showTimeInTable ? 'true' : 'false',
+    pdf_breakdown_mode: pdfBreakdownMode,
     balance_entries: JSON.stringify(balanceEntries),
     paid_entries: JSON.stringify(paidEntries),
     // Legacy single-value keys for PDF generator compatibility
     Balance: String(getTotalBalance()),
     Paid: String(getTotalPaid()),
   });
+
+  const resetToNextBill = async () => {
+    try {
+      const db = await getDatabase();
+      const nextBn = await getNextBillNumber(db, companyId);
+      const compName = companyProfile?.name || companyProfile?.owner_name || companyProfile?.company_name || user?.company_name || user?.name || '';
+      const compLoc = companyProfile?.location || companyProfile?.address || user?.location || user?.address || '';
+      const compPhone = companyProfile?.phone || user?.phone || '';
+
+      const hData = {};
+      headerFields.forEach(f => {
+        const norm = normalizeKey(f.name);
+        if (f.type === 'date' || f.type === 'datetime') hData[f.name] = new Date().toISOString();
+        else if (norm === 'bn' || norm === 'billnumber' || norm === 'billno') hData[f.name] = nextBn;
+        else if (norm === 'shopname' || norm === 'companyname' || norm === 'name') hData[f.name] = compName;
+        else if (norm === 'shoplocation' || norm === 'shopaddress' || norm === 'address' || norm === 'location') hData[f.name] = compLoc;
+        else if (norm === 'shopnumber' || norm === 'shopphone' || norm === 'phone' || norm === 'mobile') hData[f.name] = compPhone;
+        else hData[f.name] = '';
+      });
+
+      const rowInit = {};
+      tableFields.forEach(f => {
+        if (f.type === 'date' || f.type === 'datetime' || f.type === 'time') rowInit[f.name] = new Date().toISOString();
+        else rowInit[f.name] = '';
+      });
+      const snoField = tableFields.find(f => { const n = normalizeKey(f.name); return n === 'sno' || n === 'slno'; });
+      if (snoField) rowInit[snoField.name] = '1';
+
+      setHeaderData(hData);
+      setRowData([{ ...rowInit }]);
+      setBalanceEntries([{ amount: '', date: new Date().toISOString(), note: '' }]);
+      setPaidEntries([{ amount: '', date: new Date().toISOString(), note: '' }]);
+      setCustomerPhone('');
+      setCustomerAddress('');
+      setIsEditing(false);
+      setCurrentStep(0);
+      showToast(`Next Bill "${nextBn}" created automatically! ✍️`, 'info', 'Next Bill Ready');
+    } catch (e) {
+      console.error('Error preparing next bill:', e);
+      router.replace(`/bill-form/${templateId}`);
+    }
+  };
 
   const handleGenerateOnly = async () => {
     setGenerating(true);
@@ -647,11 +712,53 @@ export default function BillFormScreen() {
       showToast(`Bill "${billNumber}" saved successfully! 📄`, 'success', 'Bill Saved');
 
       Alert.alert('Bill Saved ✅', `Bill "${billNumber}" saved successfully.`, [
+        { text: 'Create Next Bill', onPress: () => resetToNextBill() },
         { text: 'View Bill', onPress: () => router.replace(`/bill-preview/${billId}`) },
-        { text: 'New Bill', onPress: () => router.replace(`/bill-form/${templateId}`) },
+        { text: 'History', onPress: () => router.replace('/(tabs)/history') },
       ]);
     } catch (error) {
       console.error('Save bill error:', error);
+      Alert.alert('Error', 'Failed to save bill.');
+    } finally { setSaving(false); }
+  };
+
+  const handleSaveAndStartNextBill = async () => {
+    setSaving(true);
+    try {
+      const db = await getDatabase();
+      const totalAmount = calculateTotal();
+      const billNumber = headerData.BN || `BF-${Date.now().toString(36).toUpperCase()}`;
+      const customerName = getRowValue(headerData, ['partyname', 'customername', 'clientname', 'name']) || '';
+      const headerDataToSave = buildMergedHeaderData();
+
+      if (customerName && customerName.trim() !== '') {
+        const existing = customers.find(c => normalizeKey(c.name) === normalizeKey(customerName));
+        const customerData = { name: customerName, phone: customerPhone || '', address: customerAddress || '', quarry_id: companyId || 1 };
+        if (existing) { if (existing.phone !== customerPhone || existing.address !== customerAddress) await saveCustomer(db, { ...existing, ...customerData }); }
+        else await saveCustomer(db, customerData);
+        await loadCustomers();
+      }
+
+      const pdfResult = await generatePDF({
+        companyProfile, headerData: headerDataToSave, rowData, headerFields, tableFields,
+        templateName: template?.name || 'Invoice', totalAmount, printWindow: null,
+        themeColor: template?.theme_color, fontFamily: template?.font_family, borderStyle: template?.border_style,
+      });
+
+      let pdfUri = '';
+      if (pdfResult.success && Platform.OS !== 'web') pdfUri = await savePDFPermanently(pdfResult.uri, billNumber, customerName);
+
+      await saveBill(db, {
+        template_id: parseInt(templateId), company_id: companyId || 1, bill_number: billNumber,
+        customer_name: customerName, headerData: headerDataToSave, rowData, total_amount: totalAmount, pdf_uri: pdfUri,
+      });
+
+      await clearDraft(templateId, companyId);
+      showToast(`Bill "${billNumber}" saved! 📄 Loading next bill...`, 'success', 'Saved & Next');
+
+      await resetToNextBill();
+    } catch (error) {
+      console.error('Save & Next bill error:', error);
       Alert.alert('Error', 'Failed to save bill.');
     } finally { setSaving(false); }
   };
@@ -747,6 +854,7 @@ export default function BillFormScreen() {
       }
 
       Alert.alert('Bill Saved & Shared! ✅', `Bill "${billNumber}" saved successfully.${whatsappSendMode === 'direct' ? '\n\nSent directly via Serverless WhatsApp integration.' : '\n\nOpened WhatsApp with prefilled invoice message.'}`, [
+        { text: 'Create Next Bill', onPress: () => resetToNextBill() },
         { text: 'View Invoice', onPress: () => router.replace(`/bill-preview/${savedId}`) },
         { text: 'History', onPress: () => router.replace('/(tabs)/history') },
       ]);
@@ -820,6 +928,42 @@ export default function BillFormScreen() {
       `<th style="border:1px solid ${themeColor};padding:6px 8px;background:${themeColor};color:#fff;text-align:left;font-size:12px">${f.label || f.name}</th>`
     ).join('');
 
+    const validBalanceEntries = balanceEntries.filter(e => e && parseFloat(e.amount || '0') > 0);
+    const validPaidEntries = paidEntries.filter(e => e && parseFloat(e.amount || '0') > 0);
+    const showItemized = pdfBreakdownMode === 'itemized' && (validBalanceEntries.length > 0 || validPaidEntries.length > 0);
+
+    let totalsRowsHtml = '';
+    if (calcSettings.includeTax || bal > 0 || paid > 0) {
+      totalsRowsHtml += `<tr><td>Subtotal</td><td style="text-align:right">₹${formatIndianNumber(sub)}</td></tr>`;
+    }
+    if (calcSettings.includeTax) {
+      totalsRowsHtml += `<tr><td>GST (${calcSettings.taxRate}%)</td><td style="text-align:right">₹${formatIndianNumber(tax)}</td></tr>`;
+    }
+
+    if (showItemized && validBalanceEntries.length > 0) {
+      validBalanceEntries.forEach((e, idx) => {
+        const numText = validBalanceEntries.length > 1 ? ` #${idx + 1}` : '';
+        const dText = e.date ? ` (${formatDate(e.date)})` : '';
+        const nText = e.note ? ` — ${e.note}` : '';
+        totalsRowsHtml += `<tr><td style="font-size:12px;color:#444">Uncleared Balance${numText}${dText}${nText}</td><td style="text-align:right;font-size:12px">+ ₹${formatIndianNumber(parseFloat(e.amount))}</td></tr>`;
+      });
+    } else if (bal > 0) {
+      totalsRowsHtml += `<tr><td>Uncleared Balance</td><td style="text-align:right">₹${formatIndianNumber(bal)}</td></tr>`;
+    }
+
+    if (showItemized && validPaidEntries.length > 0) {
+      validPaidEntries.forEach((e, idx) => {
+        const numText = validPaidEntries.length > 1 ? ` #${idx + 1}` : '';
+        const dText = e.date ? ` (${formatDate(e.date)})` : '';
+        const nText = e.note ? ` — ${e.note}` : '';
+        totalsRowsHtml += `<tr><td style="font-size:12px;color:#047857">Paid${numText}${dText}${nText}</td><td style="text-align:right;font-size:12px;color:#047857">− ₹${formatIndianNumber(parseFloat(e.amount))}</td></tr>`;
+      });
+    } else if (paid > 0) {
+      totalsRowsHtml += `<tr><td style="color:#047857">Paid</td><td style="text-align:right;color:#047857">− ₹${formatIndianNumber(paid)}</td></tr>`;
+    }
+
+    totalsRowsHtml += `<tr class="grand"><td>TOTAL</td><td style="text-align:right">₹${formatIndianNumber(grand)}</td></tr>`;
+
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;font-size:13px;color:#111;background:#f5f5f5;padding:10px}
 .sheet{background:#fff;padding:24px;max-width:800px;margin:0 auto;border:1px solid ${themeColor};border-radius:4px}
@@ -831,7 +975,7 @@ export default function BillFormScreen() {
 .info-label{font-size:11px;font-weight:bold;color:#888;margin-bottom:2px}
 .info-val{font-size:13px;font-weight:bold;color:#111}
 table{width:100%;border-collapse:collapse;margin-bottom:12px}
-.totals-table{max-width:260px;margin-left:auto;margin-bottom:20px;border:1px solid ${themeColor}}
+.totals-table{max-width:320px;margin-left:auto;margin-bottom:20px;border:1px solid ${themeColor}}
 .totals-table td{padding:6px 10px;font-size:13px;font-weight:bold}
 .totals-table .grand{background:${themeColor};color:#fff;font-size:15px}
 .sig{margin-top:32px;display:flex;align-items:flex-end;gap:10px}
@@ -855,11 +999,7 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
 </div>
 <table><thead><tr>${headerCols}</tr></thead><tbody>${rowsHTML.join('')}</tbody></table>
 <table class="totals-table">
-  ${(calcSettings.includeTax || bal > 0 || paid > 0) ? `<tr><td>Subtotal</td><td style="text-align:right">₹${formatIndianNumber(sub)}</td></tr>` : ''}
-  ${calcSettings.includeTax ? `<tr><td>GST (${calcSettings.taxRate}%)</td><td style="text-align:right">₹${formatIndianNumber(tax)}</td></tr>` : ''}
-  ${bal > 0 ? `<tr><td>Uncleared Balance</td><td style="text-align:right">₹${formatIndianNumber(bal)}</td></tr>` : ''}
-  ${paid > 0 ? `<tr><td>Paid</td><td style="text-align:right">- ₹${formatIndianNumber(paid)}</td></tr>` : ''}
-  <tr class="grand"><td>TOTAL</td><td style="text-align:right">₹${formatIndianNumber(grand)}</td></tr>
+  ${totalsRowsHtml}
 </table>
 <div class="sig"><span style="font-weight:bold;font-size:12px">Receiver's Signature:</span><div class="sig-line"></div></div>
 </div></body></html>`;
@@ -1170,131 +1310,164 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
     </View>
   );
 
-  const renderStep3 = () => (
-    <View>
-      {/* Uncleared Balances */}
-      <StepCard icon="alert-circle-outline" iconBg="#FEF3C7" iconColor="#D97706" title="Previous Balances" subtitle="Any uncleared amounts from previous bills">
-        {balanceEntries.map((entry, idx) => (
-          <View key={idx} style={styles.paymentEntryCard}>
-            <View style={styles.paymentEntryHeader}>
-              <View style={styles.entryBadge}>
-                <Text style={styles.entryBadgeText}>Balance #{idx + 1}</Text>
-              </View>
-              {balanceEntries.length > 1 && (
-                <TouchableOpacity onPress={() => setBalanceEntries(prev => prev.filter((_, i) => i !== idx))}>
-                  <Ionicons name="close-circle" size={20} color={Colors.danger} />
-                </TouchableOpacity>
-              )}
-            </View>
-            <View style={styles.paymentRowFields}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.fieldLabel}>Amount (₹)</Text>
-                <TextInput
-                  style={styles.input}
-                  value={entry.amount}
-                  onChangeText={v => setBalanceEntries(prev => prev.map((e, i) => i === idx ? { ...e, amount: v } : e))}
-                  placeholder="0.00"
-                  placeholderTextColor={Colors.textTertiary}
-                  keyboardType="decimal-pad"
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.fieldLabel}>As of Date</Text>
-                <DateTimePickerInput
-                  value={entry.date ? new Date(entry.date) : new Date()}
-                  onChange={d => setBalanceEntries(prev => prev.map((e, i) => i === idx ? { ...e, date: d.toISOString() } : e))}
-                  mode="date"
-                />
-              </View>
-            </View>
-            <View style={styles.fieldBlock}>
-              <Text style={styles.fieldLabel}>Note <Text style={styles.optionalTag}>(Optional)</Text></Text>
-              <TextInput
-                style={styles.input}
-                value={entry.note}
-                onChangeText={v => setBalanceEntries(prev => prev.map((e, i) => i === idx ? { ...e, note: v } : e))}
-                placeholder="e.g. Previous month pending"
-                placeholderTextColor={Colors.textTertiary}
-              />
-            </View>
-          </View>
-        ))}
-        <TouchableOpacity style={styles.addEntryBtn} onPress={() => setBalanceEntries(prev => [...prev, { amount: '', date: new Date().toISOString(), note: '' }])}>
-          <Ionicons name="add-circle-outline" size={17} color="#D97706" />
-          <Text style={[styles.addItemBtnText, { color: '#D97706' }]}>Add Another Balance Entry</Text>
-        </TouchableOpacity>
-        {getTotalBalance() > 0 && (
-          <View style={[styles.runningTotal, { backgroundColor: '#FEF3C7' }]}>
-            <Text style={[styles.runningTotalLabel, { color: '#92400E' }]}>Total Balance</Text>
-            <Text style={[styles.runningTotalValue, { color: '#92400E' }]}>₹{formatIndianNumber(getTotalBalance())}</Text>
-          </View>
-        )}
-      </StepCard>
+  const renderStep3 = () => {
+    const validBalCount = balanceEntries.filter(e => parseFloat(e.amount || '0') > 0).length;
+    const validPaidCount = paidEntries.filter(e => parseFloat(e.amount || '0') > 0).length;
 
-      {/* Paid Amounts */}
-      <StepCard icon="checkmark-circle-outline" iconBg="#ECFDF5" iconColor="#059669" title="Payments Received" subtitle="Amounts already paid by the customer">
-        {paidEntries.map((entry, idx) => (
-          <View key={idx} style={styles.paymentEntryCard}>
-            <View style={styles.paymentEntryHeader}>
-              <View style={[styles.entryBadge, { backgroundColor: '#D1FAE5' }]}>
-                <Text style={[styles.entryBadgeText, { color: '#065F46' }]}>Payment #{idx + 1}</Text>
+    return (
+      <View>
+        {/* PDF Presentation Format Card */}
+        <View style={styles.breakdownToggleCard}>
+          <View style={{ flex: 1, paddingRight: 8 }}>
+            <Text style={styles.breakdownToggleTitle}>PDF Invoice Breakdown</Text>
+            <Text style={styles.breakdownToggleSubtitle}>
+              {pdfBreakdownMode === 'itemized'
+                ? 'Shows each balance and payment entry on separate rows with dates & notes'
+                : 'Combines all balances and payments into single summary lines'}
+            </Text>
+          </View>
+          <View style={styles.segmentedControl}>
+            <TouchableOpacity
+              style={[styles.segmentBtn, pdfBreakdownMode === 'itemized' && styles.segmentBtnActive]}
+              onPress={() => setPdfBreakdownMode('itemized')}
+            >
+              <Ionicons name="list-outline" size={14} color={pdfBreakdownMode === 'itemized' ? '#fff' : Colors.textSecondary} />
+              <Text style={[styles.segmentBtnText, pdfBreakdownMode === 'itemized' && styles.segmentBtnTextActive]}>Itemized</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.segmentBtn, pdfBreakdownMode === 'summarized' && styles.segmentBtnActive]}
+              onPress={() => setPdfBreakdownMode('summarized')}
+            >
+              <Ionicons name="calculator-outline" size={14} color={pdfBreakdownMode === 'summarized' ? '#fff' : Colors.textSecondary} />
+              <Text style={[styles.segmentBtnText, pdfBreakdownMode === 'summarized' && styles.segmentBtnTextActive]}>Summarized</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Uncleared Balances */}
+        <StepCard icon="alert-circle-outline" iconBg="#FEF3C7" iconColor="#D97706" title="Previous Balances" subtitle="Any uncleared amounts from previous bills">
+          {balanceEntries.map((entry, idx) => (
+            <View key={idx} style={styles.paymentEntryCard}>
+              <View style={styles.paymentEntryHeader}>
+                <View style={styles.entryBadge}>
+                  <Text style={styles.entryBadgeText}>Balance #{idx + 1}</Text>
+                </View>
+                {balanceEntries.length > 1 && (
+                  <TouchableOpacity onPress={() => setBalanceEntries(prev => prev.filter((_, i) => i !== idx))}>
+                    <Ionicons name="close-circle" size={20} color={Colors.danger} />
+                  </TouchableOpacity>
+                )}
               </View>
-              {paidEntries.length > 1 && (
-                <TouchableOpacity onPress={() => setPaidEntries(prev => prev.filter((_, i) => i !== idx))}>
-                  <Ionicons name="close-circle" size={20} color={Colors.danger} />
-                </TouchableOpacity>
-              )}
-            </View>
-            <View style={styles.paymentRowFields}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.fieldLabel}>Paid Amount (₹)</Text>
+              <View style={styles.paymentRowFields}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>Amount (₹)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={entry.amount}
+                    onChangeText={v => setBalanceEntries(prev => prev.map((e, i) => i === idx ? { ...e, amount: v } : e))}
+                    placeholder="0.00"
+                    placeholderTextColor={Colors.textTertiary}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>As of Date</Text>
+                  <DateTimePickerInput
+                    value={entry.date ? new Date(entry.date) : new Date()}
+                    onChange={d => setBalanceEntries(prev => prev.map((e, i) => i === idx ? { ...e, date: d.toISOString() } : e))}
+                    mode="date"
+                  />
+                </View>
+              </View>
+              <View style={styles.fieldBlock}>
+                <Text style={styles.fieldLabel}>Note <Text style={styles.optionalTag}>(Optional description)</Text></Text>
                 <TextInput
                   style={styles.input}
-                  value={entry.amount}
-                  onChangeText={v => setPaidEntries(prev => prev.map((e, i) => i === idx ? { ...e, amount: v } : e))}
-                  placeholder="0.00"
+                  value={entry.note}
+                  onChangeText={v => setBalanceEntries(prev => prev.map((e, i) => i === idx ? { ...e, note: v } : e))}
+                  placeholder="e.g. Previous pending, Bnj, Vbbs"
                   placeholderTextColor={Colors.textTertiary}
-                  keyboardType="decimal-pad"
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.fieldLabel}>Paid Date</Text>
-                <DateTimePickerInput
-                  value={entry.date ? new Date(entry.date) : new Date()}
-                  onChange={d => setPaidEntries(prev => prev.map((e, i) => i === idx ? { ...e, date: d.toISOString() } : e))}
-                  mode="date"
                 />
               </View>
             </View>
-            <View style={styles.fieldBlock}>
-              <Text style={styles.fieldLabel}>Note <Text style={styles.optionalTag}>(Optional)</Text></Text>
-              <TextInput
-                style={styles.input}
-                value={entry.note}
-                onChangeText={v => setPaidEntries(prev => prev.map((e, i) => i === idx ? { ...e, note: v } : e))}
-                placeholder="e.g. UPI, Cash, Cheque"
-                placeholderTextColor={Colors.textTertiary}
-              />
+          ))}
+          <TouchableOpacity style={styles.addEntryBtn} onPress={() => setBalanceEntries(prev => [...prev, { amount: '', date: new Date().toISOString(), note: '' }])}>
+            <Ionicons name="add-circle-outline" size={17} color="#D97706" />
+            <Text style={[styles.addItemBtnText, { color: '#D97706' }]}>Add Another Balance Entry</Text>
+          </TouchableOpacity>
+          {getTotalBalance() > 0 && (
+            <View style={[styles.runningTotal, { backgroundColor: '#FEF3C7' }]}>
+              <Text style={[styles.runningTotalLabel, { color: '#92400E' }]}>Total Uncleared Balance</Text>
+              <Text style={[styles.runningTotalValue, { color: '#92400E' }]}>+ ₹{formatIndianNumber(getTotalBalance())}</Text>
             </View>
-          </View>
-        ))}
-        <TouchableOpacity style={styles.addEntryBtn} onPress={() => setPaidEntries(prev => [...prev, { amount: '', date: new Date().toISOString(), note: '' }])}>
-          <Ionicons name="add-circle-outline" size={17} color="#059669" />
-          <Text style={[styles.addItemBtnText, { color: '#059669' }]}>Add Another Payment Entry</Text>
-        </TouchableOpacity>
-        {getTotalPaid() > 0 && (
-          <View style={[styles.runningTotal, { backgroundColor: '#ECFDF5' }]}>
-            <Text style={[styles.runningTotalLabel, { color: '#065F46' }]}>Total Paid</Text>
-            <Text style={[styles.runningTotalValue, { color: '#065F46' }]}>₹{formatIndianNumber(getTotalPaid())}</Text>
-          </View>
-        )}
-      </StepCard>
-    </View>
-  );
+          )}
+        </StepCard>
+
+        {/* Paid Amounts */}
+        <StepCard icon="checkmark-circle-outline" iconBg="#ECFDF5" iconColor="#059669" title="Payments Received" subtitle="Amounts already paid by the customer">
+          {paidEntries.map((entry, idx) => (
+            <View key={idx} style={styles.paymentEntryCard}>
+              <View style={styles.paymentEntryHeader}>
+                <View style={[styles.entryBadge, { backgroundColor: '#D1FAE5' }]}>
+                  <Text style={[styles.entryBadgeText, { color: '#065F46' }]}>Payment #{idx + 1}</Text>
+                </View>
+                {paidEntries.length > 1 && (
+                  <TouchableOpacity onPress={() => setPaidEntries(prev => prev.filter((_, i) => i !== idx))}>
+                    <Ionicons name="close-circle" size={20} color={Colors.danger} />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <View style={styles.paymentRowFields}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>Paid Amount (₹)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={entry.amount}
+                    onChangeText={v => setPaidEntries(prev => prev.map((e, i) => i === idx ? { ...e, amount: v } : e))}
+                    placeholder="0.00"
+                    placeholderTextColor={Colors.textTertiary}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>Paid Date</Text>
+                  <DateTimePickerInput
+                    value={entry.date ? new Date(entry.date) : new Date()}
+                    onChange={d => setPaidEntries(prev => prev.map((e, i) => i === idx ? { ...e, date: d.toISOString() } : e))}
+                    mode="date"
+                  />
+                </View>
+              </View>
+              <View style={styles.fieldBlock}>
+                <Text style={styles.fieldLabel}>Note <Text style={styles.optionalTag}>(Optional description)</Text></Text>
+                <TextInput
+                  style={styles.input}
+                  value={entry.note}
+                  onChangeText={v => setPaidEntries(prev => prev.map((e, i) => i === idx ? { ...e, note: v } : e))}
+                  placeholder="e.g. UPI, Cash, Cheque, Bank Transfer"
+                  placeholderTextColor={Colors.textTertiary}
+                />
+              </View>
+            </View>
+          ))}
+          <TouchableOpacity style={styles.addEntryBtn} onPress={() => setPaidEntries(prev => [...prev, { amount: '', date: new Date().toISOString(), note: '' }])}>
+            <Ionicons name="add-circle-outline" size={17} color="#059669" />
+            <Text style={[styles.addItemBtnText, { color: '#059669' }]}>Add Another Payment Entry</Text>
+          </TouchableOpacity>
+          {getTotalPaid() > 0 && (
+            <View style={[styles.runningTotal, { backgroundColor: '#ECFDF5' }]}>
+              <Text style={[styles.runningTotalLabel, { color: '#065F46' }]}>Total Paid</Text>
+              <Text style={[styles.runningTotalValue, { color: '#065F46' }]}>− ₹{formatIndianNumber(getTotalPaid())}</Text>
+            </View>
+          )}
+        </StepCard>
+      </View>
+    );
+  };
 
   const renderStep4 = () => (
     <View>
-      <StepCard icon="settings-outline" iconBg="#EFF6FF" iconColor="#3B82F6" title="Calculation Settings" subtitle="GST, taxes and display preferences">
+      <StepCard icon="settings-outline" iconBg="#EFF6FF" iconColor="#3B82F6" title="Calculation & Display Settings" subtitle="GST, taxes, PDF display and storage preferences">
 
         {/* Formula explanation */}
         <View style={styles.formulaBox}>
@@ -1302,10 +1475,37 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
           <View style={{ flex: 1, marginLeft: 10 }}>
             <Text style={styles.formulaTitle}>Amount Calculation</Text>
             <Text style={styles.formulaText}>Price per Unit × Number of Units = Row Amount</Text>
-            <Text style={styles.formulaText}>Sum of all Row Amounts = Materials Subtotal</Text>
+            <Text style={styles.formulaText}>Sum of all Rows = Materials Subtotal</Text>
           </View>
         </View>
 
+        {/* PDF Payment Rows Option */}
+        <View style={styles.settingRow}>
+          <View style={styles.settingTextContainer}>
+            <Text style={styles.settingLabel}>PDF Payment Breakdown</Text>
+            <Text style={styles.settingDesc}>
+              {pdfBreakdownMode === 'itemized' ? 'Separate rows with dates/notes' : 'Single combined total'}
+            </Text>
+          </View>
+          <View style={styles.segmentedControl}>
+            <TouchableOpacity
+              style={[styles.segmentBtn, pdfBreakdownMode === 'itemized' && styles.segmentBtnActive]}
+              onPress={() => setPdfBreakdownMode('itemized')}
+            >
+              <Text style={[styles.segmentBtnText, pdfBreakdownMode === 'itemized' && styles.segmentBtnTextActive]}>Itemized</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.segmentBtn, pdfBreakdownMode === 'summarized' && styles.segmentBtnActive]}
+              onPress={() => setPdfBreakdownMode('summarized')}
+            >
+              <Text style={[styles.segmentBtnText, pdfBreakdownMode === 'summarized' && styles.segmentBtnTextActive]}>Summed</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.settingDivider} />
+
+        {/* GST / Tax Settings */}
         <View style={styles.settingRow}>
           <View style={styles.settingTextContainer}>
             <Text style={styles.settingLabel}>Apply GST / Taxes</Text>
@@ -1359,6 +1559,72 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
           />
         </View>
       </StepCard>
+
+      {/* Storage & Folder Destination Card */}
+      <StepCard icon="folder-outline" iconBg="#F0FDF4" iconColor="#16A34A" title="PDF Storage & Folder Setup" subtitle="Automatic saving, party-based folders and Android directory">
+        <View style={styles.fieldBlock}>
+          <Text style={styles.fieldLabel}>Base Storage Folder</Text>
+          <TextInput
+            style={styles.input}
+            value={storageSettings.baseFolderName}
+            onChangeText={v => {
+              const updated = { ...storageSettings, baseFolderName: v };
+              setStorageSettings(updated);
+              saveStorageSettings({ baseFolderName: v });
+            }}
+            placeholder="e.g. Billing or Invoices"
+            placeholderTextColor={Colors.textTertiary}
+          />
+          <Text style={styles.previewNote}>
+            PDFs will save as: <Text style={{ fontWeight: '700' }}>[PartyName]_[BillNumber]_[Timestamp].pdf</Text>
+          </Text>
+        </View>
+
+        <View style={styles.settingRow}>
+          <View style={styles.settingTextContainer}>
+            <Text style={styles.settingLabel}>Organize by Party Name</Text>
+            <Text style={styles.settingDesc}>Automatically save into customer folders: {storageSettings.baseFolderName || 'Billing'}/[PartyName]/</Text>
+          </View>
+          <Switch
+            value={storageSettings.organizeByParty}
+            onValueChange={v => {
+              const updated = { ...storageSettings, organizeByParty: v };
+              setStorageSettings(updated);
+              saveStorageSettings({ organizeByParty: v });
+            }}
+            trackColor={{ false: Colors.border, true: Colors.primary }}
+            thumbColor={storageSettings.organizeByParty ? '#fff' : '#f4f3f4'}
+          />
+        </View>
+
+        {/* Android Native Folder Picker */}
+        {Platform.OS === 'android' && (
+          <View style={{ marginTop: 10 }}>
+            <TouchableOpacity
+              style={styles.storagePickerBtn}
+              onPress={async () => {
+                const res = await pickAndroidStorageDirectory();
+                if (res.success) {
+                  const s = await getStorageSettings();
+                  setStorageSettings(s);
+                  showToast(`Selected folder: ${res.name || 'Device Storage'} 📁`, 'success', 'Folder Configured');
+                } else if (res.error) {
+                  Alert.alert('Folder Selection', res.error);
+                }
+              }}
+            >
+              <Ionicons name="folder-open-outline" size={18} color={Colors.primary} />
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={styles.storagePickerBtnText}>Select Device Folder (Android)</Text>
+                <Text style={styles.storagePickerSub} numberOfLines={1}>
+                  {storageSettings.androidSafName ? `Current: 📁 ${storageSettings.androidSafName}` : 'Tap to choose internal storage or SD card folder'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+            </TouchableOpacity>
+          </View>
+        )}
+      </StepCard>
     </View>
   );
 
@@ -1369,6 +1635,9 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
     const taxRate = parseFloat(String(calcSettings.taxRate || 0));
     const tax = calcSettings.includeTax && !isNaN(taxRate) && taxRate > 0 ? sub * (taxRate / 100) : 0;
     const grand = sub + bal + tax - paid;
+    const validBalanceEntries = balanceEntries.filter(e => parseFloat(e.amount || '0') > 0);
+    const validPaidEntries = paidEntries.filter(e => parseFloat(e.amount || '0') > 0);
+    const showItemized = pdfBreakdownMode === 'itemized' && (validBalanceEntries.length > 0 || validPaidEntries.length > 0);
 
     return (
       <View>
@@ -1427,9 +1696,9 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
               </View>
             )}
 
-            {bal > 0 && (
+            {showItemized ? (
               <>
-                {balanceEntries.filter(e => parseFloat(e.amount || '0') > 0).map((e, i) => (
+                {validBalanceEntries.map((e, i) => (
                   <View key={i} style={styles.totalLineRow}>
                     <Text style={styles.totalLineLabel}>
                       Balance #{i + 1}{e.date ? ` (${formatDate(e.date)})` : ''}{e.note ? ` — ${e.note}` : ''}
@@ -1438,11 +1707,18 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
                   </View>
                 ))}
               </>
+            ) : (
+              bal > 0 && (
+                <View style={styles.totalLineRow}>
+                  <Text style={styles.totalLineLabel}>Uncleared Balance</Text>
+                  <Text style={styles.totalLineValue}>+ ₹{formatIndianNumber(bal)}</Text>
+                </View>
+              )
             )}
 
-            {paid > 0 && (
+            {showItemized ? (
               <>
-                {paidEntries.filter(e => parseFloat(e.amount || '0') > 0).map((e, i) => (
+                {validPaidEntries.map((e, i) => (
                   <View key={i} style={styles.totalLineRow}>
                     <Text style={[styles.totalLineLabel, { color: Colors.success }]}>
                       Paid #{i + 1}{e.date ? ` (${formatDate(e.date)})` : ''}{e.note ? ` — ${e.note}` : ''}
@@ -1451,6 +1727,13 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
                   </View>
                 ))}
               </>
+            ) : (
+              paid > 0 && (
+                <View style={styles.totalLineRow}>
+                  <Text style={[styles.totalLineLabel, { color: Colors.success }]}>Total Paid</Text>
+                  <Text style={[styles.totalLineValue, { color: Colors.success }]}>− ₹{formatIndianNumber(paid)}</Text>
+                </View>
+              )
             )}
 
             <View style={styles.grandTotalRow}>
@@ -1492,7 +1775,7 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
       );
     }
 
-    // Native fallback — lightweight React Native preview (reuse existing renderLivePreview logic)
+    // Native fallback
     const themeColor = template?.theme_color || '#1a237e';
     const sub = getSubTotal();
     const bal = getTotalBalance();
@@ -1501,6 +1784,9 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
     const grand = sub + bal + tax - paid;
     const billDate = formatDate(getRowValue(headerData, ['billdate', 'date']) || new Date().toISOString());
     const deliveryLoc = getRowValue(headerData, ['deliveryloc', 'place', 'location', 'deliverylocation']) || '';
+    const validBalanceEntries = balanceEntries.filter(e => parseFloat(e.amount || '0') > 0);
+    const validPaidEntries = paidEntries.filter(e => parseFloat(e.amount || '0') > 0);
+    const showItemized = pdfBreakdownMode === 'itemized' && (validBalanceEntries.length > 0 || validPaidEntries.length > 0);
 
     const displayTableFields = tableFields.filter(f => {
       const n = normalizeKey(f.name);
@@ -1570,18 +1856,46 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
                     <Text style={styles.nativePrevTotalVal}>₹{formatIndianNumber(sub)}</Text>
                   </View>
                 )}
-                {calcSettings.includeTax && <View style={styles.nativePrevTotalRow}>
-                  <Text style={styles.nativePrevTotalLabel}>GST {calcSettings.taxRate}%</Text>
-                  <Text style={styles.nativePrevTotalVal}>₹{formatIndianNumber(tax)}</Text>
-                </View>}
-                {bal > 0 && <View style={styles.nativePrevTotalRow}>
-                  <Text style={styles.nativePrevTotalLabel}>Balance</Text>
-                  <Text style={styles.nativePrevTotalVal}>₹{formatIndianNumber(bal)}</Text>
-                </View>}
-                {paid > 0 && <View style={styles.nativePrevTotalRow}>
-                  <Text style={[styles.nativePrevTotalLabel, { color: Colors.success }]}>Paid</Text>
-                  <Text style={[styles.nativePrevTotalVal, { color: Colors.success }]}>−₹{formatIndianNumber(paid)}</Text>
-                </View>}
+                {calcSettings.includeTax && (
+                  <View style={styles.nativePrevTotalRow}>
+                    <Text style={styles.nativePrevTotalLabel}>GST {calcSettings.taxRate}%</Text>
+                    <Text style={styles.nativePrevTotalVal}>₹{formatIndianNumber(tax)}</Text>
+                  </View>
+                )}
+                {showItemized ? (
+                  <>
+                    {validBalanceEntries.map((e, idx) => (
+                      <View key={idx} style={styles.nativePrevTotalRow}>
+                        <Text style={styles.nativePrevTotalLabel}>Bal #{idx + 1}{e.note ? ` (${e.note})` : ''}</Text>
+                        <Text style={styles.nativePrevTotalVal}>+₹{formatIndianNumber(parseFloat(e.amount))}</Text>
+                      </View>
+                    ))}
+                  </>
+                ) : (
+                  bal > 0 && (
+                    <View style={styles.nativePrevTotalRow}>
+                      <Text style={styles.nativePrevTotalLabel}>Uncleared Bal</Text>
+                      <Text style={styles.nativePrevTotalVal}>+₹{formatIndianNumber(bal)}</Text>
+                    </View>
+                  )
+                )}
+                {showItemized ? (
+                  <>
+                    {validPaidEntries.map((e, idx) => (
+                      <View key={idx} style={styles.nativePrevTotalRow}>
+                        <Text style={[styles.nativePrevTotalLabel, { color: Colors.success }]}>Paid #{idx + 1}{e.note ? ` (${e.note})` : ''}</Text>
+                        <Text style={[styles.nativePrevTotalVal, { color: Colors.success }]}>−₹{formatIndianNumber(parseFloat(e.amount))}</Text>
+                      </View>
+                    ))}
+                  </>
+                ) : (
+                  paid > 0 && (
+                    <View style={styles.nativePrevTotalRow}>
+                      <Text style={[styles.nativePrevTotalLabel, { color: Colors.success }]}>Paid</Text>
+                      <Text style={[styles.nativePrevTotalVal, { color: Colors.success }]}>−₹{formatIndianNumber(paid)}</Text>
+                    </View>
+                  )
+                )}
                 <View style={[styles.nativePrevTotalRow, { borderTopWidth: 1, borderTopColor: themeColor, paddingTop: 4, marginTop: 4 }]}>
                   <Text style={[styles.nativePrevTotalLabel, { fontWeight: '900', fontSize: 14 }]}>TOTAL</Text>
                   <Text style={[styles.nativePrevTotalVal, { fontWeight: '900', fontSize: 14, color: themeColor }]}>₹{formatIndianNumber(grand)}</Text>
@@ -1629,6 +1943,12 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
               <Ionicons name="cube-outline" size={14} color={Colors.textSecondary} />
               <Text style={styles.saveSummaryText}>{rowData.length} material line item{rowData.length !== 1 ? 's' : ''}</Text>
             </View>
+            <View style={styles.saveSummaryRow}>
+              <Ionicons name="folder-outline" size={14} color={Colors.textSecondary} />
+              <Text style={styles.saveSummaryText}>
+                Save path: {storageSettings.baseFolderName || 'Billing'}{storageSettings.organizeByParty ? `/${partyName || 'Customer'}/` : '/'}
+              </Text>
+            </View>
             {calcSettings.includeTax && (
               <View style={styles.saveSummaryRow}>
                 <Ionicons name="pricetag-outline" size={14} color={Colors.textSecondary} />
@@ -1638,6 +1958,21 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
           </View>
 
           <View style={styles.saveButtonsStack}>
+            {/* Save & Create Next Bill (Speed Counter) */}
+            <TouchableOpacity
+              style={[styles.saveActionBtn, styles.saveBtnNextBill]}
+              onPress={handleSaveAndStartNextBill}
+              disabled={saving}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="flash-outline" size={20} color="#fff" />
+              <View style={{ marginLeft: 10, flex: 1 }}>
+                <Text style={styles.saveActionBtnTitle}>Save & Create Next Bill ⚡</Text>
+                <Text style={styles.saveActionBtnSub}>Saves current bill & automatically loads next bill</Text>
+              </View>
+              {saving && <View style={styles.savingIndicator}><Text style={{ color: '#fff', fontSize: 11 }}>Saving…</Text></View>}
+            </TouchableOpacity>
+
             {/* Save Bill */}
             <TouchableOpacity
               style={[styles.saveActionBtn, styles.saveBtnPrimary]}
@@ -1646,7 +1981,7 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
               activeOpacity={0.85}
             >
               <Ionicons name="save-outline" size={20} color="#fff" />
-              <View style={{ marginLeft: 10 }}>
+              <View style={{ marginLeft: 10, flex: 1 }}>
                 <Text style={styles.saveActionBtnTitle}>Save Bill</Text>
                 <Text style={styles.saveActionBtnSub}>Saves to history & generates PDF</Text>
               </View>
@@ -1661,7 +1996,7 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
               activeOpacity={0.85}
             >
               <Ionicons name="logo-whatsapp" size={20} color="#fff" />
-              <View style={{ marginLeft: 10 }}>
+              <View style={{ marginLeft: 10, flex: 1 }}>
                 <Text style={styles.saveActionBtnTitle}>Save & Share on WhatsApp</Text>
                 <Text style={styles.saveActionBtnSub}>Saves bill and opens WhatsApp chat</Text>
               </View>
@@ -1676,7 +2011,7 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}
               activeOpacity={0.85}
             >
               <Ionicons name="document-outline" size={20} color={Colors.primary} />
-              <View style={{ marginLeft: 10 }}>
+              <View style={{ marginLeft: 10, flex: 1 }}>
                 <Text style={[styles.saveActionBtnTitle, { color: Colors.primary }]}>Generate Bill Only</Text>
                 <Text style={[styles.saveActionBtnSub, { color: Colors.textSecondary }]}>Preview/print without saving to history</Text>
               </View>
@@ -2279,6 +2614,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   saveBtnPrimary: { backgroundColor: Colors.primary },
+  saveBtnNextBill: { backgroundColor: '#4F46E5', borderWidth: 1.5, borderColor: '#6366F1' },
   saveBtnWhatsApp: { backgroundColor: '#25D366' },
   saveBtnGenerate: { backgroundColor: Colors.primarySurface, borderWidth: 1.5, borderColor: Colors.primaryBorder },
   saveActionBtnTitle: { fontSize: 15, fontWeight: '700', color: '#fff' },
@@ -2286,6 +2622,64 @@ const styles = StyleSheet.create({
   savingIndicator: { position: 'absolute', right: 16 },
   saveNote: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 16 },
   saveNoteText: { fontSize: 12, color: Colors.textTertiary, flex: 1 },
+
+  // Breakdown & Segment Controls
+  breakdownToggleCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: Colors.borderLight,
+    gap: 10,
+  },
+  breakdownToggleTitle: { fontSize: 14, fontWeight: '700', color: Colors.text },
+  breakdownToggleSubtitle: { fontSize: 12, color: Colors.textSecondary, marginTop: 2, lineHeight: 16 },
+  segmentedControl: {
+    flexDirection: 'row',
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: 10,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 4,
+  },
+  segmentBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    gap: 5,
+  },
+  segmentBtnActive: {
+    backgroundColor: Colors.primary,
+  },
+  segmentBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  segmentBtnTextActive: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+
+  // Storage Picker
+  storagePickerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primarySurface,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1.5,
+    borderColor: Colors.primaryBorder,
+  },
+  storagePickerBtnText: { fontSize: 14, fontWeight: '700', color: Colors.primary },
+  storagePickerSub: { fontSize: 11, color: Colors.textSecondary, marginTop: 2 },
 
   // Nav Footer
   navFooter: {
