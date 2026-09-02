@@ -591,15 +591,21 @@ export default function BillFormScreen() {
         fontFamily: template?.font_family,
         borderStyle: template?.border_style,
       });
-      if (!result.success) Alert.alert('Error', 'Failed to generate PDF: ' + (result.error || 'Unknown error'));
-      else if (Platform.OS !== 'web') {
-        const billNumber = headerData.BN || `BF-${Date.now().toString(36).toUpperCase()}`;
-        const customerName = getRowValue(headerData, ['partyname', 'customername', 'clientname', 'name']) || '';
-        const permanentUri = await savePDFPermanently(result.uri, billNumber, customerName);
-        await sharePDF(permanentUri);
+      if (!result.success) {
+        showToast('Failed to generate PDF. Please try again.', 'error', 'PDF Error');
+        Alert.alert('Error', 'Failed to generate PDF: ' + (result.error || 'Unknown error'));
+      } else {
+        showToast('Bill PDF generated! 📄 (Not saved to history)', 'info', 'Bill Generated');
+        if (Platform.OS !== 'web') {
+          const billNumber = headerData.BN || `BF-${Date.now().toString(36).toUpperCase()}`;
+          const customerName = getRowValue(headerData, ['partyname', 'customername', 'clientname', 'name']) || '';
+          const permanentUri = await savePDFPermanently(result.uri, billNumber, customerName);
+          await sharePDF(permanentUri);
+        }
       }
     } catch (error) {
       console.error('PDF generation error:', error);
+      showToast('Failed to generate PDF.', 'error', 'PDF Error');
       Alert.alert('Error', 'Failed to generate PDF.');
     } finally { setGenerating(false); }
   };
@@ -693,6 +699,7 @@ export default function BillFormScreen() {
       });
 
       await clearDraft(templateId, companyId);
+      showToast(`Bill "${billNumber}" saved & shared on WhatsApp! 🟢`, 'success', 'Bill Saved & Sent');
 
       const shopNameStr = getRowValue(headerData, ['shopname', 'companyname']) || companyProfile?.name || '';
       const messageText = `Dear Customer, here is your invoice (No: ${billNumber}) from ${shopNameStr}. Total Amount: Rs. ${formatIndianNumber(totalAmount)}. Thank you for your business!`;
@@ -727,7 +734,8 @@ export default function BillFormScreen() {
   const handleMinimizeBill = async () => {
     try {
       await minimizeDraft(templateId, { headerData, rowData, calcSettings, customerPhone, customerAddress, balanceEntries, paidEntries }, companyId);
-      Alert.alert('Bill Minimized 📄', 'Your draft is saved. Resume anytime from Leftover Bills!', [{ text: 'OK', onPress: () => router.push('/(tabs)') }]);
+      showToast('Bill draft minimized. Resume anytime from Leftover Bills! 📋', 'info', 'Draft Saved');
+      router.push('/(tabs)');
     } catch (e) { router.push('/(tabs)'); }
   };
 
