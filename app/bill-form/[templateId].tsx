@@ -254,11 +254,17 @@ export default function BillFormScreen() {
   const loadTemplate = async () => {
     try {
       const db = await getDatabase();
-      const t = await getTemplateById(db, parseInt(templateId), companyId);
+      const rawId = Array.isArray(templateId) ? templateId[0] : templateId;
+      const targetId = parseInt(rawId || '1') || 1;
+      let t = await getTemplateById(db, targetId, companyId);
+      if (!t) {
+        const list = await getTemplates(db, companyId);
+        t = (list && list.length > 0) ? list[0] : null;
+      }
       if (t) {
         setTemplate(t);
-        const hFields = JSON.parse(t.header_fields_json || '[]');
-        let tFields = JSON.parse(t.table_fields_json || '[]');
+        const hFields = typeof t.header_fields_json === 'string' ? JSON.parse(t.header_fields_json || '[]') : (t.header_fields_json || []);
+        let tFields = typeof t.table_fields_json === 'string' ? JSON.parse(t.table_fields_json || '[]') : (t.table_fields_json || []);
         
         // Dynamic virtual field injection for MaterialTypeCost if missing
         const hasCostField = tFields.some(f => {

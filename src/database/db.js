@@ -66,7 +66,10 @@ function webSet(key, val) {
 
 
 // Quarry-scoped key helper
-function qKey(quarryId, suffix) { return `bf_quarry_${quarryId}_${suffix}`; }
+function qKey(quarryId, suffix) {
+  const qid = quarryId || 1;
+  return `bf_quarry_${qid}_${suffix}`;
+}
 
 // === Serverless MongoDB API Helper ===
 const getApiBase = () => {
@@ -106,6 +109,11 @@ function webInitializeSchema() {
   }
   // Global customers
   if (!webGet('bf_customers')) { webSet('bf_customers', []); }
+
+  // Default template for Quarry 1
+  if (!webGet(qKey(1, 'templates')) || webGet(qKey(1, 'templates')).length === 0) {
+    webSet(qKey(1, 'templates'), [getDefaultTemplate()]);
+  }
 
   // MIGRATION: Move old billforge_* data to new schema for quarry 1 if exists
   migrateOldData();
@@ -966,38 +974,58 @@ export async function deleteMaterial(db, id, quarryId) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // TEMPLATES (quarry-scoped)
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function getTemplates(db, quarryId) {
+export async function getTemplates(db, quarryId = 1) {
+  const qid = quarryId || 1;
   if (IS_WEB) {
-    let list = webGet(qKey(quarryId, 'templates'));
+    let list = webGet(qKey(qid, 'templates'));
     if (!list || list.length === 0) {
       list = [getDefaultTemplate()];
-      webSet(qKey(quarryId, 'templates'), list);
+      webSet(qKey(qid, 'templates'), list);
     }
     return list;
   }
-  return await db.getAllAsync('SELECT * FROM templates WHERE quarry_id = ? ORDER BY id', [quarryId]);
+  return await db.getAllAsync('SELECT * FROM templates WHERE quarry_id = ? ORDER BY id', [qid]);
 }
 
-export async function getTemplateById(db, id, quarryId) {
+export async function getTemplateById(db, id, quarryId = 1) {
+  const qid = quarryId || 1;
   if (IS_WEB) {
-    const list = webGet(qKey(quarryId, 'templates')) || [];
-    return list.find(t => t.id === parseInt(id)) || null;
+    let list = webGet(qKey(qid, 'templates'));
+    if (!list || list.length === 0) {
+      list = [getDefaultTemplate()];
+      webSet(qKey(qid, 'templates'), list);
+    }
+    const targetId = parseInt(id);
+    const found = list.find(t => t.id === targetId);
+    if (!found && list.length > 0) {
+      return list[0];
+    }
+    return found || getDefaultTemplate();
   }
-  return await db.getFirstAsync('SELECT * FROM templates WHERE id = ?', [id]);
+  const result = await db.getFirstAsync('SELECT * FROM templates WHERE id = ?', [id]);
+  if (!result) {
+    const all = await db.getAllAsync('SELECT * FROM templates WHERE quarry_id = ? ORDER BY id', [qid]);
+    return (all && all.length > 0) ? all[0] : null;
+  }
+  return result;
 }
 
-export async function saveTemplate(db, template, quarryId) {
+export async function saveTemplate(db, template, quarryId = 1) {
+  const qid = quarryId || 1;
   if (IS_WEB) {
-    const list = webGet(qKey(quarryId, 'templates')) || [];
+    let list = webGet(qKey(qid, 'templates')) || [];
+    if (list.length === 0) {
+      list = [getDefaultTemplate()];
+    }
     if (template.id) {
       const idx = list.findIndex(t => t.id === parseInt(template.id));
       if (idx !== -1) { list[idx] = { ...list[idx], ...template }; }
-      webSet(qKey(quarryId, 'templates'), list);
+      webSet(qKey(qid, 'templates'), list);
       return template.id;
     }
     const nextId = list.reduce((max, t) => t.id > max ? t.id : max, 0) + 1;
     list.push({ ...template, id: nextId, created_at: new Date().toISOString() });
-    webSet(qKey(quarryId, 'templates'), list);
+    webSet(qKey(qid, 'templates'), list);
     return nextId;
   }
   if (template.id) {
@@ -1006,14 +1034,15 @@ export async function saveTemplate(db, template, quarryId) {
     return template.id;
   }
   const r = await db.runAsync('INSERT INTO templates (quarry_id, name, file_uri, file_base64, header_fields_json, table_fields_json, all_fields_json) VALUES (?,?,?,?,?,?,?)',
-    [quarryId, template.name, template.file_uri || '', template.file_base64 || '', template.header_fields_json || '[]', template.table_fields_json || '[]', template.all_fields_json || '[]']);
+    [qid, template.name, template.file_uri || '', template.file_base64 || '', template.header_fields_json || '[]', template.table_fields_json || '[]', template.all_fields_json || '[]']);
   return r.lastInsertRowId;
 }
 
-export async function deleteTemplate(db, id, quarryId) {
+export async function deleteTemplate(db, id, quarryId = 1) {
+  const qid = quarryId || 1;
   if (IS_WEB) {
-    const list = webGet(qKey(quarryId, 'templates')) || [];
-    webSet(qKey(quarryId, 'templates'), list.filter(t => t.id !== parseInt(id)));
+    const list = webGet(qKey(qid, 'templates')) || [];
+    webSet(qKey(qid, 'templates'), list.filter(t => t.id !== parseInt(id)));
     return;
   }
   await db.runAsync('DELETE FROM templates WHERE id = ?', [id]);
