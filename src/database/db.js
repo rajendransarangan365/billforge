@@ -958,6 +958,14 @@ export async function saveCompanyProfile(db, profile) {
   return updatedProfile;
 }
 
+export async function getQuarryDetails(db, quarryId) {
+  return getCompanyProfile(db, quarryId);
+}
+
+export async function saveQuarryDetails(db, quarryId, details) {
+  return saveCompanyProfile(db, { id: quarryId, ...details });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // MATERIALS (quarry-scoped)
 // ═══════════════════════════════════════════════════════════════════════════════

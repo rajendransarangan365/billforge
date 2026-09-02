@@ -26,20 +26,24 @@ export default function ProfileScreen() {
       (async () => {
         try {
           const db = await getDatabase();
-          const existing = await getCompanyProfile(db, quarryId || 1);
-          if (existing) {
-            setProfile({
-              name: existing.name || existing.company_name || '',
-              address: existing.address || '',
-              location: existing.location || '',
-              phone: existing.phone || '',
-            });
-          }
+          const targetQid = quarryId || user?.quarry_id || 1;
+          const existing = await getCompanyProfile(db, targetQid);
+          const activeName = existing?.name || existing?.company_name || user?.company_name || user?.name || '';
+          const activeAddress = existing?.address || user?.address || '';
+          const activeLoc = existing?.location || user?.location || '';
+          const activePhone = existing?.phone || user?.phone || '';
+
+          setProfile({
+            name: activeName,
+            address: activeAddress,
+            location: activeLoc,
+            phone: activePhone,
+          });
         } catch (error) {
           console.error('Error loading profile:', error);
         }
       })();
-    }, [quarryId])
+    }, [quarryId, user])
   );
 
   const handleSave = async () => {

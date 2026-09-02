@@ -46,24 +46,31 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     loadProfile();
-  }, []);
+  }, [quarryId, user]);
 
   const loadProfile = async () => {
     try {
       const db = await getDatabase();
+      const targetQid = quarryId || user?.quarry_id || 1;
       if (userRole === 'quarry_owner') {
-        const q = await getQuarryDetails(db, quarryId || 1);
-        if (q) {
-          setName(q.name || q.owner_name || name);
-          setCompanyName(q.company_name || q.name || companyName);
-          setPhone(q.phone || phone);
-          setEmail(q.email || email);
-          setLocationName(q.location || locationName);
-          if (q.lat) setLat(q.lat);
-          if (q.lng) setLng(q.lng);
-        }
+        const q = await getCompanyProfile(db, targetQid);
+        const activeName = q?.owner_name || q?.name || user?.name || user?.owner_name || '';
+        const activeComp = q?.name || q?.company_name || user?.company_name || user?.name || '';
+        const activePhone = q?.phone || user?.phone || '';
+        const activeEmail = q?.email || user?.email || '';
+        const activeLoc = q?.location || q?.address || user?.location || user?.address || '';
+
+        if (activeName) setName(activeName);
+        if (activeComp) setCompanyName(activeComp);
+        if (activePhone) setPhone(activePhone);
+        if (activeEmail) setEmail(activeEmail);
+        if (activeLoc) setLocationName(activeLoc);
+        if (q?.lat) setLat(q.lat);
+        if (q?.lng) setLng(q.lng);
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error('Error loading profile:', e);
+    }
   };
 
   // Watch GPS Telemetry when Driver toggles Duty to Active
