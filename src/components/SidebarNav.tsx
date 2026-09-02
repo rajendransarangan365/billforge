@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
+  Modal, TouchableWithoutFeedback, useWindowDimensions,
 } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -43,6 +44,7 @@ const OWNER_NAV = [
   ]},
   { title: 'SETTINGS', items: [
     { route: '/profile', icon: 'person-circle-outline', activeIcon: 'person-circle', label: 'Profile & Settings' },
+    { route: '/whatsapp-settings', icon: 'logo-whatsapp', activeIcon: 'logo-whatsapp', label: 'WhatsApp Integration' },
     { route: '/(tabs)/profile', icon: 'business-outline', activeIcon: 'business', label: 'Company Profile' },
     { route: '/select-role', icon: 'swap-horizontal-outline', activeIcon: 'swap-horizontal', label: 'Switch Portal' },
     { isLogout: true, icon: 'log-out-outline', activeIcon: 'log-out', label: 'Logout' },
@@ -75,13 +77,10 @@ const CUSTOMER_NAV = [
   ]},
 ];
 
-
-import { useWindowDimensions } from 'react-native';
-
 export function SidebarNav() {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, role, quarryId, logout } = useAuth();
+  const { user, role, logout } = useAuth();
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
 
@@ -93,7 +92,7 @@ export function SidebarNav() {
     return null;
   }
 
-  // Hide on explicit auth/role-selection screens
+  // Hide on auth / role-selection screens
   const AUTH_ROUTES = [
     '/select-role',
     '/owner-login', '/owner-register',
@@ -111,6 +110,15 @@ export function SidebarNav() {
     return null;
   }
 
+  // On mobile, hide the top navbar on full-screen task flows (like bill creation & preview)
+  // so the screen isn't crowded with two headers!
+  const isDedicatedFlow = pathname.includes('/bill-form') ||
+    pathname.includes('/bill-preview') ||
+    pathname.includes('/template-detail');
+
+  if (isMobile && isDedicatedFlow) {
+    return null;
+  }
 
   const handleLogout = () => {
     logout();
@@ -122,14 +130,12 @@ export function SidebarNav() {
     }
   };
 
-  // Strictly enforce user role navigation (NEVER show admin nav to driver/customer/owner)
   const currentRole = user?.role || role;
 
   const navSections = currentRole === 'admin' ? ADMIN_NAV
     : currentRole === 'driver' ? DRIVER_NAV
     : currentRole === 'customer' ? CUSTOMER_NAV
     : OWNER_NAV;
-
 
   const isCurrentRoute = (r) => {
     if (r === '/(tabs)' && (pathname === '/(tabs)' || pathname === '/(tabs)/index' || pathname === '/quarry')) return true;
@@ -145,68 +151,130 @@ export function SidebarNav() {
   const subLabel = role === 'admin' ? 'Platform Admin'
     : role === 'driver' ? (user?.name || 'Driver')
     : role === 'customer' ? (user?.phone || 'Customer')
-    : (user?.name || user?.owner_name || 'Quarry Owner');
+    : (user?.name || user?.owner_name || user?.company_name || 'Quarry Owner');
 
-  // Mobile Top Navigation Bar with Hamburger Drawer Toggle
+  // ─── Mobile View: Compact Bar + Slide-Out Modal Drawer ───
   if (isMobile) {
     return (
-      <View style={mobileStyles.topMobileWrap}>
+      <>
+        {/* Compact Mobile Top Bar */}
         <View style={mobileStyles.topMobileBar}>
-          <TouchableOpacity style={mobileStyles.menuBtn} onPress={() => setMobileDrawerOpen(!mobileDrawerOpen)}>
-            <Ionicons name={mobileDrawerOpen ? 'close' : 'menu'} size={24} color={Colors.navy} />
+          <TouchableOpacity
+            style={mobileStyles.menuBtn}
+            onPress={() => setMobileDrawerOpen(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="menu-outline" size={22} color={Colors.text} />
           </TouchableOpacity>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={mobileStyles.mobileBrand} numberOfLines={1}>{brandName}</Text>
             <Text style={mobileStyles.mobileSub} numberOfLines={1}>{subLabel}</Text>
           </View>
-          <TouchableOpacity style={mobileStyles.roleSwitchBtn} onPress={() => router.push('/select-role')}>
+          <TouchableOpacity
+            style={mobileStyles.roleSwitchBtn}
+            onPress={() => router.push('/select-role')}
+            activeOpacity={0.7}
+          >
             <Ionicons name="swap-horizontal" size={18} color={Colors.primary} />
           </TouchableOpacity>
         </View>
 
-        {mobileDrawerOpen && (
-          <View style={mobileStyles.drawerOverlay}>
-            <ScrollView style={mobileStyles.drawerScroll} showsVerticalScrollIndicator={false}>
-              {navSections.map((section, sIdx) => (
-                <View key={section.title || sIdx} style={{ marginBottom: 14 }}>
-                  <Text style={mobileStyles.sectionHeader}>{section.title}</Text>
-                  {section.items.map((item, iIdx) => {
-                    if (item.isLogout) {
+        {/* Floating Slide-Over Drawer Modal */}
+        <Modal
+          visible={mobileDrawerOpen}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => setMobileDrawerOpen(false)}
+        >
+          <View style={mobileStyles.modalOverlay}>
+            {/* Backdrop Tap to Close */}
+            <TouchableWithoutFeedback onPress={() => setMobileDrawerOpen(false)}>
+              <View style={mobileStyles.backdropTouchable} />
+            </TouchableWithoutFeedback>
+
+            {/* Left Slide-Out Drawer Panel */}
+            <View style={mobileStyles.drawerPanel}>
+              {/* Drawer Header */}
+              <View style={mobileStyles.drawerHeader}>
+                <View style={[mobileStyles.logoWrap, role === 'admin' && { backgroundColor: Colors.warning }, role === 'driver' && { backgroundColor: Colors.info }, role === 'customer' && { backgroundColor: Colors.success }]}>
+                  <Ionicons name={role === 'admin' ? 'shield' : role === 'driver' ? 'car-sport' : role === 'customer' ? 'storefront' : 'layers'} size={20} color="#FFF" />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={mobileStyles.drawerBrand}>{brandName}</Text>
+                  <Text style={mobileStyles.drawerSub} numberOfLines={1}>{subLabel}</Text>
+                </View>
+                <TouchableOpacity
+                  style={mobileStyles.closeBtn}
+                  onPress={() => setMobileDrawerOpen(false)}
+                >
+                  <Ionicons name="close" size={22} color={Colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Navigation Items List */}
+              <ScrollView style={mobileStyles.drawerScroll} showsVerticalScrollIndicator={false}>
+                {navSections.map((section, sIdx) => (
+                  <View key={section.title || sIdx} style={{ marginBottom: 16 }}>
+                    <Text style={mobileStyles.sectionHeader}>{section.title}</Text>
+                    {section.items.map((item, iIdx) => {
+                      if (item.isLogout) {
+                        return (
+                          <TouchableOpacity
+                            key="logout-item-mob"
+                            style={mobileStyles.logoutItem}
+                            onPress={handleLogout}
+                          >
+                            <Ionicons name="log-out-outline" size={18} color={Colors.danger} />
+                            <Text style={mobileStyles.logoutText}>Logout / Exit</Text>
+                          </TouchableOpacity>
+                        );
+                      }
+                      const active = isCurrentRoute(item.route);
                       return (
                         <TouchableOpacity
-                          key="logout-item-mob"
-                          style={[mobileStyles.navItem, { backgroundColor: '#FFEBEE', marginTop: 4 }]}
-                          onPress={handleLogout}
+                          key={item.route || iIdx}
+                          style={[mobileStyles.navItem, active && mobileStyles.navItemActive]}
+                          onPress={() => {
+                            setMobileDrawerOpen(false);
+                            router.push(item.route);
+                          }}
                         >
-                          <Ionicons name="log-out" size={20} color="#D32F2F" />
-                          <Text style={[mobileStyles.navText, { color: '#D32F2F', fontWeight: '700' }]}>Logout / Exit</Text>
+                          <Ionicons
+                            name={active ? item.activeIcon : item.icon}
+                            size={19}
+                            color={active ? Colors.primary : Colors.textSecondary}
+                          />
+                          <Text style={[mobileStyles.navText, active && mobileStyles.navTextActive]}>
+                            {item.label}
+                          </Text>
+                          {active && <View style={mobileStyles.activeDot} />}
                         </TouchableOpacity>
                       );
-                    }
-                    const active = isCurrentRoute(item.route);
-                    return (
-                      <TouchableOpacity
-                        key={item.route || iIdx}
-                        style={[mobileStyles.navItem, active && mobileStyles.navItemActive]}
-                        onPress={() => {
-                          setMobileDrawerOpen(false);
-                          router.push(item.route);
-                        }}
-                      >
-                        <Ionicons name={active ? item.activeIcon : item.icon} size={20} color={active ? Colors.primary : Colors.textSecondary} />
-                        <Text style={[mobileStyles.navText, active && mobileStyles.navTextActive]}>{item.label}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                    })}
+                  </View>
+                ))}
+                <View style={{ height: 20 }} />
+              </ScrollView>
+
+              {/* Drawer Footer */}
+              <View style={mobileStyles.drawerFooter}>
+                <View style={mobileStyles.userStatusDot} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={mobileStyles.userStatusText} numberOfLines={1}>{user?.phone || user?.name || 'Active User'}</Text>
+                  <Text style={mobileStyles.userRoleText}>{role === 'admin' ? 'Admin' : role === 'quarry_owner' ? 'Quarry Owner' : role === 'driver' ? 'Driver' : 'Customer'}</Text>
                 </View>
-              ))}
-            </ScrollView>
+                <TouchableOpacity style={mobileStyles.footerLogoutBtn} onPress={handleLogout}>
+                  <Ionicons name="log-out-outline" size={18} color={Colors.danger} />
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
-        )}
-      </View>
+        </Modal>
+      </>
     );
   }
 
+  // ─── Desktop Left Sidebar ───
   return (
     <View style={[styles.sidebar, collapsed && styles.sidebarCollapsed]}>
       {/* Brand Header */}
@@ -235,19 +303,19 @@ export function SidebarNav() {
                 return (
                   <TouchableOpacity
                     key="logout-item-dt"
-                    style={[styles.navItem, { backgroundColor: '#FFEBEE', marginTop: 4 }]}
+                    style={[styles.navItem, { backgroundColor: 'rgba(244, 63, 94, 0.12)', marginTop: 4 }]}
                     onPress={handleLogout}
                     activeOpacity={0.78}
                   >
-                    <Ionicons name="log-out" size={20} color="#D32F2F" />
-                    {!collapsed && <Text style={[styles.navLabel, { color: '#D32F2F', fontWeight: '700' }]}>Logout</Text>}
+                    <Ionicons name="log-out" size={19} color={Colors.danger} />
+                    {!collapsed && <Text style={[styles.navLabel, { color: Colors.danger, fontWeight: '700' }]}>Logout</Text>}
                   </TouchableOpacity>
                 );
               }
               const active = isCurrentRoute(item.route);
               return (
                 <TouchableOpacity key={item.route || iIdx} style={[styles.navItem, active && styles.navItemActive]} onPress={() => router.push(item.route)} activeOpacity={0.78}>
-                  <Ionicons name={active ? item.activeIcon : item.icon} size={20} color={active ? '#818CF8' : '#94A3B8'} />
+                  <Ionicons name={active ? item.activeIcon : item.icon} size={19} color={active ? '#818CF8' : '#94A3B8'} />
                   {!collapsed && <Text style={[styles.navLabel, active && styles.navLabelActive]} numberOfLines={1}>{item.label}</Text>}
                   {active && !collapsed && <View style={styles.activeDot} />}
                 </TouchableOpacity>
@@ -261,17 +329,17 @@ export function SidebarNav() {
       {!collapsed ? (
         <View style={styles.sidebarFooter}>
           <View style={styles.userStatusDot} />
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.userStatusText} numberOfLines={1}>{user?.phone || user?.name || 'Active User'}</Text>
             <Text style={styles.userRoleText}>{role === 'admin' ? 'Admin' : role === 'quarry_owner' ? 'Quarry Owner' : role === 'driver' ? 'Driver' : 'Customer'}</Text>
           </View>
           <TouchableOpacity style={styles.footerLogoutBtn} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={18} color="#D32F2F" />
+            <Ionicons name="log-out-outline" size={18} color={Colors.danger} />
           </TouchableOpacity>
         </View>
       ) : (
         <TouchableOpacity style={[styles.sidebarFooter, { justifyContent: 'center' }]} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={20} color="#D32F2F" />
+          <Ionicons name="log-out-outline" size={20} color={Colors.danger} />
         </TouchableOpacity>
       )}
     </View>
@@ -303,17 +371,95 @@ const styles = StyleSheet.create({
 });
 
 const mobileStyles = StyleSheet.create({
-  topMobileWrap: { width: '100%', backgroundColor: '#0F172A', borderBottomWidth: 1, borderBottomColor: '#1E293B', zIndex: 999 },
-  topMobileBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 56, gap: 12 },
-  menuBtn: { width: 38, height: 38, borderRadius: 8, backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.1)' },
-  mobileBrand: { fontSize: 16, fontWeight: '800', color: '#F8FAFC' },
+  topMobileBar: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, height: 52, gap: 10,
+    backgroundColor: '#0F172A',
+    borderBottomWidth: 1, borderBottomColor: '#1E293B',
+  },
+  menuBtn: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  mobileBrand: { fontSize: 15, fontWeight: '800', color: '#F8FAFC' },
   mobileSub: { fontSize: 11, color: '#94A3B8' },
-  roleSwitchBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(99, 102, 241, 0.2)', alignItems: 'center', justifyContent: 'center' },
-  drawerOverlay: { backgroundColor: '#0F172A', borderTopWidth: 1, borderTopColor: '#1E293B', padding: 14, maxHeight: 380 },
-  drawerScroll: { flex: 1 },
-  sectionHeader: { fontSize: 10, fontWeight: '800', color: '#64748B', letterSpacing: 1, marginBottom: 8 },
-  navItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4, gap: 12 },
-  navItemActive: { backgroundColor: 'rgba(99, 102, 241, 0.15)', borderWidth: 1, borderColor: 'rgba(99, 102, 241, 0.3)' },
-  navText: { fontSize: 14, fontWeight: '600', color: '#94A3B8' },
+  roleSwitchBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  // Floating Drawer Overlay
+  modalOverlay: {
+    flex: 1, flexDirection: 'row',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+  },
+  backdropTouchable: {
+    position: 'absolute', top: 0, bottom: 0, left: 0, right: 0,
+  },
+  drawerPanel: {
+    width: 290, maxWidth: '82%', height: '100%',
+    backgroundColor: '#0F172A',
+    borderRightWidth: 1, borderRightColor: '#1E293B',
+    shadowColor: '#000', shadowOffset: { width: 4, height: 0 }, shadowOpacity: 0.5, shadowRadius: 16,
+    elevation: 24,
+    zIndex: 9999,
+  },
+  drawerHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 16, paddingVertical: 18,
+    borderBottomWidth: 1, borderBottomColor: '#1E293B',
+    backgroundColor: '#0B0F19',
+  },
+  logoWrap: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: '#6366F1', alignItems: 'center', justifyContent: 'center',
+  },
+  drawerBrand: { fontSize: 16, fontWeight: '800', color: '#F8FAFC' },
+  drawerSub: { fontSize: 11, color: '#94A3B8', marginTop: 1 },
+  closeBtn: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center',
+  },
+  drawerScroll: { flex: 1, paddingHorizontal: 12, paddingTop: 14 },
+  sectionHeader: {
+    fontSize: 10, fontWeight: '800', color: '#64748B',
+    letterSpacing: 1, marginBottom: 8, paddingHorizontal: 8,
+  },
+  navItem: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10,
+    marginBottom: 4, gap: 12,
+  },
+  navItemActive: {
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
+    borderWidth: 1, borderColor: 'rgba(99, 102, 241, 0.3)',
+  },
+  navText: { fontSize: 14, fontWeight: '600', color: '#94A3B8', flex: 1 },
   navTextActive: { color: '#818CF8', fontWeight: '700' },
+  activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#818CF8' },
+
+  logoutItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: 'rgba(244, 63, 94, 0.12)',
+    paddingVertical: 10, paddingHorizontal: 12,
+    borderRadius: 10, marginTop: 4,
+  },
+  logoutText: { fontSize: 13, fontWeight: '700', color: Colors.danger },
+
+  drawerFooter: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderTopWidth: 1, borderTopColor: '#1E293B',
+    backgroundColor: '#0B0F19',
+  },
+  userStatusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#34D399' },
+  userStatusText: { fontSize: 12, fontWeight: '700', color: '#F8FAFC' },
+  userRoleText: { fontSize: 10, color: '#94A3B8' },
+  footerLogoutBtn: {
+    width: 32, height: 32, borderRadius: 8,
+    backgroundColor: 'rgba(244, 63, 94, 0.15)',
+    alignItems: 'center', justifyContent: 'center',
+  },
 });
